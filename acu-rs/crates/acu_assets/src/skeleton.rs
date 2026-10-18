@@ -1,5 +1,6 @@
 //! ACU skeletons and evidenced humanoid inputs. ACU-RE-0010 / ACU-RE-0014.
 pub mod humanoid;
+pub mod pose;
 use crate::{Limits, Result, invalid, reader::Reader};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -66,6 +67,7 @@ pub struct Skeleton {
     pub root_local_position: [f32; 4],
     pub root_local_rotation: [f32; 4],
     pub body_part_mapping: FileReference,
+    pub pose_groups: Vec<pose::PoseGroup>,
     pub ik_data: Pointer,
     pub com_data: Pointer,
     pub look_at_definition: FileReference,
@@ -225,12 +227,8 @@ pub fn parse(bytes: &[u8], expected_id: &str, limits: Limits) -> Result<Skeleton
         root_local_position: vector(&mut r)?,
         root_local_rotation: vector(&mut r)?,
         body_part_mapping: reference(&mut r)?,
-        ik_data: {
-            if r.u32()? != 0 {
-                return invalid("unsupported skeleton pose groups");
-            }
-            pointer_object(&mut r, humanoid::IK_DATA, false, limits)?
-        },
+        pose_groups: pose::groups(&mut r, limits)?,
+        ik_data: pointer_object(&mut r, humanoid::IK_DATA, false, limits)?,
         com_data: pointer_object(&mut r, humanoid::COM_DATA, false, limits)?,
         look_at_definition: reference(&mut r)?,
         reflex_system: pointer_object(&mut r, humanoid::REFLEX_SYSTEM, true, limits)?,

@@ -10,6 +10,13 @@ that name to the existing FearlessAssassin assembly; no silent outfit substituti
 
 ## Done
 
+- Referenced rig discovery (finding0016): ten BuildTables decoded, eleven
+  skeleton links identified, specific head rig decoded (134 bones / 106 wrinkle
+  inputs / 147 packed poses). Bootstrap support reaches 20/28 rigs. Head hash
+  matches improve to 110/116; no composed skinning claim.
+- Neutral GitHub landing page and description; source identities remain in
+  research records. Feature branches carry work until validated milestone merges.
+
 - Collaboration repository published under Rdev at
   [rdev-rna/AU-RW](https://github.com/rdev-rna/AU-RW), using a separate
   source-only checkout and fresh history. No project license assigned;
