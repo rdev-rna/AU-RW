@@ -1,0 +1,30 @@
+# Reference pseudocode and locally owned game data
+/ACU - Decompiled/
+/decompiled/
+/game-install/
+.env
+.env.*
+!.env.example
+/local/
+/outputs/
+/assets/
+/target/
+/acu-rs/target/
+__pycache__/
+*.py[cod]
+*.forge
+*.exe
+*.dll
+*.i64
+*.idb
+*.id0
+*.id1
+*.id2
+*.nam
+*.til
+*.gpr
+*.rep/
+*.zip
+*.rar
+*.7z
+# Cargo.lock is intentionally NOT ignored.
