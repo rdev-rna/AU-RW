@@ -6,12 +6,15 @@ per worker. No delegation is required by this workflow.
 ## ACU-006 — Prepare collaboration and a source-only publication candidate
 
 Publication follow-up (2026-10-19): user authorized hosting under Rdev.
-Publish the reviewed source-only snapshot to
+Published the reviewed source-only snapshot to
 [rdev-rna/AU-RW](https://github.com/rdev-rna/AU-RW) from the independent
 `C:/Users/PC/source/AU-RW` checkout with fresh history and Rdev authorship.
 Acceptance: exported workflow/Python checks pass, committed paths match the
 source manifest, remote main matches the local commit and the repository link
 is accessible. No game/corpus/local data or parent history; no new license.
+Result: complete. Both checkouts pass workflow checking and ten Python tests;
+94 reviewed paths are committed under Rdev, GitHub author resolves to `rdev-rna`,
+public main matches the pushed commit and onboarding is accessible.
 Earlier preparation-only and publication-unset notes below are historical.
 
 Follow-up (2026-10-19): user selected **AU-RW** as the project/repository title.

@@ -10,7 +10,7 @@ that name to the existing FearlessAssassin assembly; no silent outfit substituti
 
 ## Done
 
-- Collaboration publication authorized under Rdev at
+- Collaboration repository published under Rdev at
   [rdev-rna/AU-RW](https://github.com/rdev-rna/AU-RW), using a separate
   source-only checkout and fresh history. No project license assigned;
   the earlier preparation-only notes below are historical.

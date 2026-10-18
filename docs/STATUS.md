@@ -6,14 +6,23 @@ parsing is active and incomplete. No playable rewrite yet.
 
 ## Current runtime decoder work
 
-Publication follow-up (2026-10-19): user authorized the collaboration repository
-under Rdev. Destination: [rdev-rna/AU-RW](https://github.com/rdev-rna/AU-RW).
+Publication follow-up (2026-10-19): published the public collaboration repository
+under Rdev: [rdev-rna/AU-RW](https://github.com/rdev-rna/AU-RW).
 A separate source-only checkout at `C:/Users/PC/source/AU-RW` uses fresh history
 and repository-local Rdev author identity. The research parent repository is
 unchanged. The export excludes game data, corpus, local configuration, captures,
 build outputs and prior history. No project license is assigned. Runtime code
 and the ACU-005 priorities below are unchanged; earlier publication-unset notes
 describe historical checkpoints.
+
+Publication validation: workflow check and all ten Python tests pass in both
+research and exported checkouts. All 94 exported files match the source manifest
+hashes; ZIP integrity, excluded-data boundaries and credential-pattern scan pass.
+The initial commit `d8185577d7e73a5f03214cfde29262aca03c0b72` contains exactly
+the 94 reviewed source paths, with Rdev authorship linked to `rdev-rna`.
+GitHub reports PUBLIC visibility and main matches the pushed commit; onboarding
+is accessible. Parent Git root, index and remotes remain untouched. No Rust or
+visual gates rerun for publication/documentation-only changes.
 
 The project title is now **AU-RW** (user-selected). New collaborators can use
 the [onboarding prompt](COLLABORATOR_PROMPT.md), linked from README,
