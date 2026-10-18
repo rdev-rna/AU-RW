@@ -54,3 +54,13 @@ keep original-derived reports under ignored `local/`. The independent
 `../tools/skin_audit.py` compares a report to the identified skeleton diagnostic.
 See finding ACU-RE-0015 for commands, matrix alternatives and unresolved bones.
 This audit does not activate skinning or select additive rigs.
+
+`acu-mat ARCHIVE ENTRY RESOURCE --hex --out=REPORT` and
+`python ../tools/build_table_probe.py REPORT --output=PARSED` diagnose selected
+reference/handle BuildTables (finding ACU-RE-0016). Nonempty PropertyPaths and
+unsupported property types fail explicitly. The head-rig install test
+`cargo test --locked -p acu_assets --test skeleton original_arno_head_rig -- --ignored`
+requires `ACU_GAME_DIR`; it verifies 134 bones and 106 typed wrinkle inputs.
+It also verifies 147 poses and 2,526 packed bone records. The standard test suite
+includes malformed-input vectors for both wrinkle and pose-group boundaries.
+These are serialized inputs and references, not native selection or skinning.

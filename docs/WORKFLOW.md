@@ -1,5 +1,12 @@
 # Working loop
 
+Use feature branches for ongoing development. Merge significant validated slices
+into `main`, including the finding, implementation, tests and updated status.
+On the original research machine, Git publication uses the independent checkout
+at `C:/Users/PC/source/AU-RW`; the research directory remains in its parent repo.
+Copy only explicit reviewed authored paths into that checkout. Preserve ignored
+reference data and build caches in the research directory.
+
 1. Read status, the task, relevant findings and any supplied handoff. Inspect
    current changes before editing. Run `python tools/acu.py doctor` when paths or
    tool availability may have changed. Reuse the inventory unless inputs changed.

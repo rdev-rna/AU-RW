@@ -1,5 +1,51 @@
 use acu_assets::{Limits, Result, forge::Forge, package, sha256, skeleton};
 
+#[test]
+#[ignore = "requires original ACU installation; ACU_GAME_DIR"]
+fn original_arno_head_rig() -> Result<()> {
+    let root = std::env::var("ACU_GAME_DIR")?;
+    let mut forge = Forge::open(
+        std::path::Path::new(&root).join("DataPC_ACU_LGS_BelleEpoque.forge"),
+        Limits::default(),
+    )?;
+    let raw = forge.raw(334)?;
+    assert_eq!(
+        sha256(&raw),
+        "42935733c7319be475e358525ef99582a31dbf9b375825c8802244b9d4229137"
+    );
+    let package = package::decode(&raw, Limits::default())?;
+    let resource = &package.resources[66];
+    assert_eq!(resource.file_id, "00000012ff1479d5");
+    let payload = &package.bytes[resource.payload.clone()];
+    assert_eq!(payload.len(), 97123);
+    assert_eq!(
+        sha256(payload),
+        "1c3f7c7919d641f7fcf0fdfcd5814a28b53f17a03446dbbaafc7548e1dcbe341"
+    );
+    let rig = skeleton::parse(payload, &resource.file_id, Limits::default())?;
+    // Independent Python/native-LZO sequential decode, ACU-RE-0016.
+    assert_eq!(rig.bones.len(), 134);
+    assert_eq!(rig.pose_groups.len(), 1);
+    assert_eq!(rig.pose_groups[0].poses.len(), 147);
+    let pose_bones: Vec<_> = rig.pose_groups[0]
+        .poses
+        .iter()
+        .flat_map(|p| &p.bones)
+        .collect();
+    assert_eq!(pose_bones.len(), 2526);
+    assert_eq!(pose_bones[0].bone_id, 114683999);
+    assert_eq!(pose_bones[0].packed_position, [1456, -8230, -4409]);
+    assert_eq!(pose_bones[0].packed_rotation, [-16401, -15403, 16756]);
+    let modifiers: Vec<_> = rig.bones.iter().flat_map(|b| &b.modifiers).collect();
+    assert_eq!(modifiers.len(), 106);
+    assert!(
+        modifiers
+            .iter()
+            .all(|m| matches!(m.data, skeleton::humanoid::ModifierData::Wrinkle { .. }))
+    );
+    Ok(())
+}
+
 fn fixture(parents: &[Option<u64>]) -> Vec<u8> {
     let mut b = vec![1];
     b.extend(10u64.to_le_bytes());
@@ -140,6 +186,7 @@ fn original_skeleton_subset() -> Result<()> {
         "Weapon_Collapsible",
         "ACU_BaseSkeleton_Male",
         "ACU_Base",
+        "Generic_Head_Male_SKELETON",
         "GFX_Bombs_Ballistic_Curve",
         "CHR_W_ChainBlade",
         "Addon_Human_Weapon_Ref",
@@ -247,6 +294,6 @@ fn original_skeleton_subset() -> Result<()> {
             }
         }
     }
-    assert_eq!((parsed, unsupported), (19, 9));
+    assert_eq!((parsed, unsupported), (20, 8));
     Ok(())
 }

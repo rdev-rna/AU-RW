@@ -31,3 +31,9 @@ Skin audit: [ACU-RE-0015](findings/ACU-RE-0015-skin-palettes-bind-transform.md)
 checks nineteen hardware palettes / 29,481 vertices and compares stored mesh
 matrices to skeleton globals. 105/397 active bone entries match the male rig;
 additive selection and runtime deformation remain unresolved.
+
+Rig references: [ACU-RE-0016](findings/ACU-RE-0016-build-table-rig-references.md)
+decodes ten selected BuildTables, identifies eleven skeleton links and the
+specific 134-bone Arno head rig, and adds wrinkle modifier input decoding.
+The pose-group storage now decodes as bounded raw i16 channels (no unpack/playback).
+110/116 active head bones match that rig; composition and deformation stay open.

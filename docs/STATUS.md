@@ -6,6 +6,31 @@ parsing is active and incomplete. No playable rewrite yet.
 
 ## Current runtime decoder work
 
+Rig-reference milestone (2026-10-19): [ACU-RE-0016](findings/ACU-RE-0016-build-table-rig-references.md)
+adds a bounded reference/handle BuildTable diagnostic: ten selected tables reach
+exact payload end, including four equipment tables with 43 rows each. The avatar
+skeleton table identifies eleven rig references. A head-table row links the
+current head package to CN_U_Arno_Head_Rig; the Rust decoder now reads its 134
+bones and 106 wrinkle modifier inputs. The rig's one pose group now preserves
+147 poses / 2,526 packed bone records; the bootstrap install test supports 20/28
+rigs, with eight deliberate rejections. Independent head-palette matching improves
+from 5/116 against male alone to 110/116 against the referenced head rig; six
+remain unresolved. Runtime rig composition, row selection, Tailored tag mapping,
+modifier evaluation and controlled deformation remain open. No renderer change.
+
+Final rig-reference gates pass: fmt, clippy with warnings denied, all 42 authored
+Rust tests (15 install tests ignored in the standard suite), and workspace build.
+Both explicit skeleton install tests pass: the referenced Arno head and the
+20/28 bootstrap subset with eight deliberate rejections. Workflow checking and
+all 14 Python tests pass in both checkouts. Logs are retained under
+`local/rig-references-20261019/`, including `clippy-final.log`,
+`workspace-tests-final.log`, `skeleton-install-final.log` and `build-final.log`.
+
+Development now uses feature branches in the independent published checkout,
+merging significant validated milestones into main. The GitHub landing page and
+description use neutral technical branding; research findings retain precise
+source identities. Existing history remains intact.
+
 Publication follow-up (2026-10-19): published the public collaboration repository
 under Rdev: [rdev-rna/AU-RW](https://github.com/rdev-rna/AU-RW).
 A separate source-only checkout at `C:/Users/PC/source/AU-RW` uses fresh history

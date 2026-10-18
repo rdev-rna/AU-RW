@@ -159,7 +159,15 @@ matrix storage/order hypotheses support a candidate inverse-bind relationship
 for the matched bones; blade/hair differences are retained. Acceptance for this
 slice: reproducible reports with byte identities, explicit unknowns, independent
 matrix controls and invalid-input tests. No skinning or visible-rig gate passed.
-Next movement slice: asset-referenced additive rig composition, inspected
+Reference follow-up (ACU-RE-0016): ten selected BuildTables decode in the Python
+diagnostic, including the eleven rig-reference row and the specific head/rig
+association. The Rust head rig reads 134 bones / 106 wrinkle inputs and one pose
+group (147 poses / 2,526 packed bone records). Bootstrap rig support is now 20/28.
+110/116
+active head bones match numerically. Row/default selection and root attachment
+transforms remain unknown; this is not completed additive composition.
+Next movement slice: follow VisualMaster table `00000012ca6b42bf`, resolve
+the eleven rig payloads and remaining head hashes, then additive rig composition, inspected
 bind-pose hierarchy and controlled deformation before animation playback.
 
 No asset extraction pipeline; no extracted folder or AnvilToolkit

@@ -28,6 +28,13 @@ pub enum ModifierData {
     },
     OrientationConstraint(Constraint),
     PositionConstraint(Constraint),
+    /// Serialized inputs only; ACU-RE-0016 does not establish solver behavior.
+    Wrinkle {
+        neighbor_bones: Vec<Pointer>,
+        center_bone: Pointer,
+        lengths: [f32; 3],
+        flip: bool,
+    },
     Reflex {
         connectors: Vec<ConnectorInfo>,
         ball_joints: Vec<BallJointInfo>,
@@ -177,6 +184,19 @@ pub(super) fn modifier(r: &mut Reader<'_>, limits: Limits) -> Result<Modifier> {
                 ModifierData::PositionConstraint(constraint)
             }
         }
+        0xd12b_891d => {
+            let n = count(r, limits, 1)?;
+            let mut neighbor_bones = Vec::with_capacity(n);
+            for _ in 0..n {
+                neighbor_bones.push(pointer(r)?);
+            }
+            ModifierData::Wrinkle {
+                neighbor_bones,
+                center_bone: pointer(r)?,
+                lengths: [float(r)?, float(r)?, float(r)?],
+                flip: boolean(r)?,
+            }
+        }
         0x057d_aa86 => {
             let n = count(r, limits, 48)?;
             let mut connectors = Vec::with_capacity(n);
@@ -322,6 +342,61 @@ fn ball_joint(r: &mut Reader<'_>, limits: Limits) -> Result<ReflexBallJoint> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wrinkle_values_and_malformed_boundaries() -> Result<()> {
+        // Independent vector: two neighbors (ID and null), center link,
+        // asymmetric signed lengths and flip. No original bytes embedded.
+        let mut b = vec![0];
+        b.extend(17u64.to_le_bytes());
+        b.extend(0xd12b891du32.to_le_bytes());
+        b.push(3); // null owner
+        b.extend(0.5f32.to_le_bytes());
+        b.push(0);
+        let count_offset = b.len();
+        b.extend(2u32.to_le_bytes());
+        b.push(1);
+        b.extend(42u64.to_le_bytes());
+        b.push(3);
+        b.push(2);
+        b.extend(43u64.to_le_bytes());
+        let length_offset = b.len();
+        for f in [-1.5f32, 2.25, 7.0] {
+            b.extend(f.to_le_bytes());
+        }
+        b.push(1);
+        let mut r = Reader::new(&b);
+        let m = modifier(&mut r, Limits::default())?;
+        assert_eq!(r.remaining(), 0);
+        let ModifierData::Wrinkle {
+            neighbor_bones,
+            center_bone,
+            lengths,
+            flip,
+        } = m.data
+        else {
+            panic!("wrinkle class")
+        };
+        assert_eq!(neighbor_bones.len(), 2);
+        assert_eq!(neighbor_bones[0].id(), Some("000000000000002a"));
+        assert!(matches!(neighbor_bones[1], Pointer::Null));
+        assert_eq!(center_bone.id(), Some("000000000000002b"));
+        assert_eq!(lengths, [-1.5, 2.25, 7.0]);
+        assert!(flip);
+        for n in 0..b.len() {
+            assert!(modifier(&mut Reader::new(&b[..n]), Limits::default()).is_err());
+        }
+        let mut bad = b.clone();
+        bad[count_offset..count_offset + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(modifier(&mut Reader::new(&bad), Limits::default()).is_err());
+        let mut bad = b.clone();
+        bad[length_offset..length_offset + 4].copy_from_slice(&f32::NAN.to_le_bytes());
+        assert!(modifier(&mut Reader::new(&bad), Limits::default()).is_err());
+        let mut bad = b;
+        *bad.last_mut().unwrap() = 2;
+        assert!(modifier(&mut Reader::new(&bad), Limits::default()).is_err());
+        Ok(())
+    }
 
     // Authored independently from the layout table in ACU-RE-0014. A constraint
     // contains one inline target and one unresolved external target.
