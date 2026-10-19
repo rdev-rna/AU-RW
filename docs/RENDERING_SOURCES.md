@@ -1,5 +1,10 @@
 # Primary rendering references
 
+The user-supplied local PDFs are indexed in
+[the reference library](REFERENCE_LIBRARY.md), including the Unity crowd talks
+and the 2025 Anvil architecture deck. The latter is later-engine context, not
+proof of Unity's installed shader pipeline or modern ray-tracing support.
+
 User-designated architecture ground truth (2026-10-19):
 [GPU-Driven Rendering Pipelines, Haar / Aaltonen, SIGGRAPH 2015](https://advances.realtimerendering.com/s2015/aaltonenhaar_siggraph2015_combined_final_footer_220dpi.pdf).
 Local reference: `local/rendering-references/aaltonenhaar-siggraph2015.pdf` (60

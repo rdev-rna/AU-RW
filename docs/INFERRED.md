@@ -12,6 +12,15 @@
 | Hardware palette → mesh bone → skeleton name hash | Bounded numerical support; sampled Arno only | Finding0015: 29,481 vertices have valid palette lookups and 255 weight sums; 105/397 active entries match male rig; additive selection unresolved |
 | Mesh bone matrix is inverse bind with mesh/skeleton transform | INFERRED; strong numerical support for matched base bones | Finding0015 compares four storage/order hypotheses; column-major S*B nearly constant per mesh, mostly Z quarter turn / -0.964 Z translation; blade/hair differ; native execution and controlled deformation still required |
 
-No player speed, gravity, jump, probe, collision or state-transition constants
-have been introduced as inferred substitutes. Add explicit confidence and source
-when an approximation becomes necessary; keep it distinguishable in the UI/docs.
+The rig-validation build introduces explicitly authored test movement: 60 Hz,
+walk/run speeds, acceleration/braking, jump/gravity and circle/AABB contact are
+choices documented in [the test specification](mechanics/test-world-movement.md).
+They are not recovered or inferred native constants. The window title and
+startup controls identify procedural motion. Native clips, root motion and
+traversal remain open.
+
+Rig registration matches exact name hashes, aligns shared root frames and uses
+stored mesh bind matrices; this is a diagnostic composition choice, not native
+row/default selection or solver parity. Original four/eight weight slots are
+preserved. Unresolved attachments retain their bind joint without a guessed
+parent and are listed in the scene report. See finding0017.

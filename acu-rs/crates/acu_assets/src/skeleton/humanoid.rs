@@ -1,5 +1,5 @@
 //! Serialized humanoid inputs, ACU-RE-0014. No runtime modifier evaluation.
-use super::{Pointer, float, header, pointer, pointer_object, vector};
+use super::{FileReference, Pointer, float, header, pointer, pointer_object, reference, vector};
 use crate::{Limits, Result, invalid, reader::Reader};
 use serde::Serialize;
 
@@ -28,6 +28,31 @@ pub enum ModifierData {
     },
     OrientationConstraint(Constraint),
     PositionConstraint(Constraint),
+    GenericConstraint {
+        targets: Vec<Pointer>,
+        keep_initial_offset: bool,
+    },
+    SpringBox {
+        scalars: [f32; 3],
+        gravity: [f32; 4],
+        box_min: [f32; 4],
+        box_max: [f32; 4],
+    },
+    HingeVector {
+        vectors: [[f32; 4]; 4],
+        ramps: [f32; 4],
+        targets: Vec<HingeTarget>,
+    },
+    BallJoint {
+        angle_type: i32,
+        scalars: [f32; 10],
+        gravity_mode: i32,
+        own_gravity: [f32; 4],
+        offsets: [f32; 3],
+        common_data: FileReference,
+        orientation: Pointer,
+        lite_ragdoll: FileReference,
+    },
     /// Serialized inputs only; ACU-RE-0016 does not establish solver behavior.
     Wrinkle {
         neighbor_bones: Vec<Pointer>,
@@ -39,6 +64,13 @@ pub enum ModifierData {
         connectors: Vec<ConnectorInfo>,
         ball_joints: Vec<BallJointInfo>,
     },
+}
+
+#[derive(Debug, Serialize)]
+pub struct HingeTarget {
+    pub file_id: String,
+    pub bone: Pointer,
+    pub radius: f32,
 }
 
 #[derive(Debug, Serialize)]
@@ -161,12 +193,29 @@ pub(super) fn modifier(r: &mut Reader<'_>, limits: Limits) -> Result<Modifier> {
     let blend_weight = float(r)?;
     let use_modified_bone_matrix = boolean(r)?;
     let data = match class {
+        0xf9d2_5748 => ModifierData::SpringBox {
+            scalars: [float(r)?, float(r)?, float(r)?],
+            gravity: vector(r)?,
+            box_min: vector(r)?,
+            box_max: vector(r)?,
+        },
         0x49f4_ca3e => ModifierData::MaxLookAt {
             up_node: pointer(r)?,
             look_at_bone: pointer(r)?,
             position_offset: vector(r)?,
             axes_and_control: [r.i32()?, r.i32()?, r.i32()?, r.i32()?],
         },
+        0x8424_0425 => {
+            let n = count(r, limits, 1)?;
+            let mut targets = Vec::with_capacity(n);
+            for _ in 0..n {
+                targets.push(pointer_object(r, CONSTRAINT_TARGET, false, limits)?);
+            }
+            ModifierData::GenericConstraint {
+                targets,
+                keep_initial_offset: boolean(r)?,
+            }
+        }
         0x7511_6750 | 0xd0c3_4a81 => {
             let n = count(r, limits, 1)?;
             let mut targets = Vec::with_capacity(n);
@@ -184,6 +233,45 @@ pub(super) fn modifier(r: &mut Reader<'_>, limits: Limits) -> Result<Modifier> {
                 ModifierData::PositionConstraint(constraint)
             }
         }
+        0xc0dd_28a9 => {
+            let vectors = [vector(r)?, vector(r)?, vector(r)?, vector(r)?];
+            let ramps = vector(r)?;
+            let n = count(r, limits, 17)?;
+            let mut targets = Vec::with_capacity(n);
+            for _ in 0..n {
+                targets.push(HingeTarget {
+                    file_id: header(r, 0x2465_59fc)?,
+                    bone: pointer(r)?,
+                    radius: float(r)?,
+                });
+            }
+            ModifierData::HingeVector {
+                vectors,
+                ramps,
+                targets,
+            }
+        }
+        0x4bf6_6801 => ModifierData::BallJoint {
+            angle_type: r.i32()?,
+            scalars: [
+                float(r)?,
+                float(r)?,
+                float(r)?,
+                float(r)?,
+                float(r)?,
+                float(r)?,
+                float(r)?,
+                float(r)?,
+                float(r)?,
+                float(r)?,
+            ],
+            gravity_mode: r.i32()?,
+            own_gravity: vector(r)?,
+            offsets: [float(r)?, float(r)?, float(r)?],
+            common_data: reference(r)?,
+            orientation: pointer(r)?,
+            lite_ragdoll: reference(r)?,
+        },
         0xd12b_891d => {
             let n = count(r, limits, 1)?;
             let mut neighbor_bones = Vec::with_capacity(n);
@@ -342,6 +430,104 @@ fn ball_joint(r: &mut Reader<'_>, limits: Limits) -> Result<ReflexBallJoint> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn hinge_and_ball_inputs_reject_bad_boundaries() -> Result<()> {
+        fn prefix(class: u32) -> Vec<u8> {
+            let mut b = vec![0];
+            b.extend(91u64.to_le_bytes());
+            b.extend(class.to_le_bytes());
+            b.push(3);
+            b.extend(1.0f32.to_le_bytes());
+            b.push(0);
+            b
+        }
+        let mut hinge = prefix(0xc0dd28a9);
+        for i in 0..20 {
+            hinge.extend((i as f32 - 3.0).to_le_bytes());
+        }
+        let count_offset = hinge.len();
+        hinge.extend(1u32.to_le_bytes());
+        hinge.extend(12u64.to_le_bytes());
+        hinge.extend(0x246559fcu32.to_le_bytes());
+        hinge.push(3);
+        hinge.extend(2.5f32.to_le_bytes());
+        let mut r = Reader::new(&hinge);
+        let m = modifier(&mut r, Limits::default())?;
+        assert_eq!(r.remaining(), 0);
+        let ModifierData::HingeVector {
+            vectors,
+            ramps,
+            targets,
+        } = m.data
+        else {
+            panic!("hinge")
+        };
+        assert_eq!(vectors[0], [-3.0, -2.0, -1.0, 0.0]);
+        assert_eq!(ramps, [13.0, 14.0, 15.0, 16.0]);
+        assert_eq!(targets[0].radius, 2.5);
+        let mut bad = hinge.clone();
+        bad[count_offset..count_offset + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+        assert!(modifier(&mut Reader::new(&bad), Limits::default()).is_err());
+        let mut ball = prefix(0x4bf66801);
+        ball.extend((-2i32).to_le_bytes());
+        for i in 0..10 {
+            ball.extend((i as f32 / 4.0).to_le_bytes());
+        }
+        ball.extend(3i32.to_le_bytes());
+        for v in [0.0f32, -9.0, 2.0, 0.0, 0.1, 0.2, 0.3] {
+            ball.extend(v.to_le_bytes());
+        }
+        ball.extend([1, 4]);
+        ball.extend(27u64.to_le_bytes());
+        ball.push(3);
+        ball.extend([3, 0]);
+        ball.extend(0u64.to_le_bytes());
+        let mut r = Reader::new(&ball);
+        let m = modifier(&mut r, Limits::default())?;
+        assert_eq!(r.remaining(), 0);
+        let ModifierData::BallJoint {
+            angle_type,
+            scalars,
+            own_gravity,
+            common_data,
+            ..
+        } = m.data
+        else {
+            panic!("ball")
+        };
+        assert_eq!(angle_type, -2);
+        assert_eq!(scalars[9], 2.25);
+        assert_eq!(own_gravity, [0.0, -9.0, 2.0, 0.0]);
+        assert_eq!(common_data.global, 4);
+        let mut spring = prefix(0xf9d25748);
+        for i in 0..15 {
+            spring.extend((i as f32 - 2.0).to_le_bytes());
+        }
+        let mut r = Reader::new(&spring);
+        let m = modifier(&mut r, Limits::default())?;
+        assert_eq!(r.remaining(), 0);
+        let ModifierData::SpringBox {
+            scalars, box_max, ..
+        } = m.data
+        else {
+            panic!("spring")
+        };
+        assert_eq!(scalars, [-2.0, -1.0, 0.0]);
+        assert_eq!(box_max, [9.0, 10.0, 11.0, 12.0]);
+        for b in [&hinge, &ball, &spring] {
+            for n in 0..b.len() {
+                assert!(modifier(&mut Reader::new(&b[..n]), Limits::default()).is_err());
+            }
+            let mut bad = b.clone();
+            bad[13] = 255;
+            assert!(modifier(&mut Reader::new(&bad), Limits::default()).is_err());
+        }
+        let mut bad = ball;
+        bad[23..27].copy_from_slice(&f32::NAN.to_le_bytes());
+        assert!(modifier(&mut Reader::new(&bad), Limits::default()).is_err());
+        Ok(())
+    }
 
     #[test]
     fn wrinkle_values_and_malformed_boundaries() -> Result<()> {

@@ -4,6 +4,24 @@ Read original Forge files directly; requested data is decoded in memory. The
 library never extracts assets and needs neither AnvilToolkit nor an extracted
 asset directory. Configure the install through the caller or `ACU_GAME_DIR`.
 
+From the project root, `./tools/run_arno.ps1` builds and launches the controllable
+Arno test world (DX12). It reads original meshes, skeleton inputs and textures
+in memory, with synthetic daylight/shadows and authored procedural skinning.
+The displayed FearlessAssassin set is not yet resolved as Arno's Tailored.
+
+Controller: left stick moves; hold RT/R2 for high profile, add PlayStation X
+(South / Xbox A) for up, or Circle (East / Xbox B) for down. Right stick controls
+camera yaw/pitch. Keyboard: WASD, Shift high profile, Shift+Space up, Shift+C
+down, Space jump, R reset, arrows camera, Q/E zoom, F2 bind pose, F3 freeze.
+The upward test route launches over an obstructing arena block; downward intent
+suppresses that launch and permits descending by running off a top. Native
+climb/vault/drop selection and original clips are not implemented.
+
+`./tools/run_arno.ps1 -Capture local/arno.png -Scenario profile-up -Ticks 100`
+captures a fixed input replay; `-Static` retains the earlier inspection mode.
+See [movement choices](../docs/mechanics/test-world-movement.md) and
+[rig evidence](../docs/findings/ACU-RE-0017-composed-rig-skinning.md).
+
 ```rust,no_run
 use acu_assets::{Limits, Result, forge::Forge};
 
@@ -25,8 +43,9 @@ borrowed data is used, and resolve patch/reference ambiguities before loading.
 No filename-based patch precedence is assumed. The TextureMap reader supports
 inline 2D/cube/volume variants and typed descriptors without inline pixels;
 external mip resolution and other asset readers remain incomplete. Skeleton
-coverage includes the male/base humanoid variant, four modifier schemas and
-bounded IK/COM/Reflex inputs (ACU-RE-0014). No solver or animation playback yet.
+coverage includes selected base/head/additive humanoid variants and bounded
+modifier, IK/COM/Reflex inputs (ACU-RE-0014/0016/0017). Original solvers and clip
+playback remain unavailable; the viewer has a separate authored test pose driver.
 
 Run from this directory (PowerShell):
 

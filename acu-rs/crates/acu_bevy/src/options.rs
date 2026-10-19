@@ -42,6 +42,9 @@ pub struct Piece {
 
 #[derive(Debug, Resource)]
 pub struct Options {
+    pub rigged: bool,
+    pub scenario: String,
+    pub ticks: u32,
     pub game_dir: PathBuf,
     pub pieces: Vec<Piece>,
     /// Screenshot path; when set the app captures and exits.
@@ -108,6 +111,9 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut size: (u32, u32) = (1280, 720);
     let mut texture_archives: Vec<String> = Vec::new();
     let mut no_textures = false;
+    let mut static_scene = false;
+    let mut scenario = "idle".to_string();
+    let mut ticks = 0u32;
     let mut report: Option<PathBuf> = None;
     let mut args = args.peekable();
     while let Some(arg) = args.next() {
@@ -131,6 +137,36 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
                 texture_archives.push(args.next().ok_or("--texture-archive needs a value")?)
             }
             "--no-textures" => no_textures = true,
+            "--static" => static_scene = true,
+            "--scenario" => {
+                scenario = args.next().ok_or("--scenario needs a value")?;
+                if ![
+                    "idle",
+                    "bind",
+                    "deform",
+                    "walk",
+                    "run",
+                    "turn",
+                    "jump",
+                    "contact",
+                    "profile-up",
+                    "profile-down",
+                ]
+                .contains(&scenario.as_str())
+                {
+                    return Err("unsupported scenario".into());
+                }
+            }
+            "--ticks" => {
+                ticks = args
+                    .next()
+                    .ok_or("--ticks needs a value")?
+                    .parse()
+                    .map_err(|_| "invalid ticks")?;
+                if ticks > 36000 {
+                    return Err("ticks exceeds replay limit".into());
+                }
+            }
             "--frames" => {
                 frames = args
                     .next()
@@ -180,6 +216,7 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
         })
         .unwrap_or_else(|| game_dir.join(DEFAULT_ARCHIVE));
     let mut pieces = Vec::new();
+    let rigged = piece_args.is_empty() && !static_scene;
     if piece_args.is_empty() {
         for (entry, resource, label) in ARNO_PIECES {
             pieces.push(Piece {
@@ -218,6 +255,9 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
             .collect()
     };
     Ok(Options {
+        rigged,
+        scenario,
+        ticks,
         game_dir,
         pieces,
         capture,
@@ -252,6 +292,9 @@ OPTIONS:
                        (repeatable; default: DataPC_SharedGroup_00.forge,
                        DataPC.forge)
     --no-textures      Render the grey fallback without touching materials
+    --static           Disable rig and test movement (old inspection mode)
+    --scenario NAME    idle/bind/deform/walk/run/turn/jump/contact/profile-up/profile-down
+    --ticks N          Fixed replay ticks before capture (max 36000)
 
 Without --piece the scene shows Arno (Fearless Assassin outfit, hood up, LOD0)
 standing at the origin on a synthetic grey ground plane. All geometry is read

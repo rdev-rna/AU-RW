@@ -54,12 +54,13 @@ class CollaborationTests(unittest.TestCase):
     def test_bundle_excludes_private_data_and_checks_hashes(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            for name in source_bundle.ROOT_FILES + ("docs/templates/CAPTURE.json",):
+            shader = "acu-rs/crates/acu_bevy/src/shaders/arena.wgsl"
+            for name in source_bundle.ROOT_FILES + ("docs/templates/CAPTURE.json", shader):
                 path = root / name
                 path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text("authored source")
             for name in ("ACU - Decompiled/140001000.c", "local/project.json",
-                         "assets/private.rs", "docs/private.forge", "tools/.env",
+                         "assets/private.rs", "docs/private.forge", "docs/references/private.pdf", "tools/.env",
                          "acu-rs/crates/target/private.rs", "other-decomp/private.c"):
                 path = root / name
                 path.parent.mkdir(parents=True, exist_ok=True)
@@ -67,6 +68,7 @@ class CollaborationTests(unittest.TestCase):
             output = root / "local/review.zip"
             manifest = source_bundle.bundle(root, output)
             with zipfile.ZipFile(output) as archive:
+                self.assertIn(shader, archive.namelist())
                 self.assertEqual(set(archive.namelist()),
                                  {row["path"] for row in manifest["files"]} | {"SOURCE_MANIFEST.json"})
                 for row in manifest["files"]:

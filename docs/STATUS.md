@@ -1,12 +1,38 @@
 # Project status
 
-Updated: 2026-10-19. Phase: runtime asset reader implemented; a Bevy
-inspection scene renders textured Arno in a grey arena; comprehensive typed asset
-parsing is active and incomplete. No playable rewrite yet.
+Updated: 2026-10-19. Phase: controllable rig-validation test build available;
+comprehensive asset decoding and native movement reconstruction remain incomplete.
+
+The current source adds original four/eight-weight CPU skinning, authored fixed
+tick movement, a follow/orbit camera, synthetic daylight/shadows and original
+diffuse plus inferred packed-normal PBR shading. Default geometry is still the
+identified FearlessAssassin set, not a resolved Arno's Tailored selection.
+38 diagnostic candidate rigs supply 721 distinct name hashes; one active shoulder
+hash remains parentless/frozen and is explicitly reported. Bind error is below
+7.18e-7 in the selected set. See [finding0017](findings/ACU-RE-0017-composed-rig-skinning.md).
+
+Controller priority: left stick movement; hold RT/R2 high profile; hold X/South
+with it for upward priority, Circle/East for downward priority; right stick yaw
+and pitch. These requested bindings drive the synthetic test approximation,
+not recovered native traversal. See [movement specification](mechanics/test-world-movement.md).
+Final fmt, clippy with warnings denied, workspace tests (51 authored passed,
+16 install tests explicitly ignored) and build pass. All three selected skeleton
+install tests pass, including 25/28 supported bootstrap rigs and the five clothing
+vectors. Nine fresh Vulkan captures validate bind/deform/walk/run/turn/jump and
+up/down intents; manifests retain source, executable, asset and output hashes in
+`local/captures/acu-arno-final-20261019/`. Movement, jump, reset and camera are
+also checked in a real DX12 window using the scoped review helper. Physical
+controller button operation is not yet manually verified; bindings and both
+camera axes pass automated input tests. A fallback gamepad mapping warning is
+present on this host. The procedural gait lacks corrected foot contact/IK.
+Build/run with `./tools/run_arno.ps1`.
+The four user-supplied rendering/crowd/Anvil PDFs are indexed with page scope and
+hashes in [the reference library](REFERENCE_LIBRARY.md); later Anvil systems are
+not treated as proof of Unity's implementation.
 
 ## Current runtime decoder work
 
-Rig-reference milestone (2026-10-19): [ACU-RE-0016](findings/ACU-RE-0016-build-table-rig-references.md)
+Earlier rig-reference milestone (2026-10-19): [ACU-RE-0016](findings/ACU-RE-0016-build-table-rig-references.md)
 adds a bounded reference/handle BuildTable diagnostic: ten selected tables reach
 exact payload end, including four equipment tables with 43 rows each. The avatar
 skeleton table identifies eleven rig references. A head-table row links the
