@@ -36,6 +36,7 @@ struct Resolved {
 
 #[derive(Debug, Serialize)]
 pub struct LoadedTexture {
+    pub srgb: bool,
     pub file_id: String,
     pub name: String,
     pub source: String,
@@ -54,6 +55,9 @@ pub struct LoadedTexture {
 
 #[derive(Debug, Serialize)]
 pub struct LoadedMaterial {
+    #[serde(skip)]
+    pub normal_texture: Option<usize>,
+    pub normal_map: Option<String>,
     pub alpha_test_enabled: bool,
     pub alpha_test_value: u8,
     pub file_id: String,
@@ -76,6 +80,7 @@ pub struct LoadedMaterial {
 
 #[derive(Debug)]
 pub struct LoadedPart {
+    pub palette: Vec<u16>,
     pub primitive: usize,
     pub vertex_base: usize,
     pub vertex_count: usize,
@@ -88,6 +93,7 @@ pub struct LoadedPart {
 
 #[derive(Debug)]
 pub struct LoadedPiece {
+    pub bones: Vec<mesh::MeshBone>,
     pub label: String,
     pub archive: PathBuf,
     pub entry: usize,
@@ -148,6 +154,8 @@ pub struct PartReport {
 
 #[derive(Debug, Default, Serialize)]
 pub struct Scene {
+    pub rig: Option<serde_json::Value>,
+    pub replay: Option<serde_json::Value>,
     pub pieces: Vec<PieceReport>,
     pub materials: Vec<LoadedMaterial>,
     pub textures: Vec<LoadedTexture>,
@@ -309,6 +317,7 @@ impl Loader {
         }
         let mut selector_map_types = Vec::new();
         let mut selector_diffuse = None;
+        let mut normal_map = None;
         let mut textures = Vec::new();
         for parameter in &parsed.parameters {
             let material::ParameterValue::Object(value) = &parameter.value else {
@@ -328,6 +337,12 @@ impl Loader {
                 && map != "0000000000000000"
             {
                 selector_diffuse = Some(map);
+            }
+            if selector.map_type == 1
+                && selector.specification_method == 0
+                && selector.texture_map.file_id != "0000000000000000"
+            {
+                normal_map = Some(selector.texture_map.file_id.clone());
             }
         }
         let set_id = parsed.texture_set.file_id.clone();
@@ -351,6 +366,9 @@ impl Loader {
                             textures.push(parsed_set.diffuse.file_id.clone());
                         }
                     }
+                    if normal_map.is_none() && parsed_set.normal.file_id != "0000000000000000" {
+                        normal_map = Some(parsed_set.normal.file_id.clone());
+                    }
                 }
                 None => notes.push(format!("texture set {set_id} not found")),
             }
@@ -364,7 +382,28 @@ impl Loader {
         }
         let diffuse = selector_diffuse.clone().or(set_diffuse.clone());
         let diffuse_texture = match &diffuse {
-            Some(diffuse) => self.texture(diffuse, package, entry)?,
+            Some(diffuse) => self.texture(diffuse, package, entry, true)?,
+            None => None,
+        };
+        let normal_texture = match &normal_map {
+            Some(id) => {
+                let index = self.texture(id, package, entry, false)?;
+                match index {
+                    Some(i) if [71, 98, 83].contains(&self.scene.textures[i].dxgi_format) => {
+                        Some(i)
+                    }
+                    Some(_) => {
+                        notes.push(format!(
+                            "normal {id}: unsupported normal storage; not applied"
+                        ));
+                        None
+                    }
+                    None => {
+                        notes.push(format!("normal {id} unavailable"));
+                        None
+                    }
+                }
+            }
             None => None,
         };
         if diffuse.is_some() && diffuse_texture.is_none() {
@@ -375,6 +414,8 @@ impl Loader {
         }
         let index = self.scene.materials.len();
         self.scene.materials.push(LoadedMaterial {
+            normal_map,
+            normal_texture,
             alpha_test_enabled: parsed.flags.alpha_test_enabled,
             alpha_test_value: parsed.alpha_test_value,
             file_id: file_id.to_string(),
@@ -399,6 +440,7 @@ impl Loader {
         file_id: &str,
         package: Option<&package::Package>,
         entry: usize,
+        srgb: bool,
     ) -> Result<Option<usize>> {
         if let Some(index) = self.textures.get(file_id) {
             return Ok(Some(*index));
@@ -411,6 +453,7 @@ impl Loader {
             texture::TextureResource::Resident(resident) => (
                 "resident",
                 LoadedTexture {
+                    srgb,
                     file_id: resident.file_id.clone(),
                     name: resolved.name.clone(),
                     source: resolved.source.clone(),
@@ -430,6 +473,7 @@ impl Loader {
                 (
                     "no_inline_pixels",
                     LoadedTexture {
+                        srgb,
                         file_id: header.file_id.clone(),
                         name: resolved.name.clone(),
                         source: resolved.source.clone(),
@@ -475,6 +519,12 @@ fn load_piece(loader: &mut Loader, forge: &mut Forge, piece: &Piece) -> Result<L
             None => None,
         };
         parts.push(LoadedPart {
+            palette: parsed
+                .compiled
+                .instancing
+                .get(part.primitive)
+                .map(|record| record.hardware_to_mesh_bones.clone())
+                .unwrap_or_default(),
             primitive: part.primitive,
             vertex_base: part.vertex_base,
             vertex_count: part.vertex_count,
@@ -488,6 +538,7 @@ fn load_piece(loader: &mut Loader, forge: &mut Forge, piece: &Piece) -> Result<L
         .map_err(|e| format!("piece {} decode: {e}", piece.label))?
         .vertices;
     Ok(LoadedPiece {
+        bones: parsed.bones,
         label: if resource.name.is_empty() {
             piece.label.clone()
         } else {

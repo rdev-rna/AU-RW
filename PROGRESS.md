@@ -10,6 +10,16 @@ that name to the existing FearlessAssassin assembly; no silent outfit substituti
 
 ## Done
 
+- Rig-validation source (finding0017): original complete skin weights and bind
+  matrices, 38 diagnostic candidate hierarchies, authored fixed tick movement,
+  synthetic lighting/shadows and inferred packed-normal PBR shading. Controller
+  bindings prioritize RT/R2 high profile, +X up, +Circle down and right-stick
+  yaw/pitch. ACU-007 passes 51 authored tests, three selected original-rig tests,
+  fmt/clippy/build, fresh replay captures and a live DX12 keyboard/camera review.
+  Physical controller use remains unverified; authored gait has foot sliding.
+  Native clips,
+  traversal, modifier solvers and one weighted shoulder attachment remain open.
+
 - Referenced rig discovery (finding0016): ten BuildTables decoded, eleven
   skeleton links identified, specific head rig decoded (134 bones / 106 wrinkle
   inputs / 147 packed poses). Bootstrap support reaches 20/28 rigs. Head hash

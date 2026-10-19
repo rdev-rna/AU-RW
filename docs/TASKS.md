@@ -3,6 +3,27 @@
 Statuses: ready, active, blocked (with reason), done. Keep one bounded task active
 per worker. No delegation is required by this workflow.
 
+## ACU-007 — Controllable rig validation build
+
+Status: done (2026-10-19), bounded rig-validation slice within ACU-005.
+Acceptance: original meshes, bind matrices and complete four/eight-slot weights
+drive visible deformation; controller left stick, RT high profile, RT+X up,
+RT+Circle down and right-stick yaw/pitch, plus keyboard/reset equivalents work in
+the synthetic arena; lighting, shadow and shader paths render in fresh captures
+and the DX12 window. Preserve source/binary/asset identities and fixed replay
+inputs, run the workspace gates, and record every unsupported attachment,
+native animation/material gap and unresolved Tailored/Day Paris selection.
+Authored test movement is specified in mechanics/test-world-movement.md;
+rig evidence is finding0017. No native behavior or shading parity is implied.
+
+Result: 51 authored tests, three explicit skeleton install tests, fmt, clippy
+with warnings denied and workspace build pass. Nine fresh offscreen captures
+and a DX12 window review cover visible deformation, movement, jump, reset and
+camera controls. Controller held-button combinations, release/disconnect/focus
+loss and both camera axes pass automated tests; physical button testing remains
+unavailable. Gait foot contact, original clips/traversal, the unresolved weighted
+shoulder, Tailored selection and Day Paris remain subsequent work.
+
 ## ACU-006 — Prepare collaboration and a source-only publication candidate
 
 Publication follow-up (2026-10-19): user authorized hosting under Rdev.

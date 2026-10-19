@@ -36,4 +36,9 @@ Rig references: [ACU-RE-0016](findings/ACU-RE-0016-build-table-rig-references.md
 decodes ten selected BuildTables, identifies eleven skeleton links and the
 specific 134-bone Arno head rig, and adds wrinkle modifier input decoding.
 The pose-group storage now decodes as bounded raw i16 channels (no unpack/playback).
+
+Controlled rig: [ACU-RE-0017](findings/ACU-RE-0017-composed-rig-skinning.md)
+adds typed HingeVector/BallJoint/SpringBox inputs and composed diagnostic skinning.
+All original weight slots are preserved; one active shoulder parent is unavailable.
+Authored movement and inferred normal shading do not establish native parity.
 110/116 active head bones match that rig; composition and deformation stay open.

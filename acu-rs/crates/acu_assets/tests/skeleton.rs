@@ -2,6 +2,63 @@ use acu_assets::{Limits, Result, forge::Forge, package, sha256, skeleton};
 
 #[test]
 #[ignore = "requires original ACU installation; ACU_GAME_DIR"]
+fn original_additive_clothing_inputs() -> Result<()> {
+    let root = std::env::var("ACU_GAME_DIR")?;
+    let mut forge = Forge::open(
+        std::path::Path::new(&root).join("DataPC_ACU_LGS_BelleEpoque.forge"),
+        Limits::default(),
+    )?;
+    let raw = forge.raw(334)?;
+    assert_eq!(
+        sha256(&raw),
+        "42935733c7319be475e358525ef99582a31dbf9b375825c8802244b9d4229137"
+    );
+    let p = package::decode(&raw, Limits::default())?;
+    // Independent sequential native-LZO/Python cursor, finding0017.
+    for (index, id, hash, count) in [
+        (
+            121,
+            "00000017e3c5102f",
+            "607f535ec4776b9749ce793dd24baf021ff7bc9c442cfa93aa25a8d5d80324ba",
+            38,
+        ),
+        (
+            159,
+            "0000001c71fb45a2",
+            "90dd48b08217758b1776df9bb30a94ee05cf11eded1c59d2a579fe695b06a390",
+            39,
+        ),
+        (
+            160,
+            "00000016b372fd17",
+            "5bc26b6b6d5ee4f211455cbadcc49f04fd69ded1652bd97c59b1916e14e76b0a",
+            17,
+        ),
+        (
+            166,
+            "000000156c78a2db",
+            "37d63a18d48cf18bda4d9e2e6359c9d10c31c8bf2660a0a842f6da656de38662",
+            32,
+        ),
+        (
+            169,
+            "000000179007d182",
+            "043164ad3ddb0d9324fe2ce71f19b26ca1ab96edc924b17965a1c6cd8d53df6f",
+            30,
+        ),
+    ] {
+        let r = &p.resources[index];
+        assert_eq!(r.file_id, id);
+        let payload = &p.bytes[r.payload.clone()];
+        assert_eq!(sha256(payload), hash);
+        let s = skeleton::parse(payload, id, Limits::default())?;
+        assert_eq!(s.bones.len(), count);
+    }
+    Ok(())
+}
+
+#[test]
+#[ignore = "requires original ACU installation; ACU_GAME_DIR"]
 fn original_arno_head_rig() -> Result<()> {
     let root = std::env::var("ACU_GAME_DIR")?;
     let mut forge = Forge::open(
@@ -186,6 +243,11 @@ fn original_skeleton_subset() -> Result<()> {
         "Weapon_Collapsible",
         "ACU_BaseSkeleton_Male",
         "ACU_Base",
+        "ACU_Collar",
+        "ACU_Cuff",
+        "Addon_Connor_SmallWeapon",
+        "Addon_Connor_DualPistol",
+        "ACU_Unisex_Shoulders_DoubleSpine",
         "Generic_Head_Male_SKELETON",
         "GFX_Bombs_Ballistic_Curve",
         "CHR_W_ChainBlade",
@@ -294,6 +356,6 @@ fn original_skeleton_subset() -> Result<()> {
             }
         }
     }
-    assert_eq!((parsed, unsupported), (20, 8));
+    assert_eq!((parsed, unsupported), (25, 3));
     Ok(())
 }

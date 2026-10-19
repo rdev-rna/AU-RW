@@ -22,7 +22,7 @@ def source_files(root):
     """Allow only authored document/tool/Rust locations, independent of Git ignores."""
     selected = [root / name for name in ROOT_FILES]
     for folder, extensions in (("docs", {".md"}), ("tools", {".py", ".ps1"}),
-                               ("acu-rs/crates", {".rs", ".toml"})):
+                               ("acu-rs/crates", {".rs", ".toml", ".wgsl"})):
         base = root / folder
         if base.is_symlink() or base.is_junction():
             raise ValueError(f"linked source directory: {base}")

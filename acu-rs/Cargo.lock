@@ -103,9 +103,17 @@ name = "acu_bevy"
 version = "0.1.0"
 dependencies = [
  "acu_assets",
+ "acu_sim",
  "bevy",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "acu_sim"
+version = "0.1.0"
+dependencies = [
+ "glam",
 ]
 
 [[package]]

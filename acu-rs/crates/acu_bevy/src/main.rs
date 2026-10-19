@@ -12,8 +12,13 @@
 //! written to disk, which keeps captures reproducible on machines whose window
 //! surfaces misbehave.
 
+mod arena;
+mod character_material;
+mod controls;
 mod load;
 mod options;
+mod player;
+mod rig;
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -58,6 +63,7 @@ struct InspectionCamera {
 
 fn inspect_camera(
     keys: Res<ButtonInput<KeyCode>>,
+    controller: Res<controls::Controller>,
     time: Res<Time>,
     mut cameras: Query<(&mut Transform, &mut InspectionCamera)>,
     mut exit: MessageWriter<AppExit>,
@@ -70,9 +76,11 @@ fn inspect_camera(
         f32::from(u8::from(keys.pressed(positive))) - f32::from(u8::from(keys.pressed(negative)))
     };
     for (mut transform, mut orbit) in &mut cameras {
-        orbit.azimuth += axis(KeyCode::ArrowRight, KeyCode::ArrowLeft) * dt;
-        orbit.elevation =
-            (orbit.elevation + axis(KeyCode::ArrowUp, KeyCode::ArrowDown) * dt).clamp(-0.1, 1.4);
+        orbit.azimuth +=
+            (axis(KeyCode::ArrowRight, KeyCode::ArrowLeft) - controller.look.x * 2.4) * dt;
+        orbit.elevation = (orbit.elevation
+            + (axis(KeyCode::ArrowUp, KeyCode::ArrowDown) - controller.look.y * 1.8) * dt)
+            .clamp(-0.1, 1.4);
         orbit.distance =
             (orbit.distance * (axis(KeyCode::KeyE, KeyCode::KeyQ) * dt).exp()).clamp(0.4, 20.0);
         let direction = Vec3::new(
@@ -104,7 +112,7 @@ fn main() {
                 None
             } else {
                 Some(Window {
-                    title: "ACU synthetic test world (data read from the original install)".into(),
+                    title: "AU-RW | Arno | RT high profile + X up / Circle down | Right stick camera | Procedural motion".into(),
                     resolution: (size.0, size.1).into(),
                     ..default()
                 })
@@ -135,12 +143,27 @@ fn main() {
         app.add_plugins(ScheduleRunnerPlugin::run_loop(Duration::ZERO));
     }
     app.add_plugins(plugins)
+        .add_plugins(MaterialPlugin::<arena::ArenaMaterial>::default())
+        .add_plugins(MaterialPlugin::<character_material::CharacterMaterial>::default())
+        .insert_resource(Time::<Fixed>::from_hz(60.0))
+        .init_resource::<controls::Controller>()
+        .add_systems(PreUpdate, controls::sample.after(bevy::input::InputSystems))
         .insert_resource(options)
         .add_systems(Startup, setup_world);
+    app.add_systems(
+        FixedUpdate,
+        player::step.run_if(resource_exists::<player::State>),
+    )
+    .add_systems(
+        Update,
+        (player::present, player::follow)
+            .chain()
+            .run_if(resource_exists::<player::State>),
+    );
+    app.add_systems(Update, inspect_camera.after(player::follow));
     if !headless {
-        app.add_systems(Update, inspect_camera);
         println!(
-            "Arrow keys: orbit; Q/E: zoom in/out; Esc: exit. Synthetic static inspection scene."
+            "Controller: left stick move; hold RT/R2 high profile; RT+X (South/A) upward priority; RT+Circle (East/B) downward priority; right stick camera yaw/pitch. Keyboard: WASD move; Shift high profile; Shift+Space up; Shift+C down; Space jump; R reset. Arrows camera; Q/E zoom; F2 bind; F3 freeze; Esc exit. Procedural test movement; native clips/traversal not yet decoded."
         );
     }
     if let Some(path) = capture_path {
@@ -154,9 +177,12 @@ fn main() {
         })
         .add_systems(Update, (request_capture, capture_timeout));
     }
+    bevy::asset::embedded_asset!(app, "shaders/arena.wgsl");
+    bevy::asset::embedded_asset!(app, "shaders/character.wgsl");
     app.run();
 }
 
+#[allow(clippy::too_many_arguments)] // Bevy independently borrows each asset store.
 fn setup_world(
     mut commands: Commands,
     options: Res<Options>,
@@ -164,16 +190,18 @@ fn setup_world(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<StandardMaterial>>,
     mut images: ResMut<Assets<Image>>,
+    mut arena_materials: ResMut<Assets<arena::ArenaMaterial>>,
+    mut character_materials: ResMut<Assets<character_material::CharacterMaterial>>,
 ) {
     println!("install dir: {}", options.game_dir.display());
-    let loaded = load::load_all(&options).unwrap_or_else(|e| {
+    let mut loaded = load::load_all(&options).unwrap_or_else(|e| {
         eprintln!("asset load failed: {e}");
         std::process::exit(3);
     });
-    if let Some(path) = &options.report {
-        let report = serde_json::to_vec_pretty(&loaded.scene).expect("serialize scene report");
-        std::fs::write(path, report).expect("write scene report");
-    }
+    let mut library = options
+        .rigged
+        .then(|| rig::load(&options.game_dir).expect("load original rig candidates"));
+    let mut state = options.rigged.then(|| player::State::new(&options));
     let texture_handles: Vec<_> = loaded
         .scene
         .textures
@@ -184,18 +212,22 @@ fn setup_world(
             }
             // Diffuse maps are displayed as sRGB. This is a presentation conversion,
             // not an implementation of the original material template shader.
-            let format = match texture.dxgi_format {
+            let mut format = match texture.dxgi_format {
                 71 | 72 => TextureFormat::Bc1RgbaUnormSrgb,
                 74 | 75 => TextureFormat::Bc2RgbaUnormSrgb,
                 77 | 78 => TextureFormat::Bc3RgbaUnormSrgb,
                 98 | 99 => TextureFormat::Bc7RgbaUnormSrgb,
                 28 | 29 => TextureFormat::Rgba8UnormSrgb,
                 87 | 91 => TextureFormat::Bgra8UnormSrgb,
+                83 => TextureFormat::Bc5RgUnorm,
                 other => panic!(
                     "unsupported diffuse DXGI format {other} for {}",
                     texture.file_id
                 ),
             };
+            if !texture.srgb {
+                format = format.remove_srgb_suffix();
+            }
             let mut image = Image::new_uninit(
                 Extent3d {
                     width: texture.width,
@@ -234,17 +266,28 @@ fn setup_world(
                     .or(material.set_diffuse.as_ref()),
                 material.notes
             );
-            materials.add(StandardMaterial {
-                base_color: Color::WHITE,
-                base_color_texture: texture,
-                alpha_mode: if material.alpha_test_enabled {
-                    AlphaMode::Mask(f32::from(material.alpha_test_value) / 255.0)
-                } else {
-                    AlphaMode::Opaque
+            let normal_texture = material
+                .normal_texture
+                .and_then(|i| texture_handles[i].clone());
+            let has_normal = normal_texture.is_some();
+            character_materials.add(character_material::CharacterMaterial {
+                base: StandardMaterial {
+                    base_color: Color::WHITE,
+                    base_color_texture: texture,
+                    double_sided: true,
+                    alpha_mode: if material.alpha_test_enabled {
+                        AlphaMode::Mask(f32::from(material.alpha_test_value) / 255.0)
+                    } else {
+                        AlphaMode::Opaque
+                    },
+                    perceptual_roughness: 0.85,
+                    cull_mode: None,
+                    ..default()
                 },
-                perceptual_roughness: 0.85,
-                cull_mode: None,
-                ..default()
+                extension: character_material::CharacterSurface {
+                    packed_normal: normal_texture,
+                    params: Vec4::new(if has_normal { 1.0 } else { 0.0 }, 1.0, 0.0, 0.0),
+                },
             })
         })
         .collect();
@@ -306,10 +349,28 @@ fn setup_world(
         cull_mode: None,
         ..default()
     });
-    let ground_material = materials.add(StandardMaterial {
-        base_color: Color::srgb(0.38, 0.38, 0.40),
-        perceptual_roughness: 0.95,
-        ..default()
+    let character_grey = character_materials.add(character_material::CharacterMaterial {
+        base: StandardMaterial {
+            base_color: Color::srgb(0.72, 0.72, 0.72),
+            cull_mode: None,
+            double_sided: true,
+            perceptual_roughness: 0.85,
+            ..default()
+        },
+        extension: character_material::CharacterSurface {
+            packed_normal: None,
+            params: Vec4::new(0.0, 1.0, 0.0, 0.0),
+        },
+    });
+    let ground_material = arena_materials.add(arena::ArenaMaterial {
+        base: StandardMaterial {
+            base_color: Color::srgb(0.38, 0.38, 0.40),
+            perceptual_roughness: 0.95,
+            ..default()
+        },
+        extension: arena::ArenaShader {
+            grid: Vec4::new(1.0, 0.65, 0.0, 0.0),
+        },
     });
 
     // Synthetic arena: 24x24 grey ground plus block references at known sizes.
@@ -317,12 +378,7 @@ fn setup_world(
         Mesh3d(meshes.add(Plane3d::default().mesh().size(24.0, 24.0))),
         MeshMaterial3d(ground_material),
     ));
-    for (x, z, size) in [
-        (-4.2f32, -3.0f32, 0.8f32),
-        (4.4, 2.6, 1.2),
-        (0.0, -6.0, 0.4),
-        (6.0, -4.2, 0.6),
-    ] {
+    for (x, z, size) in acu_sim::BLOCKS {
         commands.spawn((
             Mesh3d(meshes.add(Cuboid::new(size, size, size))),
             MeshMaterial3d(grey.clone()),
@@ -333,18 +389,33 @@ fn setup_world(
     // Arno pieces as children of one native-space root.
     commands
         .spawn((
+            player::Character,
             Transform::from_rotation(native_z_up_to_bevy_y_up()),
             Visibility::default(),
         ))
         .with_children(|parent| {
             for piece in &pieces {
+                let mut skin = library
+                    .as_mut()
+                    .map(|l| l.skin(piece).expect("validate skin influences and bind"));
                 let mut positions = Vec::with_capacity(piece.vertices.len());
                 let mut normals = Vec::with_capacity(piece.vertices.len());
                 let mut uvs = Vec::with_capacity(piece.vertices.len());
+                let mut tangents = Vec::with_capacity(piece.vertices.len());
                 for v in &piece.vertices {
                     positions.push(v.position);
                     normals.push(v.normal);
                     uvs.push(v.uv0.unwrap_or([0.0, 0.0]));
+                    let n = Vec3::from_array(v.normal).normalize_or_zero();
+                    let t =
+                        Vec3::from_array(v.tangent.unwrap_or([1.0, 0.0, 0.0])).normalize_or_zero();
+                    let b = Vec3::from_array(v.binormal.unwrap_or([0.0, 1.0, 0.0]));
+                    tangents.push([
+                        t.x,
+                        t.y,
+                        t.z,
+                        if n.cross(t).dot(b) < 0.0 { -1.0 } else { 1.0 },
+                    ]);
                 }
                 for part in &piece.parts {
                     let mesh = Mesh::new(
@@ -355,27 +426,55 @@ fn setup_world(
                     .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions.clone())
                     .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals.clone())
                     .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs.clone())
+                    .with_inserted_attribute(Mesh::ATTRIBUTE_TANGENT, tangents.clone())
                     .with_inserted_indices(bevy::mesh::Indices::U32(
                         part.triangles.iter().flatten().copied().collect(),
                     ));
                     let material = part
                         .material
                         .map(|i| bound_materials[i].clone())
-                        .unwrap_or_else(|| grey.clone());
-                    parent.spawn((Mesh3d(meshes.add(mesh)), MeshMaterial3d(material)));
+                        .unwrap_or_else(|| character_grey.clone());
+                    let handle = meshes.add(mesh);
+                    if let Some(skin) = skin.as_mut() {
+                        skin.handles.push(handle.clone());
+                    }
+                    parent.spawn((
+                        Mesh3d(handle),
+                        MeshMaterial3d(material),
+                        bevy::camera::visibility::NoFrustumCulling,
+                    ));
+                }
+                if let (Some(state), Some(skin)) = (state.as_mut(), skin) {
+                    state.skins.push(skin);
                 }
             }
         });
+    if let Some(library) = library {
+        loaded.scene.rig = Some(library.report);
+    }
+    if let Some(state) = state {
+        loaded.scene.replay = Some(
+            serde_json::json!({"scenario":options.scenario,"ticks":state.player.tick,
+            "position":state.player.position.to_array(),"velocity":state.player.velocity.to_array(),"distance":state.player.distance,
+            "lighting":"Synthetic daylight/PBR, not native Day Paris","motion":"Authored procedural test pose; not original clips"}),
+        );
+        commands.insert_resource(state);
+    }
+    if let Some(path) = &options.report {
+        let report = serde_json::to_vec_pretty(&loaded.scene).expect("serialize scene report");
+        std::fs::write(path, report).expect("write scene report");
+    }
 
     // Lighting: overcast sun plus a soft ambient fill so grey reads clearly.
     commands.insert_resource(GlobalAmbientLight {
-        color: Color::WHITE,
-        brightness: 300.0,
+        color: Color::srgb(0.70, 0.81, 1.0),
+        brightness: 550.0,
         ..default()
     });
     commands.spawn((
         DirectionalLight {
-            illuminance: light_consts::lux::OVERCAST_DAY,
+            color: Color::srgb(1.0, 0.91, 0.78),
+            illuminance: 18_000.0,
             shadow_maps_enabled: true,
             ..default()
         },
@@ -399,7 +498,7 @@ fn setup_world(
     let mut camera = commands.spawn((
         Camera3d::default(),
         Camera {
-            clear_color: ClearColorConfig::Custom(Color::srgb(0.11, 0.12, 0.14)),
+            clear_color: ClearColorConfig::Custom(Color::srgb(0.46, 0.61, 0.78)),
             ..default()
         },
         Projection::Perspective(PerspectiveProjection {
@@ -466,5 +565,41 @@ fn capture_timeout(mut capture: ResMut<Capture>, mut exit: MessageWriter<AppExit
     if capture.waited > CAPTURE_DEADLINE_FRAMES {
         eprintln!("capture: timed out waiting for the screenshot");
         exit.write(AppExit::error());
+    }
+}
+
+#[cfg(test)]
+mod controller_camera_tests {
+    use super::*;
+    #[test]
+    fn right_stick_changes_both_camera_axes_without_move_input() {
+        let mut app = App::new();
+        let mut time = Time::<()>::default();
+        time.advance_by(Duration::from_millis(100));
+        app.insert_resource(time)
+            .init_resource::<ButtonInput<KeyCode>>()
+            .init_resource::<controls::Controller>()
+            .add_message::<AppExit>()
+            .add_systems(Update, inspect_camera);
+        app.world_mut().resource_mut::<controls::Controller>().look = Vec2::ONE;
+        let entity = app
+            .world_mut()
+            .spawn((
+                Transform::default(),
+                InspectionCamera {
+                    center: Vec3::ZERO,
+                    azimuth: 0.0,
+                    elevation: 0.5,
+                    distance: 5.0,
+                },
+            ))
+            .id();
+        app.update();
+        let orbit = app.world().get::<InspectionCamera>(entity).unwrap();
+        assert!((orbit.azimuth + 0.24).abs() < 1e-5);
+        assert!((orbit.elevation - 0.32).abs() < 1e-5);
+        let transform = app.world().get::<Transform>(entity).unwrap();
+        assert!(transform.translation.x < 0.0);
+        assert!((transform.translation.length() - 5.0).abs() < 1e-4);
     }
 }
