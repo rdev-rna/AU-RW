@@ -1,3 +1,43 @@
+Latest follow-up, 2026-10-19: the old idle was static; a verified animated
+original idle now plays. Upper-leg vertices primarily use previously unevaluated
+helper bones. Eight bind-relative constraints now deform those vertices. This
+authored adapter awaits native solver comparison; see
+[finding0020](docs/findings/ACU-RE-0020-idle-leg-helper-audit.md).
+
+Seven fresh idle/walk/sprint captures were visually inspected in
+`local/captures/acu-leg-idle-20261019/manifest.json`. Idle poses change and thighs
+deform. Clothing remains stiff; foot IK and native solver parity are open.
+Current gates pass: fmt, Clippy with warnings denied, 107 workspace tests
+(19 explicitly ignored), workspace build, 22 Python tests, check and doctor.
+Both explicit install regressions pass, including actual render-mesh thigh
+deformation and a disabled-helper negative control. Executable SHA-256:
+`40ded8de3629e875c504f50fb896922d4f1e1de478a60afca4d5ebc324ac362c`.
+
+Animation audit records 9,682 attempts, 3,317 decoded animations, 6,365 explicit
+failures and 261,388 track rows. Actor ownership remains unverified; this does
+not establish all Arno locomotion. See [database](docs/ANIMATION_DATABASE.md).
+The [native probe and injector](tools/native_probe/README.md) are built and
+fixture-tested, with memory/image capture, verified execution probes, registers,
+watches and module-qualified profiles. No semantic game offsets are enabled.
+Original launch exits code 42 even without injection. An injected startup image
+capture completed but exposes zero conventional unwind/RTTI candidates.
+Gameplay bone/traversal/raycast comparison requires a functioning game session.
+The [supplied reference review](docs/REFERENCE_LINKS_20261019.md) records game scope
+and BuildTable/skeleton leads. Earlier validation below is historical.
+
+Directional matcher follow-up, 2026-10-19: original lateral walk/sprint takes
+now participate in in-profile trajectory search; actor facing no longer erases
+the lateral request. FH pose/prediction objectives are reused with explicit
+Unity features and authored steering. See docs/findings/ACU-RE-0019-directional-navigation.md.
+Current gates: fmt, clippy -D warnings, 106 workspace tests (18 ignored), build,
+20 Python tests, check and doctor pass. Explicit original-install directional
+regression passes, including after the I/O follow-up. Eight directional captures
+were inspected; both fresh latest I/O-build captures, traces and asset identities
+match their pre-I/O counterparts byte-for-byte. Direct
+package decoding now runs in Bevy IoTaskPool with async checkpoints every 32
+blocks, preserving synchronous CLI validation. Startup still waits. FH cloth reference is
+reviewed; Unity cloth bindings/solver compatibility remain open.
+
 # Movement reconstruction progress
 
 Updated 2026-10-19. Target: Assassin's Creed Unity, Rust 1.99.0 MSVC /
@@ -9,6 +49,21 @@ and greaves. Resolve the game's modular equipment references before assigning
 that name to the existing FearlessAssassin assembly; no silent outfit substitution.
 
 ## Done
+
+- Original navigation track playback and a Unity matcher adapter now replace the
+  procedural gait in the viewer. Low profile selects walking; held high profile
+  selects sprinting, with original clip root displacement and local pose blending.
+  Finding0018 records mappings/codecs and the external pelvis-frame correction.
+  This is a bounded locomotion slice; original climbing/vaults, native selection
+  graphs, foot IK and Tailored equipment remain open.
+
+- Animation metadata catalogue: 110,447 occurrences / 37,803 distinct IDs from
+  the full existing scan, with original byte identities and role hints; actor
+  ownership stays unknown pending decoded references. Six catalogue tests pass;
+  see [database commands and scope](docs/ANIMATION_DATABASE.md). The reviewed
+  For Honor matcher core is imported with 44 passing tests. Its primary objective
+  is now used by the Unity locomotion adapter; broader live-dispatcher adaptation
+  remains active under ACU-008.
 
 - Rig-validation source (finding0017): original complete skin weights and bind
   matrices, 38 diagnostic candidate hierarchies, authored fixed tick movement,

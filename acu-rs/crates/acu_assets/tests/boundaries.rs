@@ -19,6 +19,126 @@ fn raw_frame(data: &[u8]) -> Vec<u8> {
     result
 }
 
+fn many_literal_blocks(indexed: bool) -> Vec<u8> {
+    let mut b = frame::MAGIC.to_le_bytes().to_vec();
+    b.extend_from_slice(&1u16.to_le_bytes());
+    b.push(1);
+    b.extend_from_slice(&(if indexed { 0x80008000u32 } else { 0 }).to_le_bytes());
+    if indexed {
+        b.extend_from_slice(&65u32.to_le_bytes());
+        for _ in 0..65 {
+            b.extend_from_slice(&[3, 0, 7, 0]);
+        }
+    }
+    for _ in 0..65 {
+        if !indexed {
+            b.push(1);
+            b.extend_from_slice(&7u32.to_le_bytes());
+            b.extend_from_slice(&3u32.to_le_bytes());
+        }
+        b.extend_from_slice(&[235, 0, 155, 4, 20, b'A', b'B', b'C', 17, 0, 0]);
+    }
+    b
+}
+
+struct YieldOnce(bool);
+impl std::future::Future for YieldOnce {
+    type Output = ();
+    fn poll(
+        mut self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<()> {
+        if self.0 {
+            std::task::Poll::Ready(())
+        } else {
+            self.0 = true;
+            cx.waker().wake_by_ref();
+            std::task::Poll::Pending
+        }
+    }
+}
+
+#[test]
+fn cooperative_decode_really_suspends_in_both_block_loops() {
+    use std::{
+        future::Future,
+        task::{Context, Poll, Waker},
+    };
+    for indexed in [false, true] {
+        let bytes = many_literal_blocks(indexed);
+        let mut r = Reader::new(&bytes);
+        let mut checkpoint = || YieldOnce(false);
+        let mut pending = 0;
+        let (decoded, info) = {
+            let mut task = std::pin::pin!(frame::decode_cooperative(
+                &mut r,
+                Limits::default(),
+                &mut checkpoint
+            ));
+            loop {
+                match task.as_mut().poll(&mut Context::from_waker(Waker::noop())) {
+                    Poll::Pending => {
+                        pending += 1;
+                        assert!(pending <= 2);
+                    }
+                    Poll::Ready(result) => break result.unwrap(),
+                }
+            }
+        };
+        assert_eq!(pending, 2, "must suspend after blocks 32 and 64");
+        assert_eq!(decoded, b"ABC".repeat(65));
+        assert_eq!(info.blocks, 65);
+        assert_eq!(r.position, bytes.len());
+        assert_eq!(
+            frame::decode(&mut Reader::new(&bytes), Limits::default())
+                .unwrap()
+                .0,
+            decoded
+        );
+        // Corruption after the first yield must remain an error, not a partial success.
+        let mut corrupt = bytes.clone();
+        let end = corrupt.len();
+        corrupt[end - 11] ^= 1;
+        let mut r = Reader::new(&corrupt);
+        let mut task = std::pin::pin!(frame::decode_cooperative(
+            &mut r,
+            Limits::default(),
+            &mut checkpoint
+        ));
+        loop {
+            if let Poll::Ready(result) = task.as_mut().poll(&mut Context::from_waker(Waker::noop()))
+            {
+                assert!(result.is_err());
+                break;
+            }
+        }
+    }
+}
+
+#[test]
+fn cooperative_decode_can_be_cancelled_at_a_block_boundary() {
+    use std::{
+        future::Future,
+        task::{Context, Waker},
+    };
+    let bytes = many_literal_blocks(true);
+    let mut r = Reader::new(&bytes);
+    let mut checkpoint = || YieldOnce(false);
+    let mut task = Box::pin(frame::decode_cooperative(
+        &mut r,
+        Limits::default(),
+        &mut checkpoint,
+    ));
+    assert!(
+        task.as_mut()
+            .poll(&mut Context::from_waker(Waker::noop()))
+            .is_pending()
+    );
+    drop(task);
+    assert_eq!(r.position, 19 + 65 * 4 + 32 * 11);
+    assert!(r.position < bytes.len());
+}
+
 #[test]
 fn independent_lzo_literal_and_checksum() {
     // A handwritten LZO literal stream for ABC, not produced by our decoder.

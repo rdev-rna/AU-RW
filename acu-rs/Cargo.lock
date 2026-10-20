@@ -103,6 +103,7 @@ name = "acu_bevy"
 version = "0.1.0"
 dependencies = [
  "acu_assets",
+ "acu_motion",
  "acu_sim",
  "bevy",
  "serde",
@@ -110,10 +111,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "acu_motion"
+version = "0.1.0"
+dependencies = [
+ "acu_assets",
+ "glam",
+ "serde",
+]
+
+[[package]]
 name = "acu_sim"
 version = "0.1.0"
 dependencies = [
  "glam",
+]
+
+[[package]]
+name = "acu_tap_bridge"
+version = "0.1.0"
+dependencies = [
+ "acu_motion",
+ "glam",
+ "serde_json",
 ]
 
 [[package]]

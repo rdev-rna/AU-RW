@@ -1,5 +1,8 @@
 # Local developer reference library
 
+Additional user-supplied web references and their verified game scope are indexed
+in [the 2026-10-19 review](REFERENCE_LINKS_20261019.md).
+
 Reviewed 2026-10-19. Original PDFs are user-supplied, read-only inputs in
 `docs/references/`; authored source bundles exclude PDFs. Pages below are physical
 PDF pages. Text extraction is retained under ignored

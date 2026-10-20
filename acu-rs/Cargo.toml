@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/acu_assets", "crates/acu_sim", "crates/acu_bevy"]
+members = ["crates/acu_assets", "crates/acu_sim", "crates/acu_motion", "crates/acu_tap_bridge", "crates/acu_bevy"]
 resolver = "3"
 
 [workspace.package]

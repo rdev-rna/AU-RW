@@ -24,6 +24,7 @@ pub enum ModifierData {
         up_node: Pointer,
         look_at_bone: Pointer,
         position_offset: [f32; 4],
+        /// LookAtUsedAxis, UpUsedAxis, UpNodeControl, SourceAxis (ACU-RE-0028).
         axes_and_control: [i32; 4],
     },
     OrientationConstraint(Constraint),

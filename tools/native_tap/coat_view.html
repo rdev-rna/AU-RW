@@ -1,0 +1,25 @@
+<!doctype html><html lang="en"><meta charset="utf-8"><title>ACU coat solver · native / Rust replay</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#111721;color:#e8eef8;font:15px system-ui}header{padding:22px 28px;border-bottom:1px solid #303b4d}h1{font-size:22px;margin:0 0 8px}p{margin:5px 0;color:#b3bfd0}.blue{color:#5dbaff}.orange{color:#ffa266}canvas{display:block;width:100%;height:66vh}footer{padding:15px 28px;display:flex;gap:18px;align-items:center;flex-wrap:wrap}button,select{background:#23334a;color:white;border:1px solid #476080;border-radius:6px;padding:8px}input[type=range]{width:250px}#stats{font-variant-numeric:tabular-nums}small{display:block;padding:0 28px 18px;color:#9daabd}
+</style><header><h1>Coat solver comparison</h1><p><span class="blue">● Native game</span> &nbsp; <span class="orange">● Rust solver</span> &nbsp; Recorded input replay · drag to orbit · wheel to zoom</p><p id="stats"></p></header>
+<canvas id="view"></canvas><footer><button id="play">Pause</button><label>Frame <input id="frame" type="range" min="0" value="0"></label><label>Speed <select id="speed"><option value="0.25">¼ speed</option><option value="1" selected>Real time</option><option value="2">2×</option></select></label><label>Difference magnification <select id="error"><option value="1">1× · actual</option><option value="100">100×</option><option value="1000">1000×</option></select></label></footer><small>Skeleton and coat chain segments only. This view compares solver state, not rendered cloth or full animation parity. Magnification moves Rust endpoints away from native endpoints for diagnosis.</small>
+<script>
+const data=/*CAPTURE_DATA*/;
+const cv=document.querySelector('#view'),ctx=cv.getContext('2d'),slider=document.querySelector('#frame');
+let index=0,playing=true,yaw=-.6,pitch=.12,zoom=1,drag=null,acc=0,previous=performance.now();slider.max=Math.max(0,data.frames.length-1);
+document.querySelector('#stats').textContent=`${data.solved.toLocaleString()} solved calls · worst rotation ${data.max_angle.toPrecision(4)}° · worst position ${data.max_position.toExponential(2)} units · ${data.unsupported} unsupported calls`;
+document.querySelector('#play').onclick=e=>{playing=!playing;e.target.textContent=playing?'Pause':'Play'};slider.oninput=()=>{index=+slider.value;acc=0};
+cv.onpointerdown=e=>{drag=[e.clientX,e.clientY];cv.setPointerCapture(e.pointerId)};cv.onpointerup=()=>drag=null;
+cv.onpointermove=e=>{if(drag){yaw+=(e.clientX-drag[0])*.008;pitch=Math.max(-1,Math.min(1,pitch+(e.clientY-drag[1])*.006));drag=[e.clientX,e.clientY]}};
+cv.onwheel=e=>{e.preventDefault();zoom=Math.max(.3,Math.min(5,zoom*Math.exp(-e.deltaY*.001)))};
+function project(v,offset){const x=Math.cos(yaw)*v[0]-Math.sin(yaw)*v[1],y=Math.sin(yaw)*v[0]+Math.cos(yaw)*v[1],z=v[2]-.8;
+ const yy=z*Math.cos(pitch)-y*Math.sin(pitch),depth=y*Math.cos(pitch)+z*Math.sin(pitch),s=cv.height*.44*zoom/(1+depth*.14);return[cv.width*offset+x*s,cv.height*.56-yy*s]}
+function line(a,b,color,width,offset){a=project(a,offset);b=project(b,offset);ctx.strokeStyle=color;ctx.lineWidth=width;ctx.beginPath();ctx.moveTo(...a);ctx.lineTo(...b);ctx.stroke()}
+function draw(now){const ratio=devicePixelRatio||1;cv.width=Math.round(cv.clientWidth*ratio);cv.height=Math.round(cv.clientHeight*ratio);
+ const dt=Math.min(.1,(now-previous)/1000);previous=now;if(playing&&data.frames.length){acc+=dt*+document.querySelector('#speed').value;while(acc>(data.frames[index].dt||.016)){acc-=data.frames[index].dt||.016;index=(index+1)%data.frames.length}slider.value=index}
+ const f=data.frames[index];if(f){for(const [offset,title]of [[.26,'OVERLAY'],[.74,'RUST / DIFFERENCE']]){ctx.fillStyle='#b3bfd0';ctx.font=`${14*ratio}px system-ui`;ctx.fillText(`${title} · frame ${index+1}/${data.frames.length}`,cv.width*offset-110*ratio,30*ratio);
+ for(let j=0;j<f.rig.length;j++)if(data.parents[j]!=null)line(f.rig[data.parents[j]],f.rig[j],'#53617788',ratio,offset);
+ const magnification=offset<.5?1:+document.querySelector('#error').value;
+ for(const n of f.nodes){line(n.native[0],n.native[1],'#5dbaff',5*ratio,offset);const r=n.rust.map((p,k)=>p.map((v,c)=>n.native[k][c]+(v-n.native[k][c])*magnification));line(r[0],r[1],'#ffa266',2*ratio,offset)}}}
+ requestAnimationFrame(draw)}requestAnimationFrame(draw);
+</script></html>

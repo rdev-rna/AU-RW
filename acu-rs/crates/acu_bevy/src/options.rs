@@ -147,6 +147,16 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
                     "walk",
                     "run",
                     "turn",
+                    "turn-arc",
+                    "reversals",
+                    "walk-left",
+                    "walk-right",
+                    "walk-back",
+                    "walk-circle",
+                    "run-left",
+                    "run-right",
+                    "run-back",
+                    "run-circle",
                     "jump",
                     "contact",
                     "profile-up",
@@ -293,7 +303,8 @@ OPTIONS:
                        DataPC.forge)
     --no-textures      Render the grey fallback without touching materials
     --static           Disable rig and test movement (old inspection mode)
-    --scenario NAME    idle/bind/deform/walk/run/turn/jump/contact/profile-up/profile-down
+    --scenario NAME    idle/bind/deform/walk/run/turn/jump/contact/profile-up/profile-down; walk/run-left/right/back/circle
+                       reversals: visible loop, four right/left pairs (2 s each)
     --ticks N          Fixed replay ticks before capture (max 36000)
 
 Without --piece the scene shows Arno (Fearless Assassin outfit, hood up, LOD0)

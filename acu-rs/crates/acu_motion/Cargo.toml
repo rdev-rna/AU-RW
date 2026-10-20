@@ -1,0 +1,18 @@
+[package]
+name = "acu_motion"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[dependencies]
+serde.workspace = true
+glam.workspace = true
+acu_assets = { path = "../acu_assets" }
+
+# Preserve the imported source's explicit negative-control switches; off by default.
+[features]
+negative-smoother-carry-keeps-rate = []
+negative-smoother-cap-off = []
+# Validation only: native rsqrt estimate of the capture CPU in the modifier ports.
+hw-rsqrt = []

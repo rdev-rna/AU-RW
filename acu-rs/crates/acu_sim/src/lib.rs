@@ -70,15 +70,33 @@ fn blocked(p: Vec3) -> bool {
 
 impl Player {
     pub fn step(&mut self, input: Input) {
+        self.step_internal(input, if input.run { 4.5 } else { 1.8 }, false, None);
+    }
+
+    /// Clip-derived root speed in the presentation arena; collision remains authored.
+    pub fn step_with_speed(&mut self, input: Input, speed: f32) {
+        self.step_internal(input, speed, true, None);
+    }
+    /// World X/Z displacement from selected animation, with independently steered facing.
+    pub fn step_with_root(&mut self, input: Input, displacement: Vec2, yaw: f32) {
+        assert!(displacement.is_finite() && yaw.is_finite());
+        self.step_internal(input, 0.0, true, Some(displacement / DT));
+        self.yaw = yaw;
+    }
+    fn step_internal(&mut self, input: Input, speed: f32, clip_root: bool, root: Option<Vec2>) {
         if input.reset {
             *self = Self::default();
         }
         self.tick += 1;
         let d = input.direction.clamp_length_max(1.0);
-        let target = d * if input.run { 4.5 } else { 1.8 };
+        let target = root.unwrap_or(d * speed.max(0.0));
         let old = Vec2::new(self.velocity.x, self.velocity.z);
         let acceleration = if d.length_squared() > 0.0 { 12.0 } else { 18.0 };
-        let velocity = old.move_towards(target, acceleration * DT);
+        let velocity = if clip_root {
+            target
+        } else {
+            old.move_towards(target, acceleration * DT)
+        };
         self.velocity.x = velocity.x;
         self.velocity.z = velocity.y;
         if self.position.y <= 0.0 {
@@ -147,6 +165,26 @@ impl Player {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn lateral_root_displacement_preserves_independent_facing_and_collision() {
+        let mut p = Player::default();
+        for _ in 0..30 {
+            p.step_with_root(
+                Input {
+                    direction: Vec2::X,
+                    ..Default::default()
+                },
+                Vec2::X * 0.02,
+                0.0,
+            );
+        }
+        assert!((p.position.x - 0.6).abs() < 1e-5);
+        assert_eq!(p.yaw, 0.0);
+        p.position = Vec3::new(11.49, 0.0, 0.0);
+        p.step_with_root(Input::default(), Vec2::X * 0.1, 0.3);
+        assert!((p.position.x - 11.49).abs() < 1e-5);
+        assert_eq!(p.yaw, 0.3);
+    }
     #[test]
     fn held_profile_routes_up_and_down_without_latching() {
         assert_eq!(

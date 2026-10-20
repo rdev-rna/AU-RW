@@ -5,7 +5,7 @@ param(
     [ValidateSet('dx12', 'vulkan')][string]$Backend,
     [switch]$NoTextures,
     [switch]$Static,
-    [ValidateSet('idle','bind','deform','walk','run','turn','jump','contact','profile-up','profile-down')][string]$Scenario = 'idle',
+    [ValidateSet('idle','bind','deform','walk','run','turn','reversals','jump','contact','profile-up','profile-down','walk-left','walk-right','walk-back','walk-circle','run-left','run-right','run-back','run-circle')][string]$Scenario = 'idle',
     [ValidateRange(0,36000)][int]$Ticks = 0
 )
 
@@ -31,7 +31,8 @@ try {
     # Left stick move; RT/R2 hold high profile; +South (PS X/Xbox A) up;
     # +East (PS Circle/Xbox B) down; right stick camera yaw and pitch.
     # WASD move; Shift high profile; Shift+Space up; Shift+C down; R reset.
-    # F2 bind pose; F3 freeze pose; Escape exits. Authored test locomotion.
+    # F2 bind pose; F3 freeze pose; Escape exits. Original navigation clips,
+    # low profile walk / high profile sprint; synthetic obstacle traversal.
     # Windows PowerShell treats redirected native stderr as ErrorRecords;
     # cargo writes normal progress there. Judge native failure by exit status.
     $ErrorActionPreference = 'Continue'

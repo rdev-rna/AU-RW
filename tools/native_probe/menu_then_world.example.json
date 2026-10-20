@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "report_hz": 60,
+  "description": "Observed on the current build: Xbox A leaves title and a second A on the selected Continue item enters gameplay.",
+  "steps": [
+    {"name": "menu_settle", "duration_ms": 4000},
+    {"name": "title_accept", "duration_ms": 180, "buttons": ["A"]},
+    {"name": "menu_settle_after_title", "duration_ms": 5000, "checkpoint": true},
+    {"name": "continue_accept", "duration_ms": 180, "buttons": ["A"]},
+    {"name": "world_load_wait", "duration_ms": 45000, "checkpoint": true},
+    {"name": "world_neutral", "duration_ms": 5000, "checkpoint": true}
+  ]
+}

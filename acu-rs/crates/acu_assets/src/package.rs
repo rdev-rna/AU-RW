@@ -114,6 +114,37 @@ pub fn decode(raw: &[u8], limits: Limits) -> Result<Package> {
     parse(decode_frames(raw, limits)?, limits)
 }
 
+/// Async package framing with caller-provided cooperative scheduling.
+pub async fn decode_cooperative<F, Fut>(
+    raw: &[u8],
+    limits: Limits,
+    mut checkpoint: F,
+) -> Result<Package>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = ()>,
+{
+    let mut r = Reader::new(raw);
+    let (metadata, first) = frame::decode_cooperative(&mut r, limits, &mut checkpoint).await?;
+    let remaining_limits = Limits {
+        max_decoded: limits.max_decoded.saturating_sub(metadata.len()),
+        ..limits
+    };
+    let (bytes, second) =
+        frame::decode_cooperative(&mut r, remaining_limits, &mut checkpoint).await?;
+    if r.remaining() != 0 {
+        return invalid(format!("package has {} trailing bytes", r.remaining()));
+    }
+    parse(
+        DecodedFrames {
+            metadata,
+            bytes,
+            frames: vec![first, second],
+        },
+        limits,
+    )
+}
+
 pub fn parse(decoded: DecodedFrames, limits: Limits) -> Result<Package> {
     let DecodedFrames {
         metadata,

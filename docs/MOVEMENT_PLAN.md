@@ -1,61 +1,114 @@
-# Unity player movement mission
+# Unity movement reconstruction plan
 
-The 2026-10-19 mission focuses this project on a standalone, playable Unity
-movement reconstruction. Existing Rust 1.99.0 MSVC / Bevy 0.19.1 pins remain;
-the template's game/engine/path placeholders resolve to this project and its
-known local ACU install and pseudocode corpus. No second engine/project is needed.
-The testing equipment preset is Arno's Tailored hood, coat, gloves and greaves;
-retain modular piece identities rather than baking clothing into the body mesh.
-The lighting-stage default target is Day, Paris; the requested video reference
-and baked-lighting investigation are tracked in [lighting research](LIGHTING_RESEARCH.md).
-Broader ACU-005 asset completeness remains tracked, without blocking a bounded
-character movement slice on every unrelated resource family.
+## Objective
 
-## Work order and gates
+Build a hands-off, replayable Rust/Bevy reconstruction of Arno's movement from
+ACU's own assets and evidence. The runtime we are building should run scripted
+scenarios, expose its own collision and traversal decisions, and save enough
+state to reproduce a failure without requiring a person to steer Arno.
+
+The AC1 Movement Rewritten project is a workflow reference: its README describes
+a clean-room Rust/Bevy reconstruction that loads AC1 models, animations, map
+data, collision and climbable edges; it also documents autopilot cases and
+replayable bug bundles. It is early and explicitly has partial/approximate
+features, so this is a pattern for our tooling, not evidence about ACU mechanics
+or data formats: [AC1 project](https://github.com/Banned445/AC1-Movement-Rewritten).
+
+Do not assume ACU encodes climbable edges as AC1 does. Discover ACU's actual
+world, collision and traversal representations first. When asset data does not
+settle a mechanic, use a narrowly scoped native comparison. Keep observations,
+inferences, implementation choices and unknowns separate.
+
+## Current position
+
+- Original idle and directional navigation clips can play through the composed
+  rig. The current selection, transition, facing and root-motion adapter is
+  partly informed by For Honor and remains an ACU implementation choice; actor
+  ownership and native graph selection are open. See findings ACU-RE-0018/0019.
+- The current Bevy player uses synthetic collision and authored input/state
+  rules. Its vault, climb, ledge and drop behavior is not ACU parity; see
+  `mechanics/test-world-movement.md`.
+- The asset workspace has no typed ACU world/collision/traversal pipeline yet.
+  World/map and other large resource families remain open under ACU-005.
+- `tools/native_probe/` supports guarded hooks, watches, events and scripted
+  controller input. No ACU movement, raycast or traversal site is semantically
+  verified. A full process dump is not a movement trace and is not a prerequisite
+  for this plan.
+
+## Automated work loop
+
+Every movement scenario should run from a known simulation start state with
+fixed-tick input. One command should produce a portable report bundle containing:
+
+- scenario definition, start-state and input timeline;
+- source revision, executable/build identity, fixed-tick configuration and asset
+  identities;
+- per-tick position, velocity, facing, contact/grounding, movement state,
+  candidate query results, selected action, animation/clip time/blend and root
+  displacement, with unavailable fields explicit;
+- deterministic replay output and first differing tick when compared with an
+  earlier run;
+- labeled screenshots or video and a debug view of collision surfaces,
+  traversal candidates and chosen targets.
+
+Run the Rust reconstruction offline for routine iteration. Keep a separate
+original-game comparison mode for questions that need native evidence: replay a
+prepared controller sequence, collect timestamped screenshots and byte-guarded
+probe observations, and pair them with the Rust scenario. Probe events remain
+raw until site identity, ABI, arguments and result semantics have been checked.
+Do not require manual gameplay or visual steering as the normal workflow.
+
+## Work order and exit gates
 
 | Stage | Work | Exit evidence |
 | --- | --- | --- |
-| Recon | Code/symbol map, asset families, risk register and evidence identities | Verified locations separated from name/string candidates; exact next schema/behavior question |
-| Skeleton and skinning | Hierarchy, transforms, names/hashes, palettes, weights, inverse bind data | Complete bounded parsing, invalid-input tests, independent vectors, inspected bind-pose rig and controlled deformation |
-| Animation | Compression, interpolation, root channels, events, timing and native selection | Multiple clips decoded and played; numeric/visual original comparison; unresolved channels explicit |
-| Core locomotion | Input, native state transitions, acceleration, turns, slopes, capsule, landing | Mechanics spec before code; deterministic input replay; side-by-side/numeric comparisons |
-| Ledges and climbing | Probe geometry, target rules, alignment, shimmy/corners, vault/mantle selection | Scoped obstacle course, probe/state overlays, native comparison and failure-case tests |
-| Shading | Original bytecode/pass/math, texture packing, render states and color space | Same pose/camera/light reference; diffs and explained deltas |
-| Camera and polish | Native follow/collision/recenter; frame-step and slow motion; profiling | Matched scenarios, debug overlays, repeatable builds and documented limits |
-| Optional matcher | Pose/trajectory features, search, filtering and blending | Separate togglable module; original selection remains the reference; A/B evidence |
+| 0. Scenario and replay foundation | Define a fixed-tick scenario and trace format; add named scripted cases, reproducible start states, automatic trace/screenshot bundles and replay diffing to the current viewer/simulation. | The same input produces the same declared state trace; a deliberately changed expected value identifies the first differing tick. No ACU world reader or native game run is required for this gate. |
+| 1. ACU movement-data inventory | Search real archives/resource metadata for world geometry, collision, navigation, traversal markers, interaction types and related references. Identify a small route and preserve archive/file/range hashes. | One candidate representation is decoded with independent structural checks, or a bounded negative finding records what was searched and the next evidence route. No AC1 schema assumptions. |
+| 2. Data-backed route and debug view | Load one bounded ACU route into the simulation; render its collision and any authored movement affordances with stable source identities. Use explicit unknown/unsupported markers for missing layers. | Repeatable spawn and route, checked transforms/units where evidenced, debug overlays, malformed-data rejection and an inspectable capture. Synthetic gaps remain labeled. |
+| 3. Core locomotion | Recover input mapping, grounded/air state, acceleration, stopping, turning, jump/fall/landing and collision response for the selected route. Reuse original clips only where ownership and root-motion behavior are supported. | Scenario matrix with fixed inputs and per-tick state/pose/root trace; each recovered rule cites evidence, and authored approximations remain identified. |
+| 4. First traversal decision: vault | Determine how ACU senses an obstacle, builds eligible actions, selects a vault/mantle/continue/stop outcome, aligns Arno, blends the action and resolves root motion/contact. | At least one data-backed obstacle and one rejected/failed approach replay automatically; traces expose candidate/decision/result, and a targeted native comparison resolves the key unknowns. No screen-only classification is called recovered behavior. |
+| 5. Climb, ledge and drop | Extend the same query/action interfaces and tests to climbing, grab/hang, shimmy/corner, pull-up, pass-over and safe drop. | Each mechanic has positive and negative scenarios, stable target identity, replayable state/animation traces and evidence for selection/alignment rules. |
+| 6. Blend and feel refinement | Validate original animation ownership, graph transitions, blend timing, pose modifiers, IK, cloth, and camera interaction against matched input/state traces. | Matched views and numeric traces explain remaining deltas; matcher experiments remain optional and separately switchable from native-reference policy. |
+| 7. Route breadth | Add world streaming, more environment types and interaction contexts only after the bounded route works. | Coverage matrix names tested geometry, actions, failure cases and remaining unsupported types; no single route implies full-city parity. |
 
-The user's explicit priority is skeleton/animation → core locomotion → ledges/
-climbing → shading → camera → optional motion matching. Preserve the existing
-inspection camera and diffuse rendering while researching their native versions.
+## Native comparison policy
 
-## Five principal risks
+Use the game and DLL to answer specific unknowns, not as the main automation
+surface. Start with existing mapped-image/decompile candidates, then verify the
+live executable hash, module base, RVA and bytes before probing. Capture related
+entry and post-call sites when a decision result is needed. Record thread/tick
+context, controller inputs, event loss and instrumentation limits. If the
+four-site probe capacity prevents simultaneous observation, replay the exact
+scenario with rotated verified profiles and retain the same start/input trace.
 
-1. Humanoid modifiers, additive skeletons and local hardware bone remaps may
-   prevent a correct rig even when the static mesh looks plausible.
-2. Clip compression and root-motion/event ownership may differ from For Honor;
-   that project is a read-only reference, never ACU evidence.
-3. Native state/selection rules may be distributed across code and data graphs;
-   no placeholder movement constants may be presented as recovered behavior.
-4. Traversal can depend on authored metadata and animation-driven alignment;
-   generic raycasts or a stock controller do not establish fidelity.
-5. Shader equivalence requires original passes, lighting and matched captures;
-   default Bevy PBR with diffuse maps is only current presentation.
+If no suitable semantic site can be identified, use controlled before/after
+observations and say which fact remains unknown. Do not enable guessed offsets or
+claim that category checkboxes, strings, a screenshot, a memory watch or a
+partial process dump established traversal semantics.
 
-## Evidence and delivery rules
+## Scope boundaries and dependencies
 
-Read original archives in memory through configurable ACU_GAME_DIR / --game-dir.
-This preserves the user's earlier direct-runtime-loading requirement; conversion
-tools/caches may be added when justified, but no extracted folder is required.
-Proprietary data stays ignored under local/assets/outputs and outside source.
-No proprietary bytecode, disassembly or decompiled source is committed.
+- This movement plan is a focused playable slice, not a prerequisite to finish
+  every ACU-005 asset family. It does depend on typed world/collision/traversal
+  data for each selected route; expand those decoders only as a movement scenario
+  requires.
+- Keep decoding and simulation independent of Bevy. Keep presentation,
+  instrumentation and scenario orchestration outside the core movement rules.
+- Preserve the current user-selected Tailored equipment and Day/Paris lighting
+  goals for eventual visual review; they do not block the first data-backed
+  movement tests.
+- The sibling For Honor project may supply reviewed architecture and matcher
+  comparisons only. It is not evidence for ACU's axes, thresholds, animation
+  graph, traversal rules or timing.
+- Keep readable records in `docs/`, reusable tooling in `tools/`, and runtime
+  code in `acu-rs/`. Put machine captures and proprietary data under ignored
+  `local/` paths.
 
-Use docs/code_map.md and symbol_map.md, numbered findings with hashes/locations,
-and per-mechanic specs under docs/mechanics before implementing mechanics. Record
-approximations/inferences with confidence in docs/INFERRED.md. Record shader
-comparisons in docs/shading_deltas.md. PROGRESS.md is the running milestone view;
-docs/STATUS.md retains broader parser coverage and validation facts.
+## Next bounded task
 
-Use the sibling ForHonorRustRewrite for motion matcher, animation, shading and
-lighting architecture/comparison ideas. Review/provenance any imported module;
-do not modify it or transfer game-specific constants/codecs/axes silently.
-Original ACU execution and reversible hooks remain authorized by AGENTS.md.
+Start at Stage 0/1: specify the scenario/trace contract, then inventory ACU world
+and traversal candidates from the existing typed-resource scan and source maps.
+Choose a route only after a resource identity and decode path are evidenced.
+The first acceptance is a one-command offline replay bundle plus a finding that
+identifies the best ACU movement-data lead (or a bounded negative result). Do not
+implement a generic vault controller before those inputs are known.

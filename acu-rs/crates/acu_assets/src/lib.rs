@@ -1,6 +1,7 @@
 //! In-memory ACU runtime asset readers. No dependency on extracted game data.
 #![forbid(unsafe_code)]
 
+pub mod animation;
 pub mod catalog;
 pub mod control;
 pub mod forge;

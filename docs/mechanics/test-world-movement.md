@@ -29,17 +29,32 @@ ticks. Headless replays ignore physical devices. These constants are authored.
 
 Implementation choices: 60 fixed ticks/second; world Y up; mesh face toward +Z
 at zero yaw (verified from the front capture); WASD camera-relative
-movement; walking 1.8 scene units/second, Shift running 4.5; acceleration 12,
-braking 18 units/second squared; gravity 18 and jump speed 5.5. Character contact
+movement. Original navigation clips supply walking/sprinting root displacement
+(roughly 2.46 / 7.07 source units per second in the forward walk/sprint
+loops; lateral walk/sprint averages roughly 1.25 / 6.63).
+Analog magnitude scales clip time and displacement together. The standalone
+synthetic simulation API retains its earlier speed/acceleration constants for
+tests; the viewer uses the clip-root API. Gravity is 18 and jump speed 5.5. Character contact
 uses a radius 0.28 horizontal circle against explicit synthetic AABBs, bounded
 arena and a ground plane. Downward crossings land on block tops. Sliding resolves each horizontal axis in turn; no
 claim of native capsule, stairs, slopes or traversal. R resets position/velocity.
 The simulation is independent of Bevy; presentation interpolates fixed states.
 Cross-platform bitwise float determinism is unverified. No randomness is used.
 
-The initial pose driver is authored joint rotation, with phase from traveled
-distance and blend from speed. It is labelled procedural in the build. Native
-modifier inputs are decoded but their solvers are not executed. Bind pose and
+The pose driver decodes original idle/walk/sprint navigation tracks directly
+from DataPC.forge and applies matching joint hashes in local rig space. The
+imported FH pose and trajectory objectives select phases on profile or direction
+changes and at 10 Hz; a 160 ms local-transform blend preserves hierarchy lengths.
+Eight original takes include lateral/backward walk and lateral sprint. Facing
+turns independently at authored 360/540 degrees/s for walk/sprint. The initial
+facing is retained when movement starts, then approaches requested heading over
+multiple fixed ticks. The 2026-10-20 visible review found the earlier 90/135
+degrees/s caps too slow; the new caps give a 90-degree turn in 0.25/0.167 seconds.
+These are responsiveness settings, not recovered Unity turn rates. Residual direction warping retains
+the selected root distance while following analog travel. Continuing a take
+preserves phase. See finding0019. These are adapter choices, not recovered Unity
+graph behavior; see finding0018. Actor ownership remains unknown. Native modifier
+inputs are decoded but their solvers are not executed. Bind pose and
 controlled single-joint deformation are required validation cases, followed by
 walk, run, turn, stop, jump, obstacle contact and reset input replays.
 

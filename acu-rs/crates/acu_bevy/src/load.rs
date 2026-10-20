@@ -502,7 +502,8 @@ fn load_piece(loader: &mut Loader, forge: &mut Forge, piece: &Piece) -> Result<L
     loader.entry_archive = piece.archive.clone();
     let limits = loader.limits;
     let raw = forge.raw(piece.entry)?;
-    let package = package::decode(&raw, limits)?;
+    let entry_stored_sha256 = sha256(&raw);
+    let package = crate::io::decode_package(raw, limits)?;
     let resource = package
         .resources
         .get(piece.resource)
@@ -548,7 +549,7 @@ fn load_piece(loader: &mut Loader, forge: &mut Forge, piece: &Piece) -> Result<L
         entry: piece.entry,
         resource: piece.resource,
         file_id: resource.file_id.clone(),
-        entry_stored_sha256: sha256(&raw),
+        entry_stored_sha256,
         payload_sha256: sha256(payload),
         quantization_factor: parsed.compiled.quantization_factor,
         vertex_source: if parsed.compiled.mesh_data.vertices.is_empty() {

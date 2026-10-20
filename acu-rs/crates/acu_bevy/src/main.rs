@@ -15,6 +15,7 @@
 mod arena;
 mod character_material;
 mod controls;
+mod io;
 mod load;
 mod options;
 mod player;
@@ -112,7 +113,7 @@ fn main() {
                 None
             } else {
                 Some(Window {
-                    title: "AU-RW | Arno | RT high profile + X up / Circle down | Right stick camera | Procedural motion".into(),
+                    title: "AU-RW | Arno | Low profile walk / RT sprint | X up / Circle down | Original navigation clips".into(),
                     resolution: (size.0, size.1).into(),
                     ..default()
                 })
@@ -163,7 +164,7 @@ fn main() {
     app.add_systems(Update, inspect_camera.after(player::follow));
     if !headless {
         println!(
-            "Controller: left stick move; hold RT/R2 high profile; RT+X (South/A) upward priority; RT+Circle (East/B) downward priority; right stick camera yaw/pitch. Keyboard: WASD move; Shift high profile; Shift+Space up; Shift+C down; Space jump; R reset. Arrows camera; Q/E zoom; F2 bind; F3 freeze; Esc exit. Procedural test movement; native clips/traversal not yet decoded."
+            "Controller: left stick walk; hold RT/R2 sprint; RT+X (South/A) upward priority; RT+Circle (East/B) downward priority; right stick camera yaw/pitch. Keyboard: WASD walk; Shift sprint; Shift+Space up; Shift+C down; Space jump; R reset. Arrows camera; Q/E zoom; F2 bind; F3 freeze; Esc exit. Original navigation clips; synthetic arena traversal."
         );
     }
     if let Some(path) = capture_path {
@@ -201,7 +202,11 @@ fn setup_world(
     let mut library = options
         .rigged
         .then(|| rig::load(&options.game_dir).expect("load original rig candidates"));
-    let mut state = options.rigged.then(|| player::State::new(&options));
+    let mut state = library.as_ref().map(|library| {
+        let (matcher, report) =
+            motion::load(&options.game_dir, library).expect("decode original navigation tracks");
+        player::State::new(&options, matcher, report)
+    });
     let texture_handles: Vec<_> = loaded
         .scene
         .textures
@@ -456,7 +461,13 @@ fn setup_world(
         loaded.scene.replay = Some(
             serde_json::json!({"scenario":options.scenario,"ticks":state.player.tick,
             "position":state.player.position.to_array(),"velocity":state.player.velocity.to_array(),"distance":state.player.distance,
-            "lighting":"Synthetic daylight/PBR, not native Day Paris","motion":"Authored procedural test pose; not original clips"}),
+            "yaw":state.player.yaw,"motion_trace":state.motion_trace,
+            "bone_pose":state.matcher.pose.iter().enumerate().map(|(index,matrix)|serde_json::json!({
+                "index":index,"name_hash":format!("{:08x}",state.matcher.rig.hashes[index]),
+                "parent":state.matcher.rig.parents[index],"matrix_cols":matrix.to_cols_array()
+            })).collect::<Vec<_>>(),
+            "lighting":"Synthetic daylight/PBR, not native Day Paris","motion":state.motion_report,
+            "selected_clip":state.matcher.takes[state.matcher.selected].file_id,"selected_time":state.matcher.time,"match_cost":state.matcher.cost}),
         );
         commands.insert_resource(state);
     }
@@ -603,3 +614,4 @@ mod controller_camera_tests {
         assert!((transform.translation.length() - 5.0).abs() < 1e-4);
     }
 }
+mod motion;

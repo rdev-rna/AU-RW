@@ -1,5 +1,41 @@
 # Finding index
 
+Latest pose-stage evidence: [ACU-RE-0028](findings/ACU-RE-0028-model-pose-bone-modifiers.md)
+identifies the traced slot-2 array as the model-space pose written by skeleton
+bone modifiers (MaxLookAt, Orientation/PositionConstraint, Hinge), recovers
+the weighted set and interpolation, and live-gates the MaxLookAt,
+PositionConstraint and OrientationConstraint ports per apply (worst 3.96e-5 deg).
+
+Latest movement evidence: [ACU-RE-0027](findings/ACU-RE-0027-native-binding-mode-pose-conformance.md)
+confirms native clip-binding modes against runtime bytes and compares a flagged
+21-joint transition pose; full graph, root and codec-7 avoidance coverage remain open.
+
+Movement follow-up: [ACU-RE-0026](findings/ACU-RE-0026-graph-clip-binding-coverage.md)
+records eleven decoded observed clips, codec-7 avoidance failure, rejected
+direct-time blend coverage, and candidate native source/target binding modes.
+
+Latest: [ACU-RE-0025](findings/ACU-RE-0025-player-root-full-rig.md) links a repeated
+movement-responsive root through native component fields to a 421-joint rig;
+full root/pose replays and focused runtime-image IDA evidence are preserved.
+Native clip selection and pose parity remain open.
+
+Latest pose discovery: [ACU-RE-0024](findings/ACU-RE-0024-pose-signature-rediscovery.md)
+reacquires changing skeletal buffers from exact captured topology bytes without
+hooks. Current pose data is established; player identity and root ownership
+remain open.
+
+Latest follow-up: [ACU-RE-0021 — virtual controller enters world and XInput polling is observed](findings/ACU-RE-0021-live-controller-capture.md).
+
+The live sweep proves menu entry and records XInput polling calls; action
+bindings, returned controller state and gameplay semantics remain unverified.
+The accompanying category launcher records capture requests, with only input
+currently mapped to a verified native hook.
+
+Navigation tracks: [ACU-RE-0018](findings/ACU-RE-0018-animation-tracks.md)
+records original clip mappings, time/value codecs and external skeleton root
+placement. The walk/sprint/idle adapter uses the imported primary pose objective;
+events, native selection and traversal remain incomplete.
+
 Use `docs/templates/FINDING.md`; store durable findings under `docs/findings/`.
 Link bulky raw evidence in ignored `outputs/` with identity and reproduction steps.
 
@@ -42,3 +78,9 @@ adds typed HingeVector/BallJoint/SpringBox inputs and composed diagnostic skinni
 All original weight slots are preserved; one active shoulder parent is unavailable.
 Authored movement and inferred normal shading do not establish native parity.
 110/116 active head bones match that rig; composition and deformation stay open.
+
+Original navigation: [ACU-RE-0018](findings/ACU-RE-0018-animation-tracks.md)
+decodes original tracks and the external skeleton root frame.
+Directional selection: [ACU-RE-0019](findings/ACU-RE-0019-directional-navigation.md)
+records original lateral roots, fixes the forward-only adapter and documents
+the FH trajectory/steering and cloth reference boundaries.

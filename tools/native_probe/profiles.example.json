@@ -1,0 +1,6 @@
+{
+  "description": "Template only. No game target addresses are validated. Populate probes using mapped-image inventory and independent live byte checks.",
+  "subsystems": ["animation", "skeleton", "locomotion", "traversal", "climbing", "collision", "raycast", "physics", "input", "camera", "AI", "world", "streaming", "rendering"],
+  "rotation_seconds": 2,
+  "probes": []
+}

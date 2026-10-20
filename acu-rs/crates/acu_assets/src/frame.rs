@@ -30,6 +30,34 @@ fn adler32(data: &[u8]) -> u32 {
 }
 
 pub fn decode(r: &mut Reader<'_>, limits: Limits) -> Result<(Vec<u8>, FrameInfo)> {
+    // The synchronous API uses always-ready checkpoints, so one poll completes.
+    use std::{
+        future::{Future, ready},
+        task::{Context, Poll, Waker},
+    };
+    let mut checkpoint = || ready(());
+    let mut future = std::pin::pin!(decode_cooperative(r, limits, &mut checkpoint));
+    match future
+        .as_mut()
+        .poll(&mut Context::from_waker(Waker::noop()))
+    {
+        Poll::Ready(result) => result,
+        Poll::Pending => unreachable!("synchronous decoder checkpoint cannot suspend"),
+    }
+}
+
+/// Same bounded decoder with executor-owned checkpoints every 32 blocks.
+/// A single LZO block is indivisible; cancellation is safe between blocks.
+/// No executor or Bevy dependency is required by the asset reader.
+pub async fn decode_cooperative<F, Fut>(
+    r: &mut Reader<'_>,
+    limits: Limits,
+    checkpoint: &mut F,
+) -> Result<(Vec<u8>, FrameInfo)>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = ()>,
+{
     let start = r.position;
     if r.u64()? != MAGIC {
         return invalid("unsupported compressed frame magic");
@@ -83,6 +111,9 @@ pub fn decode(r: &mut Reader<'_>, limits: Limits) -> Result<(Vec<u8>, FrameInfo)
                 }
             }
             blocks += 1;
+            if blocks % 32 == 0 {
+                checkpoint().await;
+            }
         }
         if blocks == 0 {
             return invalid("empty/unsupported default frame");
@@ -131,7 +162,7 @@ pub fn decode(r: &mut Reader<'_>, limits: Limits) -> Result<(Vec<u8>, FrameInfo)
     let mut output = vec![0u8; total];
     let mut position = 0;
     let (mut checks_compressed, mut checks_decoded) = (true, true);
-    for (decoded, stored) in lengths {
+    for (block, (decoded, stored)) in lengths.into_iter().enumerate() {
         let checksum = r.u32()?;
         let src = r.take(stored)?;
         if adler32(src) != checksum {
@@ -150,6 +181,9 @@ pub fn decode(r: &mut Reader<'_>, limits: Limits) -> Result<(Vec<u8>, FrameInfo)
         checks_compressed &= adler32(src) == checksum;
         checks_decoded &= adler32(dst) == checksum;
         position += decoded;
+        if (block + 1) % 32 == 0 {
+            checkpoint().await;
+        }
     }
     Ok((
         output,

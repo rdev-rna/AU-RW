@@ -116,6 +116,9 @@ fn main() -> Result<()> {
         }
     }
     match r.type_id.as_str() {
+        "0fa3067f" => {
+            report["animation"] = serde_json::to_value(acu_assets::animation::parse(payload)?)?;
+        }
         material::TYPE_MATERIAL => {
             let m = material::parse(payload, &r.file_id, limits)?;
             report["material"] = serde_json::to_value(&m)?;
