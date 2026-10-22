@@ -28,6 +28,9 @@ actual Git root. Preserve other contributors' edits; use explicit project paths.
 The original research checkout is inside a parent repository: do not initialize
 nested Git or stage/publish its history. Do not assume its absolute paths exist
 on this machine. If no task is assigned, coordinate a ready bounded slice first.
+Run `python tools/index_status.py` (then `--fetch` if it asks). The local asset index
+answers "where is resource X / what type is it / what references it" without rescanning
+archives; read docs/ASSET_INDEX_QUICKSTART.md and respect its evidence levels.
 
 2. Verify local setup
 Use Python 3.12+ and the pinned acu-rs/rust-toolchain.toml and Cargo.lock.
