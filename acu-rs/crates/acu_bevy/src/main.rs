@@ -338,19 +338,41 @@ fn setup_world(
         );
     }
     if map_mode && instances.len() > 1 {
-        // A multi-cell scene is framed by its placement origins: terrain and water chunks
-        // span kilometres and would otherwise dominate the bounds and the camera distance.
+        // A multi-cell scene is framed by its placement origins, using the 2nd..98th
+        // percentile per axis: river arms and distant chunks otherwise stretch the frame
+        // and leave the city small in the middle.
+        let mut axes: [Vec<f32>; 3] = [Vec::new(), Vec::new(), Vec::new()];
         for instance in &instances {
-            let q = [
-                instance.matrix[12],
-                instance.matrix[13],
-                instance.matrix[14],
-            ];
-            for i in 0..3 {
-                native_min[i] = native_min[i].min(q[i]);
-                native_max[i] = native_max[i].max(q[i]);
+            for (axis, values) in axes.iter_mut().enumerate() {
+                values.push(instance.matrix[12 + axis]);
             }
-            let rotated = native_z_up_to_bevy_y_up() * Vec3::from_array(q);
+        }
+        let low = ((instances.len() as f32) * 0.02) as usize;
+        let high = ((instances.len() as f32) * 0.98) as usize;
+        for (axis, values) in axes.iter_mut().enumerate() {
+            values.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+            native_min[axis] = values[low.min(values.len() - 1)];
+            native_max[axis] = values[high.min(values.len() - 1)];
+        }
+        for corner in 0..8 {
+            let p = Vec3::new(
+                if corner & 1 == 0 {
+                    native_min[0]
+                } else {
+                    native_max[0]
+                },
+                if corner & 2 == 0 {
+                    native_min[1]
+                } else {
+                    native_max[1]
+                },
+                if corner & 4 == 0 {
+                    native_min[2]
+                } else {
+                    native_max[2]
+                },
+            );
+            let rotated = native_z_up_to_bevy_y_up() * p;
             bevy_min = bevy_min.min(rotated);
             bevy_max = bevy_max.max(rotated);
         }
@@ -643,7 +665,13 @@ fn setup_world(
     let center = (bevy_min + bevy_max) / 2.0;
     let size = (bevy_max - bevy_min).length().max(1.0);
     let azimuth = options.orbit_deg.to_radians();
-    let distance = size * 1.6;
+    // Multi-cell scenes include the river arms, which stretch the bounds; frame tighter.
+    let distance = size
+        * if map_mode && instances.len() > 1 {
+            1.1
+        } else {
+            1.6
+        };
     let elevation = options.orbit_elevation;
     let eye = center + Vec3::new(azimuth.sin(), elevation, azimuth.cos()).normalize() * distance;
     eprintln!(
