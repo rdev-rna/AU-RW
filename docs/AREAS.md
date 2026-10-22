@@ -17,9 +17,9 @@ is packed. Status: done / partial / started / none.
 | environment | none | static geometry, props, interiors, lighting/GI, weather (unconfirmed) | `*_gi` archives |
 | traversal | started | scanner, root warp, Parkour states, vault/climb/ledge/drop | ACU-RE-0030; Parkour_* ~0x1406xxxx; MOVEMENT_PLAN |
 | statemachine | partial | native graph, Atom sync groups, controller, input, actor identity | `AtomWorldComponent`; FH `graph.rs`, `anim_state.rs` |
-| motion | partial | motion matching, reversals, root-motion ownership, codec-7 | PLAN_MOTION_PARITY; ACU-RE-0029 |
-| warping | partial | motion warping | `acu_motion/src/target_warp.rs` |
-| trajectory | started | landing/trajectory prediction | `traversal::landing_score` (0x140177c40); `amo_prediction` |
+| motion | partial | native locomotion/animation selection (recover, do not assume), reversals, root-motion ownership, codec-7 | PLAN_MOTION_PARITY (stale, see note); ANIMATION_SOURCES.md; ACU-RE-0029 |
+| warping | partial | motion warping (maintainer claim: central to ACU movement; evidence pending) | `acu_motion/src/target_warp.rs` |
+| trajectory | started | landing/trajectory prediction | `traversal::landing_score` (0x140177c40) |
 | ik | none | foot/look-at/hand IK | `Anim::SkeletonIKUpdate` |
 | modifiers | partial | bone modifiers, coat, spring, ragdoll, cloth | ACU-RE-0028; FH cloth (read-only) |
 | crowd | none | herding, composition, LOD, instancing, 10k scale | CrowdHerder/FakeCrowd ~0x1402B-C; docs/references crowd PDFs |
@@ -37,3 +37,7 @@ is packed. Status: done / partial / started / none.
 | physics | none | Havok runtime: character body, ragdoll constraints | hknp/hkp strings |
 | tooling | partial | probe/tap, oracles, captures, gates | `tools/`, `acu_tap_bridge` |
 | infra | partial | workspace, crates, docs, board hygiene | VALIDATION.md |
+
+Note (maintainer, 2026-10-22): ACU does not use For Honor-style motion matching. The `amo*` and
+`loco_match` modules in `acu_motion` are For Honor-derived scaffolding for the viewer, not recovered ACU
+behaviour. Do not extend them; recover the native selection mechanism instead (see the motion epic).
