@@ -1,5 +1,24 @@
 # Project status
 
+Latest (2026-10-22, corpus binding): **the mapped corpus is bound to this installed
+build by headers and resources; code identity is unavailable and unverified**
+([ACU-RE-0031](findings/ACU-RE-0031-corpus-binary-identity.md), ACU-003 done, #33).
+`tools/bind_corpus.py` compares the installed `ACU.exe`
+(`748abdc6456397fe7d8080f975f2a5ed3123bce548e7bf1c68b23f47e8b27e40`) with the mapped
+runtime image (`406d47f6...`, 125,980,672 B) and the reconstructed PE (`3723c910...`).
+Header bytes `0x0-0x600`, image base `0x140000000`, SizeOfImage `0x7825000`, section
+table, `.rsrc` (563,697 B) and `.tls` (273 B) all agree exactly. `.text`, `.rdata`,
+`.data` and `.pdata` have RawSize 0 in the installed file, so only 24.5 % of
+SizeOfImage is disk-backed and no code byte was compared: the verdict is
+`bound_without_code_comparison`, never `bound_by_code`. `.UBX1` differs in 13,208 of
+30,335,896 bytes (three 4 KiB pages plus the tail) and is the one declared mutable
+section. The 294,030-row export resolves against the binary's own 263,663 unwind starts
+at 0.996712 (161,187 exact, 101,601 chained fragments, 867 absent, 0 malformed rows).
+The five address-named decompiles resolve to real bytes (`0x1404a4580`, `0x1404ef310`,
+`0x140ae2f20`, `0x140af1010`, `0x142062630`), as do `0x142e77580` and `0x140045240`.
+Do not describe corpus code as byte-verified against the installed file; the 867 absent
+starts and the three patched `.UBX1` pages remain unexplained.
+
 Latest (2026-10-20, traversal research): user prioritizes reconstruction of a
 predictive traversal scanner linked to target-based root-motion correction.
 [ACU-RE-0030](findings/ACU-RE-0030-traversal-scanner-target-matching.md) identifies
@@ -421,7 +440,7 @@ the 22 Python tests, and the workflow check. Clippy, a fresh release build and
 visual replay after the latest FH curve operation-order edit remain pending.
 Both explicit install regressions pass, including actual render-mesh thigh
 deformation and a disabled-helper negative control. Executable SHA-256:
-`40ded8de3629e875c504f50fb896922d4f1e1de478a60afca4d5ebc324ac362c`.
+`40ded8de3629e875c504f50fb896922d4f1e1de478a60afca4d5ebc324ac362c`. [unidentified project artifact, 2026-10-19; not the installed game binary, the mapped image or the reconstructed PE - see ACU-RE-0031 and issue #34]
 
 Animation audit records 9,682 attempts, 3,317 decoded animations, 6,365 explicit
 failures and 261,388 track rows. Actor ownership remains unverified; this does

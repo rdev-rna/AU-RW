@@ -1,9 +1,10 @@
 # Work areas
 
 Each area has an `area:*` label and a parent epic. Evidence below is leads only:
-string hits in the pseudocode are not proof of mechanics, and the export's
-correspondence to the installed executable is unverified until ACU-003.
-Status: done / partial / started / none.
+string hits in the pseudocode are not proof of mechanics. The export's correspondence
+to the installed executable is bound by PE headers and file-backed resources
+(ACU-RE-0031); the code bytes themselves are not comparable because the installed file
+is packed. Status: done / partial / started / none.
 
 | Area | Status | Scope | Anchors and reuse |
 |---|---|---|---|
