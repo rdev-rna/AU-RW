@@ -135,6 +135,26 @@ Implementation implications and finding-linked constants:
 - Claims that depend on code behaviour may now cite the corpus as belonging to this
   installed build, but must not claim the code was byte-verified.
 
+## Executable identities recorded in the docs
+
+- Installed `ACU.exe` `748abdc6456397fe7d8080f975f2a5ed3123bce548e7bf1c68b23f47e8b27e40`
+  - hashed directly from the install path above, and cited by every finding from
+  ACU-RE-0001 to ACU-RE-0030.
+- Mapped runtime image `406d47f6...` and reconstructed PE `3723c910...` - both hashed
+  here; neither is the installed file.
+- `40ded8de3629e875c504f50fb896922d4f1e1de478a60afca4d5ebc324ac362c` appears in
+  `docs/STATUS.md:443`, `docs/VALIDATION.md:52` and `PROGRESS.md:14`, always inside the
+  same sentence: "Both explicit install regressions pass ... Executable SHA-256:".
+  It is **not** the installed `ACU.exe`, not `image.bin`, not `dump.exe`, and no file
+  under `acu-rs/target` (123 `.exe`/`.dll` files hashed) reproduces it. It appears in no
+  finding. `tools/review_arno.ps1` is the only tool in the repo that records an
+  `executable_sha256`, and it records the viewer - but that is a consistent lead, not
+  proof, and a rebuild would not reproduce the hash anyway.
+- Consequence for the VA corpus: no finding depends on `40ded8de`. Every VA citation is
+  anchored to `748abdc6` (installed file) plus the base/`VA = RVA + 0x140000000` mapping
+  established above, so the unresolved hash does not weaken it. The three doc mentions
+  are annotated as unidentified rather than deleted, so the history stays readable.
+
 ## Corpus defects found while binding
 
 Both were in the tool, not the corpus, and are fixed in `tools/bind_corpus.py`:
