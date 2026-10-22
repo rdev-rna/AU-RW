@@ -101,3 +101,18 @@ Rules:
   agree with the issue, AGENTS.md and your own evidence. Include evidence pointers
   (VA, finding ID, archive/file ID) in every hand-off.
 - Collaborators' agents on other machines only see GitHub, so GitHub is the source of truth.
+
+## Pitfalls found in the 2026-10-22 audit (read before citing evidence)
+- **Cite findings that exist.** `target_warp.rs` cited ACU-RE-0031 for a kernel no finding recorded; 0031 was
+  really the corpus-binding finding. Reserve a finding number by opening a `type:re` issue, and only cite
+  an ID whose file is in `docs/findings/`.
+- **`..._NetProtocol_ID` strings are network replication tables, not gameplay logic.** Many earlier "anchor"
+  addresses (crowd, combat, navigation, sound) were these. Profiler-scope strings
+  (`sub_14276E0C0(..., "Ai::...")`) mark the function that registers a system's update. Both are string
+  locations only; confirm with callers and disassembly.
+- **Unity does not use For Honor-style motion matching** (maintainer, 2026-10-22; finding pending, #99).
+  `amo*` and `loco_match` are viewer scaffolding. The strongest native lead for ACU's approach is the
+  target-driven translation correction at 0x140188F00 (ACU-RE-0032), still without a live gate.
+- **Code identity is unavailable.** The installed exe is packed (ACU-RE-0031); pseudocode addresses are
+  corpus locations, not byte-verified against the executable.
+- **Numbers rot.** Re-count anything quoted from an old census before building on it.

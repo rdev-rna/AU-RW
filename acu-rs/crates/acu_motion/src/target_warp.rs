@@ -1,4 +1,4 @@
-//! ACU-RE-0031: translation correction from VA 0x140188f00.
+//! ACU-RE-0032: translation correction from VA 0x140188f00 (corpus-read; no live gate yet).
 //! Inputs are already in the correction frame established by the native caller.
 //! This excludes rotation, event lookup, collision and movement application.
 
