@@ -73,6 +73,12 @@ arms, the island, the street grid and the building blocks read correctly at city
   only the yaw changed. `Player` now carries `bounds` and `floor`: a map scene sets
   `bounds = 100_000` and `floor = spawn.y`. Movement is still flat - there is no runtime
   collision, so he walks through walls and over the river.
+- **Largemesh containers are expanded**: a largemesh building is an Entity whose payload
+  lists one Entity per chunk (LargeMesh_IC_NotreDameCemetary_01 -> 67 chunks). Those chunks
+  were never visited, which is why whole buildings were missing. One level is expanded
+  through the entity census index; chunk matrices are absolute (containers are identity
+  grouping nodes, measured on two buildings), so the chunk matrix is used as-is.
+  Whole map 207,867 -> 224,310 placements (15,392 containers).
 - Framing: a multi-cell scene uses the 2nd..98th percentile of placement origins per axis
   (the river arms otherwise stretch the frame) and a 1.1x distance multiplier; one cell
   frames its meshes directly and reports outliers.

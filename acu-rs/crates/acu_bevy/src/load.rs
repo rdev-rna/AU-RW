@@ -1305,15 +1305,12 @@ impl MapContext<'_> {
             }
             return Ok(());
         }
-        // A chunk entity's matrix is relative to its container.
-        let matrix = match parent {
-            Some(parent) => {
-                let world = bevy::math::Mat4::from_cols_array(&parent)
-                    * bevy::math::Mat4::from_cols_array(&matrix);
-                world.to_cols_array()
-            }
-            None => matrix,
-        };
+        // Largemesh containers are identity grouping nodes: measured on
+        // LargeMesh_IC_NotreDameCemetary_01 and Largemesh_IC_ISL_STR_01 (translation 0,
+        // unit diagonal) while their chunks carry absolute translations (592, -112, 0) and
+        // (816, -240, 0). The chunk matrix is therefore used as-is; composing would move
+        // the chunk twice for any container that is not identity.
+        let _ = parent;
         if let (Some(centre), Some(radius)) = (self.centre, self.radius) {
             let dx = matrix[12] - centre[0];
             let dy = matrix[13] - centre[1];

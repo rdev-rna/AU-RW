@@ -1,0 +1,1030 @@
+[2m2026-10-22T16:40:00.030760Z[0m [32m INFO[0m [2mbevy_diagnostic::system_information_diagnostics_plugin::internal[0m[2m:[0m SystemInfo { os: "Windows 11 Pro", kernel: "26200", cpu: "12th Gen Intel(R) Core(TM) i7-12700", core_count: "12", memory: "31.8 GiB" }
+[2m2026-10-22T16:40:00.180045Z[0m [32m INFO[0m [2mbevy_render::renderer[0m[2m:[0m AdapterInfo { name: "NVIDIA GeForce RTX 3060 Ti", vendor: 4318, device: 9353, device_type: DiscreteGpu, device_pci_bus_id: "0000:01:00.0", driver: "NVIDIA", driver_info: "617.42", backend: Vulkan, subgroup_min_size: 32, subgroup_max_size: 32, transient_saves_memory: false }
+[2m2026-10-22T16:40:00.313612Z[0m [32m INFO[0m [2mbevy_pbr::cluster[0m[2m:[0m GPU clustering is supported on this device.
+[2m2026-10-22T16:40:00.314044Z[0m [32m INFO[0m [2mbevy_render::batching::gpu_preprocessing[0m[2m:[0m GPU preprocessing is fully supported on this device.
+[2m2026-10-22T16:40:00.314599Z[0m [32m INFO[0m [2mbevy_winit::system[0m[2m:[0m Creating new window AU-RW | Arno | Low profile walk / RT sprint | X up / Circle down | Original navigation clips (64v0)
+map: 8330 cells to spawn, piece budget 400000
+map: selector 0000002845458915 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000002f400e44cc LOD table [0@35m], chose LOD0
+map: selector 0000002183be34b1 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000002183be3509 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000002183be34df LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000002562471a07 LOD table [0@10m 1@35m], chose LOD1
+map: selector 0000002f400e4f6a LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000001538db2756 LOD table [0@40m 1@85m 2@89m], chose LOD2
+map: selector 0000002562473de8 LOD table [0@30m 1@50m 2@90m 3@94m], chose LOD2
+map: selector 000000143c383b67 LOD table [0@40m 1@85m 2@89m], chose LOD2
+map: selector 000000198ac69e83 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 0000002fe83ca4fd LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 0000001090d7f6c0 LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000000672ce3335 LOD table [0@20m 1@40m 2@65m], chose LOD2
+map: selector 0000001012fa87ec LOD table [0@20m 1@85m], chose LOD1
+map: selector 0000002410c469be LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000013722660c4 LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000010422cc1d0 LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000001e883ef965 LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000000d8c686aeb LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000000e1a675ab0 LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000000672ce32db LOD table [0@20m 1@40m 2@65m], chose LOD2
+map: selector 0000001150d1ebfd LOD table [0@20m 1@65m], chose LOD1
+map: selector 00000010787a84cf LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000001090d7f4e5 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 000000115bd054d5 LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000000672ce3308 LOD table [0@20m 1@40m 2@65m], chose LOD2
+map: selector 0000001012faa9ef LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000000fca9f0961 LOD table [0@20m 1@65m], chose LOD1
+map: selector 000000187ea7d394 LOD table [0@20m 1@90m 2@91m], chose LOD2
+map: selector 000000187ea7d3c5 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000000e1a675afa LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000001ffd4927cf LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000000672ce31e4 LOD table [0@20m 1@65m], chose LOD1
+map: selector 000000137226608b LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000001692aad117 LOD table [0@20m 1@65m], chose LOD1
+map: selector 000000309bb48048 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 000000309bb484dd LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 000000309bb4820e LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 000000237881248f LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000002fd43e23c9 LOD table [0@20m 1@40m], chose LOD1
+map: selector 000000214a54933d LOD table [0@12m 1@80m 2@80m], chose LOD2
+map: selector 000000214a5491be LOD table [0@20m 1@80m 2@80m], chose LOD2
+map: selector 0000002ee3e48e8f LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000000672ce32ae LOD table [0@20m 1@40m 2@65m], chose LOD2
+map: selector 0000000672ce3120 LOD table [0@20m 1@40m 2@90m], chose LOD2
+map: selector 0000000fca68bd7e LOD table [0@20m 1@65m], chose LOD1
+map: selector 00000010bd1ddb4d LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000001344c6a76b LOD table [0@20m 1@40m 2@85m], chose LOD2
+map: selector 0000001692aad16e LOD table [0@30m], chose LOD0
+map: selector 0000001012fa872d LOD table [0@20m 1@90m 2@91m], chose LOD2
+map: selector 00000014e1a27291 LOD table [0@20m 1@40m 2@65m], chose LOD2
+map: selector 0000001c225156db LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 0000001d98583eb8 LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000001562322015 LOD table [0@20m 1@65m], chose LOD1
+map: selector 00000012b1f80033 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000002555b37bf9 LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000002f4e5cce91 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 00000021ae89d720 LOD table [0@15m 1@65m], chose LOD1
+map: selector 00000010422cc330 LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000013722661e7 LOD table [0@40m 1@85m], chose LOD1
+map: selector 0000001372266187 LOD table [0@20m 1@65m], chose LOD1
+map: selector 00000010422cc2f7 LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000010422cc3bf LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000016c2d0446d LOD table [0@40m 1@85m 2@89m], chose LOD2
+map: selector 000000342c4df4a6 LOD table [0@85m], chose LOD0
+map: selector 00000013c00a4aa0 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 00000014474a216b LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 00000014474a2125 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 00000010bcaa33cf LOD table [0@20m 1@90m 2@91m], chose LOD2
+map: selector 0000000fca32eeec LOD table [0@20m 1@64m 2@90m], chose LOD2
+map: selector 0000001f28c5c534 LOD table [0@20m 1@40m], chose LOD1
+map: selector 000000143c2270bc LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000002ffdd90a0d LOD table [0@20m 1@40m 2@65m], chose LOD2
+map: selector 00000019752b7f03 LOD table [0@20m 1@64m 2@91m], chose LOD2
+map: selector 0000000fe5064516 LOD table [0@20m 1@40m 2@85m], chose LOD2
+map: selector 00000024a3ad1541 LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000035a73eb4a9 LOD table [0@40m 1@85m], chose LOD1
+map: selector 0000002180379e87 LOD table [0@20m 1@65m], chose LOD1
+map: selector 00000014c29ad575 LOD table [0@20m 1@90m 2@91m], chose LOD2
+map: selector 00000014b1184649 LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000016720e890c LOD table [0@20m 1@40m 2@90m], chose LOD2
+map: selector 0000002555b37d3f LOD table [0@20m 1@55m], chose LOD1
+map: selector 000000196f95bbbf LOD table [0@20m 2@120m], chose LOD2
+map: selector 0000000672ce26f3 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 0000000672ce2b6d LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000000757b4ad47 LOD table [0@15m 1@35m 2@65m], chose LOD2
+map: selector 000000107830204a LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000000e1b7f1577 LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000000672ce3261 LOD table [0@20m 1@40m 2@65m], chose LOD2
+map: selector 00000010bcaa0d88 LOD table [0@20m 1@90m 2@91m], chose LOD2
+map: selector 00000014511f88b6 LOD table [0@30m 1@85m 2@90m], chose LOD2
+map: selector 00000014f34696e5 LOD table [0@30m 1@85m 2@90m], chose LOD2
+map: selector 00000014f346945b LOD table [0@30m 1@85m 2@90m], chose LOD2
+map: selector 00000014511fa2c6 LOD table [0@30m 1@85m 2@90m], chose LOD2
+map: selector 00000014511f8a02 LOD table [0@30m 1@85m 2@90m], chose LOD2
+map: selector 0000001518e23dc1 LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000018e8d6900b LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000002ffdd90a7f LOD table [0@20m 1@65m], chose LOD1
+map: selector 00000019d676e8bf LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000019d676e71a LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000016f4318168 LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000002091cd27e3 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000002091cd2a0f LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000002091cd29c1 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000001a281ddc6e LOD table [0@20m 1@65m], chose LOD1
+map: selector 00000022e3e336ec LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000019f76c75d2 LOD table [0@20m 1@65m], chose LOD1
+map: selector 00000019c8642d51 LOD table [0@30m 1@85m 2@90m], chose LOD2
+map: selector 00000014661b2e42 LOD table [0@20m 1@85m 2@90m], chose LOD2
+map: selector 0000001f487f25d6 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000002ff87afde0 LOD table [0@65m], chose LOD0
+map: selector 0000002ff87afe00 LOD table [0@65m], chose LOD0
+map: selector 00000010aeb604b3 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000001ce3bffb16 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 000000277d46b5fa LOD table [0@20m 1@80m 2@80m], chose LOD2
+map: selector 0000000672ce314e LOD table [0@20m 1@40m 2@90m], chose LOD2
+map: selector 0000002917433426 LOD table [0@40m], chose LOD0
+map: selector 0000002917433440 LOD table [0@40m], chose LOD0
+map: selector 0000002318dc2323 LOD table [0@12m 1@35m 2@55m], chose LOD2
+map: selector 0000000d8c686a93 LOD table [0@20m 1@85m], chose LOD1
+map: selector 00000008520f924f LOD table [0@20m 1@90m], chose LOD1
+map: selector 000000143c383a88 LOD table [0@40m 1@85m 2@89m], chose LOD2
+map: selector 0000002f6c601be6 LOD table [0@85m], chose LOD0
+map: selector 00000014474a2236 LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000001078a75f77 LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000002f08f77b9b LOD table [0@65m], chose LOD0
+map: selector 00000030fc35a816 LOD table [0@20m 1@90m 2@120m], chose LOD2
+map: selector 000000176a6ba78a LOD table [0@20m 1@85m], chose LOD1
+map: selector 000000087cf562d7 LOD table [0@30m 1@50m 2@80m], chose LOD2
+map: selector 000000198869cc1e LOD table [0@45m], chose LOD0
+map: selector 0000001d5d8037b1 LOD table [0@20m 1@64m 2@90m], chose LOD2
+map: selector 00000035a73ea57f LOD table [0@40m 1@85m], chose LOD1
+map: selector 0000001ae8950972 LOD table [0@20m 1@40m 2@90m], chose LOD2
+map: selector 00000035a73e8f05 LOD table [0@40m 1@85m], chose LOD1
+map: selector 000000107e0fadbe LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000015802eab51 LOD table [0@20m 1@65m], chose LOD1
+map: selector 00000035a8164e6b LOD table [0@40m 1@85m], chose LOD1
+map: selector 0000000fca68ac98 LOD table [0@20m 1@90m], chose LOD1
+map: selector 000000189fe46912 LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000000b70d58a62 LOD table [0@20m 1@45m], chose LOD1
+map: selector 000000218c76b73d LOD table [0@20m 1@65m], chose LOD1
+map: selector 00000035a8165ff3 LOD table [0@60m], chose LOD0
+map: selector 00000035a73eaf78 LOD table [0@40m 1@60m], chose LOD1
+map: selector 00000035863070e4 LOD table [0@40m 1@60m], chose LOD1
+map: selector 0000002e8cde5ee4 LOD table [0@15m], chose LOD0
+map: selector 0000000100266966 LOD table [0@5m 1@10m 2@20m], chose LOD2
+map: selector 0000002555b36eb0 LOD table [0@10m 1@40m], chose LOD1
+map: mesh 0000002555b36eb1 (entry 13008) not decoded: unsupported vertex format 2 stride 40 (known strides: [])
+map: selector 00000013ba4028c9 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000002cc1302bd8 LOD table [0@20m 1@60m 2@80m], chose LOD2
+map: selector 000000310a48f6c0 LOD table [0@15m 1@25m 2@65m], chose LOD2
+map: selector 00000018a9955fa6 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000001084218e06 LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000014f2744e98 LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000014b1184613 LOD table [0@40m 1@85m 2@89m], chose LOD2
+map: selector 0000002538ce8dc6 LOD table [0@20m 1@40m], chose LOD1
+map: selector 000000198d0daf01 LOD table [0@45m 1@90m], chose LOD1
+map: selector 000000198d0daef7 LOD table [0@45m 1@60m 2@80m], chose LOD2
+map: selector 000000326abe188a LOD table [0@20m 1@90m 2@120m], chose LOD2
+map: selector 000000218037a87a LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000023950647cf LOD table [0@20m 1@40m 2@85m], chose LOD2
+map: selector 0000001562321edd LOD table [0@20m 1@65m], chose LOD1
+map: selector 000000123cb3ada2 LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000000672ce2b12 LOD table [0@20m 1@65m], chose LOD1
+map: selector 000000263a227ba0 LOD table [0@40m 1@80m 2@90m], chose LOD2
+map: selector 000000263a3416f9 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000002e8cde57b5 LOD table [0@25m], chose LOD0
+map: selector 0000000e1b7f1576 LOD table [0@20m], chose LOD0
+map: selector 0000000e1b7f1573 LOD table [0@20m 1@35m], chose LOD1
+map: selector 00000012a07afeac LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000002555b36992 LOD table [0@10m 1@65m], chose LOD1
+map: selector 0000000672ce2e53 LOD table [0@20m 1@40m 2@65m], chose LOD2
+map: selector 00000026a4ca92b1 LOD table [0@20m 1@50m 2@65m], chose LOD2
+map: selector 000000109788a12e LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000002fead8e002 LOD table [0@20m 1@90m 2@120m], chose LOD2
+map: selector 00000014511fa2c9 LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000030fc35a0da LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 00000030fc359e2d LOD table [0@20m 1@90m 2@120m], chose LOD2
+map: selector 00000010bd20cd98 LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000013850c7bf7 LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000001012fa863e LOD table [0@20m 1@90m 2@91m], chose LOD2
+map: selector 00000014e1a266c7 LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000000672ce2e1e LOD table [0@20m 1@40m 2@65m], chose LOD2
+map: selector 00000010c7613c99 LOD table [0@20m 1@90m], chose LOD1
+map: selector 000000109330d516 LOD table [0@20m 1@65m], chose LOD1
+map: selector 00000016edc091bf LOD table [0@20m 1@40m 2@65m], chose LOD2
+map: selector 000000217583ac64 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000001555202ccb LOD table [0@40m 1@85m 2@89m], chose LOD2
+map: selector 00000007769d48e3 LOD table [0@25m 1@40m 2@65m], chose LOD2
+map: selector 00000010269a5871 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000002ee3e48e6f LOD table [0@65m], chose LOD0
+map: selector 0000001a281ddc77 LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000002e404a7ab3 LOD table [0@20m 1@40m 2@85m], chose LOD2
+map: selector 000000101d7c14bf LOD table [0@20m 1@65m], chose LOD1
+map: selector 00000026a4ca908a LOD table [0@20m 1@40m 2@90m], chose LOD2
+map: selector 000000302845a961 LOD table [0@40m 1@70m 2@90m], chose LOD2
+map: selector 0000001d7a39c5db LOD table [0@40m 1@85m 2@89m], chose LOD2
+map: selector 00000029174333ae LOD table [0@40m], chose LOD0
+map: selector 0000001020eb43dd LOD table [0@20m 1@85m 2@86m], chose LOD2
+map: selector 00000015470a9e20 LOD table [0@20m 1@65m 2@80m], chose LOD2
+map: selector 00000015470a9e21 LOD table [0@20m 1@40m 2@90m], chose LOD2
+map: selector 000000110eb071dc LOD table [0@40m 1@85m 2@89m], chose LOD2
+map: selector 00000018e08ccbb8 LOD table [0@20m 1@50m 2@90m 3@94m], chose LOD2
+map: selector 000000117d00290e LOD table [0@20m 1@40m 2@85m], chose LOD2
+map: selector 000000152f0a0a1a LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000013722661b7 LOD table [0@20m 1@65m], chose LOD1
+map: selector 000000196f95bbda LOD table [0@45m], chose LOD0
+map: selector 000000143c3839e2 LOD table [0@40m 1@85m 2@89m], chose LOD2
+map: selector 00000016edc094de LOD table [0@20m 1@65m], chose LOD1
+map: selector 00000019fa2e9772 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000001743ca5653 LOD table [0@20m 1@40m], chose LOD1
+map: selector 000000077ce050f1 LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000022376ebcd4 LOD table [0@12m 1@40m 2@65m], chose LOD2
+map: selector 00000001234978fb LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000023a372b8ca LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000029174333de LOD table [0@40m], chose LOD0
+map: selector 000000250b7cb21e LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000010d2fa7526 LOD table [0@20m 1@80m], chose LOD1
+map: selector 00000030fc35ac95 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000003268a639ad LOD table [0@20m 1@80m 2@90m], chose LOD2
+map: selector 000000196f95bc0e LOD table [0@45m 2@80m], chose LOD2
+map: selector 000000196f95bbdb LOD table [0@20m 2@120m], chose LOD2
+map: selector 00000010829bb6ec LOD table [0@20m 1@40m 2@90m], chose LOD2
+map: selector 00000011723aff51 LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000016f4319a46 LOD table [0@20m 1@50m 2@90m], chose LOD2
+map: selector 00000010d82458f6 LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000010d8245723 LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000017e46630c2 LOD table [0@20m 1@65m], chose LOD1
+map: selector 000000167a0475f0 LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000000e1a675ab5 LOD table [0@15m 1@40m], chose LOD1
+map: selector 00000020944d83d7 LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000029945f2ac5 LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000008885938ac LOD table [0@20m 1@80m 2@90m], chose LOD2
+map: selector 00000008885938ca LOD table [0@20m 1@80m 2@90m], chose LOD2
+map: selector 00000017baf64b1e LOD table [0@20m 1@65m], chose LOD1
+map: selector 000000117d000b98 LOD table [0@20m 1@40m 2@90m], chose LOD2
+map: selector 00000016212f2039 LOD table [0@20m 1@85m 2@85m], chose LOD2
+map: selector 0000000672ce2f1f LOD table [0@15m 1@40m 2@65m], chose LOD2
+map: selector 00000030fc35ba7a LOD table [0@20m 1@90m 2@120m], chose LOD2
+map: selector 00000030fc35bbec LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 00000010422cc115 LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000010deaca6e0 LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000006aa8cf082 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 00000008fc96ec1c LOD table [0@20m 1@80m 2@80m], chose LOD2
+map: selector 0000000ff0d6fa3e LOD table [0@20m 1@70m 2@80m], chose LOD2
+map: selector 0000000fee48a8b0 LOD table [0@20m 1@80m 2@90m], chose LOD2
+map: selector 0000000fd5f93527 LOD table [0@20m 1@80m 2@90m], chose LOD2
+map: selector 0000000ff53340c1 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 000000321ee185ff LOD table [0@20m 1@90m 2@120m], chose LOD2
+map: selector 00000015b00c4ec2 LOD table [0@20m 1@40m 2@85m], chose LOD2
+map: selector 0000000ea6b246a5 LOD table [0@20m 1@90m], chose LOD1
+map: selector 000000214a54adfe LOD table [0@20m 1@80m 2@80m], chose LOD2
+map: selector 0000002410c45f06 LOD table [0@20m 1@65m 2@80m], chose LOD2
+map: selector 00000020f4bd67e3 LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000001084218df1 LOD table [0@20m 1@90m], chose LOD1
+map: selector 000000308fc8b2dd LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000002555b37ce4 LOD table [0@15m 1@90m], chose LOD1
+map: selector 0000002097310e1e LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000002097310dc0 LOD table [0@20m 1@65m], chose LOD1
+map: selector 00000026a4ca91bd LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000002555b36e71 LOD table [0@20m 1@65m], chose LOD1
+map: selector 00000021f292177e LOD table [0@12m 1@40m], chose LOD1
+map: selector 0000002e8cde4415 LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000001372266157 LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000000672ce2e86 LOD table [0@20m 1@40m 2@85m], chose LOD2
+map: selector 0000001162dd431c LOD table [0@20m 1@40m 2@90m], chose LOD2
+map: selector 00000021ae89d376 LOD table [0@12m 1@40m], chose LOD1
+map: selector 000000255d25e2ab LOD table [0@20m 1@90m 2@120m], chose LOD2
+map: selector 00000010ef98eb1f LOD table [0@20m], chose LOD0
+map: selector 00000010af3deb98 LOD table [0@20m 1@80m], chose LOD1
+map: selector 0000000ff6cb1ece LOD table [0@20m 1@80m 2@91m], chose LOD2
+map: selector 00000030fc35afdc LOD table [0@20m 1@90m 2@120m], chose LOD2
+map: selector 00000030fc35be4d LOD table [0@20m 1@90m 2@120m], chose LOD2
+map: selector 0000002ff66e1cb4 LOD table [0@20m 1@90m 2@120m], chose LOD2
+map: selector 0000001538db27d3 LOD table [0@40m 1@90m], chose LOD1
+map: selector 0000001bf2b2d423 LOD table [0@20m 1@40m 2@90m], chose LOD2
+map: selector 0000001608cd28ae LOD table [0@20m 1@90m], chose LOD1
+map: selector 000000342c4df484 LOD table [0@85m], chose LOD0
+map: selector 000000138162bfcd LOD table [0@20m 1@40m 2@90m], chose LOD2
+map: selector 00000006babe64a6 LOD table [0@20m 1@65m], chose LOD1
+map: selector 000000115bd05376 LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000000e96dffd7c LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000000fea38458f LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000000fc15a234c LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000001bf2b2d4e5 LOD table [0@20m 1@40m 2@90m], chose LOD2
+map: selector 0000001bf2b2e537 LOD table [0@20m 1@40m 2@90m], chose LOD2
+map: selector 000000189fe47a87 LOD table [0@20m 1@65m], chose LOD1
+map: selector 00000016cd9bb19b LOD table [0@40m 1@80m 2@90m], chose LOD2
+map: selector 0000000672ce2ac9 LOD table [0@20m 1@40m 2@90m], chose LOD2
+map: selector 0000001aba11dba4 LOD table [0@15m 1@40m], chose LOD1
+map: selector 00000007499d4876 LOD table [0@20m 1@90m 2@91m], chose LOD2
+map: selector 0000000fca32f3a5 LOD table [0@20m 1@64m 2@90m], chose LOD2
+map: selector 00000007324dda5f LOD table [0@20m 1@50m 2@80m], chose LOD2
+map: selector 00000024a3ad156a LOD table [0@20m 1@90m], chose LOD1
+map: selector 000000240087b178 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 00000026378e44f4 LOD table [0@20m 1@40m 2@65m], chose LOD2
+map: selector 000000109330c931 LOD table [0@20m 1@80m 2@90m], chose LOD2
+map: selector 00000014511fa2cc LOD table [0@30m 1@85m 2@90m], chose LOD2
+map: selector 00000014511fa2cb LOD table [0@30m 1@85m 2@90m], chose LOD2
+map: selector 00000014661b324c LOD table [0@30m 1@85m 2@90m], chose LOD2
+map: selector 00000014661b2bfb LOD table [0@30m 1@85m 2@90m], chose LOD2
+map: selector 00000014f3469a55 LOD table [0@30m 1@85m 2@90m], chose LOD2
+map: selector 00000014e1a27366 LOD table [0@20m 1@40m 2@65m], chose LOD2
+map: selector 0000002091cd28ed LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000010e580ca21 LOD table [0@20m 1@40m 2@85m], chose LOD2
+map: selector 0000001c2a57d77e LOD table [0@20m 1@85m], chose LOD1
+map: selector 0000001b1eef97b3 LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000023702fca44 LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000014511fa2c8 LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000019b6c8fb4d LOD table [0@20m 1@90m], chose LOD1
+map: selector 000000084031632a LOD table [0@55m 1@63m 2@100m], chose LOD2
+map: selector 0000001033837e01 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 000000214a5493ae LOD table [0@20m 1@85m 2@90m], chose LOD2
+map: selector 00000019bf1c83b2 LOD table [0@20m 1@40m 2@90m], chose LOD2
+map: selector 00000023187bfd62 LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000006babe6519 LOD table [0@20m 1@65m], chose LOD1
+map: selector 00000011b10194ce LOD table [0@20m 1@40m 2@65m], chose LOD2
+map: selector 0000002410c45344 LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000023a52be70f LOD table [0@12m 1@40m], chose LOD1
+map: selector 0000001ff0f1de04 LOD table [0@20m 1@40m], chose LOD1
+map: selector 000000187c9b4e44 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000000672ce2a5a LOD table [0@20m 1@50m 2@85m], chose LOD2
+map: selector 0000000792b5364f LOD table [0@20m 1@40m 2@90m], chose LOD2
+map: selector 0000002fe0fd98dc LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 00000011b1019545 LOD table [0@20m 1@40m 2@65m], chose LOD2
+map: selector 000000121c6e3622 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 00000008fc96ec9e LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 00000018e7d5bce6 LOD table [0@20m 1@64m 2@96m], chose LOD2
+map: selector 0000001012faaa6e LOD table [0@20m 1@65m], chose LOD1
+map: selector 000000335a5bdb74 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 00000030fc35b7da LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000001090d7f83f LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000001090d7f3fe LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 00000011cfdf7a41 LOD table [0@20m 1@40m 2@85m], chose LOD2
+map: selector 000000109bb6496c LOD table [0@20m 1@85m], chose LOD1
+map: selector 0000000fc2d5ec32 LOD table [0@20m 1@80m], chose LOD1
+map: selector 0000001538db2d1b LOD table [0@40m 1@80m], chose LOD1
+map: selector 00000016cd9bac7c LOD table [0@20m 1@90m 2@120m], chose LOD2
+map: selector 0000001692aacf20 LOD table [0@60m], chose LOD0
+map: selector 000000310a48f6c4 LOD table [0@20m 2@80m], chose LOD2
+map: selector 000000365b96ab6f LOD table [0@45m], chose LOD0
+map: selector 0000001692aacf1e LOD table [0@45m], chose LOD0
+map: selector 0000001692aacf1f LOD table [0@45m], chose LOD0
+map: selector 0000002ee3e488e1 LOD table [0@20m], chose LOD0
+map: selector 0000000e192e2bc6 LOD table [0@20m 1@25m], chose LOD1
+map: selector 00000012e6798576 LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000012e6798212 LOD table [0@20m 1@45m], chose LOD1
+map: selector 0000002555b369e7 LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000012e679837f LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000017e4151c2e LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000000e1b7f1575 LOD table [0@10m], chose LOD0
+map: selector 0000001078301efa LOD table [0@10m 1@35m], chose LOD1
+map: selector 0000002526791adf LOD table [0@5m 1@40m], chose LOD1
+map: selector 0000002526791af8 LOD table [0@5m 1@40m], chose LOD1
+map: selector 000000198d0daf43 LOD table [0@45m], chose LOD0
+map: selector 00000021edab10b8 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000001211fa21b8 LOD table [0@20m 1@40m 2@85m], chose LOD2
+map: selector 0000000672ce2f4c LOD table [0@20m 1@40m 2@85m], chose LOD2
+map: selector 00000010c7613efe LOD table [0@30m 1@50m 2@85m], chose LOD2
+map: selector 00000006babe64e2 LOD table [0@20m 1@65m 2@80m], chose LOD2
+map: selector 00000021ae89cfd9 LOD table [0@12m 1@85m], chose LOD1
+map: selector 00000010d2fa510a LOD table [0@20m 1@90m], chose LOD1
+map: selector 000000310ec430ae LOD table [0@20m 2@120m], chose LOD2
+map: selector 0000001e867b6170 LOD table [0@20m 1@90m 2@120m], chose LOD2
+map: selector 000000115bd0560f LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000001cded945a2 LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000002538ce8d03 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000000672ce2eb4 LOD table [0@20m 1@40m 2@85m], chose LOD2
+map: selector 0000001af3ec1ed6 LOD table [0@20m 1@65m], chose LOD1
+map: selector 00000018e77f6d55 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000002cc1302bea LOD table [0@20m 1@65m 2@80m], chose LOD2
+map: selector 0000000672ce2bc1 LOD table [0@25m 1@40m 2@65m], chose LOD2
+map: selector 00000010fbc2d679 LOD table [0@20m 1@80m], chose LOD1
+map: selector 00000010fbc2d57e LOD table [0@20m 1@80m], chose LOD1
+map: selector 00000015470a9e1f LOD table [0@20m 1@85m 2@86m], chose LOD2
+map: selector 0000002538ce8ad8 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000002f400e503f LOD table [0@85m], chose LOD0
+map: selector 0000002538ce8a21 LOD table [0@20m 1@40m], chose LOD1
+map: selector 000000108b055451 LOD table [0@20m 1@40m], chose LOD1
+map: selector 000000234a9298cb LOD table [0@10m 1@20m], chose LOD1
+map: selector 00000023184991d4 LOD table [0@20m 1@40m], chose LOD1
+map: selector 000000187ea7d450 LOD table [0@20m 1@90m 2@91m], chose LOD2
+map: selector 0000002562470392 LOD table [0@20m 1@80m 2@81m], chose LOD2
+map: selector 00000025624703c5 LOD table [0@20m 1@85m 2@86m], chose LOD2
+map: selector 000000143c45820b LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000000672ce29c9 LOD table [0@20m 1@85m 2@86m], chose LOD2
+map: selector 000000196f95bc0a LOD table [0@45m], chose LOD0
+map: selector 0000000e1a675b1b LOD table [0@15m], chose LOD0
+map: selector 00000037cfc41f00 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 000000199329529c LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000001cded945a1 LOD table [0@20m 1@40m], chose LOD1
+map: selector 000000113581778e LOD table [0@20m 1@80m 2@80m], chose LOD2
+map: selector 00000024a3ad164d LOD table [0@20m 1@65m], chose LOD1
+map: selector 000000332ef42607 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 0000000fb70efed4 LOD table [0@20m 1@80m], chose LOD1
+map: selector 00000010c48355fb LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 00000010d2fa7d6c LOD table [0@20m 1@80m], chose LOD1
+map: selector 0000001d7a39c4b5 LOD table [0@40m 1@85m 2@89m], chose LOD2
+map: selector 00000016cd9bacf2 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 000000141fc27fd4 LOD table [0@20m 1@40m], chose LOD1
+map: selector 000000101d8e85e3 LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000002f9c3c696b LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000002f9c3c6a26 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000002f9c3c6a8e LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000002f9c3c6b16 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000002562473a89 LOD table [0@20m 1@80m], chose LOD1
+map: selector 0000002555b36969 LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000002410c4752b LOD table [0@12m 1@40m], chose LOD1
+map: selector 0000002410c449a0 LOD table [0@12m 1@40m], chose LOD1
+map: selector 0000001d7a39c670 LOD table [0@20m 1@85m], chose LOD1
+map: selector 0000001ff0f1d4d4 LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000016a29ec7b0 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 00000026a4ca932b LOD table [0@20m 1@65m], chose LOD1
+map: selector 000000198d0dbf51 LOD table [0@45m], chose LOD0
+map: selector 000000198d0dbf3c LOD table [0@45m], chose LOD0
+map: selector 000000198d0dbf3d LOD table [0@45m], chose LOD0
+map: selector 000000198d0dbf45 LOD table [0@45m], chose LOD0
+map: selector 0000002f3d4c2c59 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 000000108e8bc8f8 LOD table [0@20m 1@85m], chose LOD1
+map: selector 000000120111647a LOD table [0@20m 1@80m], chose LOD1
+map: selector 0000000deb2f5b14 LOD table [0@20m 1@85m 2@86m], chose LOD2
+map: selector 0000001b0e02a7fd LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000015470aa6d7 LOD table [0@20m 1@85m], chose LOD1
+map: selector 000000147004f3de LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000000764c5e341 LOD table [0@20m], chose LOD0
+map: selector 0000001090d7f623 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 000000289848e330 LOD table [0@20m 1@85m], chose LOD1
+map: selector 00000015b00c51e8 LOD table [0@20m 1@40m 2@85m], chose LOD2
+map: selector 0000001b5801478c LOD table [0@20m 1@80m 2@80m], chose LOD2
+map: selector 0000001b7b71eecf LOD table [0@20m 1@80m 2@90m], chose LOD2
+map: selector 0000001b5801478d LOD table [0@20m 1@40m 2@85m], chose LOD2
+map: selector 0000000d8c687f3d LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000001b7b71ebb5 LOD table [0@20m 1@80m 2@90m], chose LOD2
+map: selector 0000001c225158d7 LOD table [0@20m 1@80m 2@90m], chose LOD2
+map: selector 00000024584ca0ac LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 000000314a7978f1 LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000001090d7eea0 LOD table [0@20m 1@40m 2@85m], chose LOD2
+map: selector 0000001090d7f00f LOD table [0@20m 1@40m 2@85m], chose LOD2
+map: selector 000000169afcc846 LOD table [0@20m 1@80m 2@90m], chose LOD2
+map: selector 00000035a5f27334 LOD table [0@20m 1@80m 2@90m], chose LOD2
+map: selector 000000169afccec6 LOD table [0@20m 1@80m 2@90m], chose LOD2
+map: selector 000000214a54a337 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000002ff59e3491 LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000008520fb501 LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000016edc0a0d9 LOD table [0@20m 1@80m 2@80m], chose LOD2
+map: selector 00000025f8d83ab0 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000002e8cde59f3 LOD table [0@20m 1@65m], chose LOD1
+map: selector 000000147004feaf LOD table [0@20m 1@85m 2@90m], chose LOD2
+map: selector 0000000672ce2a93 LOD table [0@20m 1@50m 2@85m], chose LOD2
+map: selector 0000003629f5e2a2 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 00000015bc4e0f15 LOD table [0@20m 1@30m 2@65m], chose LOD2
+map: selector 000000234c622c2c LOD table [0@20m 1@40m 2@85m], chose LOD2
+map: selector 0000001917fc1af4 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000003028459051 LOD table [0@20m 1@85m], chose LOD1
+map: selector 000000086403ed46 LOD table [0@20m 1@40m 2@85m], chose LOD2
+map: selector 00000007499d451a LOD table [0@20m 1@40m 2@85m], chose LOD2
+map: selector 00000011da509774 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000000e1b7f156a LOD table [0@15m 1@40m], chose LOD1
+map: selector 0000000757b4aca4 LOD table [0@20m 1@40m 2@65m], chose LOD2
+map: selector 0000001484e099c7 LOD table [0@20m 1@80m 2@90m], chose LOD2
+map: selector 000000187ea7d309 LOD table [0@20m 1@90m 2@91m], chose LOD2
+map: selector 0000000d8c686a53 LOD table [0@20m 1@85m], chose LOD1
+map: selector 000000234c62035c LOD table [0@12m 1@40m], chose LOD1
+map: selector 00000021f292128a LOD table [0@12m 1@40m], chose LOD1
+map: selector 0000001566e58c26 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 00000036906969a0 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 0000003471d76f88 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 000000109e4f9621 LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000025aa8f057e LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000001002b54215 LOD table [0@10m 1@40m], chose LOD1
+map: selector 000000332ef4258e LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 00000017b68c5f4d LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000002555b37c8d LOD table [0@15m 1@40m], chose LOD1
+map: selector 00000017910f99f2 LOD table [0@20m 1@40m 2@65m], chose LOD2
+map: selector 0000001eb16551a5 LOD table [0@20m 1@40m 2@85m], chose LOD2
+map: selector 0000001d5d8026c1 LOD table [0@40m 1@85m], chose LOD1
+map: selector 00000025aa8f05de LOD table [0@20m 1@60m], chose LOD1
+map: selector 0000000672ce2b94 LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000001b2a99232f LOD table [0@20m 1@90m 2@91m], chose LOD2
+map: selector 00000010256ea3a6 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 00000010256ea7f3 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000001e988f1327 LOD table [0@20m 1@40m], chose LOD1
+map: selector 000000198d0daf1b LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000024185c58d1 LOD table [0@20m 1@40m 2@90m], chose LOD2
+map: selector 000000108421897a LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000023aa6b5a5f LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000008fc96ecca LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000000672ce31bb LOD table [0@20m 1@35m], chose LOD1
+map: selector 0000001090d7ece1 LOD table [0@20m 1@40m 2@85m], chose LOD2
+map: selector 00000022de693c6f LOD table [0@12m 1@40m], chose LOD1
+map: selector 0000001e1202c60b LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000001ea4397a1c LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000002318dc027c LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000001af40fc082 LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000021f2923165 LOD table [0@15m 1@40m 2@85m], chose LOD2
+map: selector 0000001609244402 LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000015d664544c LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000015d6644a9f LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000002555b37a96 LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000000fd5f9325e LOD table [0@15m 1@40m 2@65m], chose LOD2
+map: selector 0000001086ca995d LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000001086ca999a LOD table [0@20m 1@80m], chose LOD1
+map: selector 00000016e6ffb5e5 LOD table [0@40m 1@80m 2@80m], chose LOD2
+map: selector 0000001d5d803fb1 LOD table [0@40m 1@60m 2@90m], chose LOD2
+map: selector 000000184c268bc5 LOD table [0@20m 2@90m], chose LOD2
+map: selector 00000025aa8f05fb LOD table [0@20m 1@60m], chose LOD1
+map: selector 00000013ae54a4ce LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000001488c63ad6 LOD table [0@40m 1@85m 2@89m], chose LOD2
+map: selector 00000010ec7645ed LOD table [0@30m 1@50m 2@80m], chose LOD2
+map: selector 000000121aa73587 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 0000000fe5065972 LOD table [0@20m 1@40m 2@90m], chose LOD2
+map: selector 00000018b59d87b2 LOD table [0@20m 1@40m], chose LOD1
+map: selector 000000359c7e641e LOD table [0@20m 1@40m 2@85m], chose LOD2
+map: selector 00000024fa50fd12 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 00000014a418946f LOD table [0@20m 1@90m], chose LOD1
+map: selector 000000214a549cf2 LOD table [0@12m 1@40m 2@85m], chose LOD2
+map: selector 00000010c75ef336 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000001f487f3bd3 LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000017e0cf2f40 LOD table [0@20m 1@85m], chose LOD1
+map: selector 0000000fe5065adf LOD table [0@20m 1@85m], chose LOD1
+map: selector 000000108fd22567 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000002555b37a53 LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000002562470195 LOD table [0@10m 1@40m], chose LOD1
+map: selector 00000007769d48f0 LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000000742b58d14 LOD table [0@20m 1@40m 2@85m], chose LOD2
+map: selector 0000001117ff6717 LOD table [0@20m 1@80m], chose LOD1
+map: selector 000000302845aab1 LOD table [0@20m 1@40m 2@90m], chose LOD2
+map: selector 0000001150d1ee23 LOD table [0@20m 1@45m], chose LOD1
+map: selector 00000010deaca4e5 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 000000332ef42411 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 00000010bcaa04fe LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000001e6d2be399 LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000001e6259eca5 LOD table [0@25m 1@45m], chose LOD1
+map: selector 0000001df9b2739c LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000001e894d11eb LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000001e52ca5feb LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000001e6d2bd117 LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000001df9b26d91 LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000000fca9f1034 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000002bf92afdc1 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000001e6d2bcab6 LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000010273a95ea LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000001e6d2bd328 LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000001e7a77698f LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000003643af5f88 LOD table [0@20m 1@90m 2@120m], chose LOD2
+map: selector 000000310ec42bfc LOD table [0@20m 1@90m 2@120m], chose LOD2
+map: selector 0000001e6259ca1e LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000001e803254b0 LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000001e894d0f8f LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000001df9b27af2 LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000001df9b277bd LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000030b5e4dbb1 LOD table [0@45m], chose LOD0
+map: selector 0000001df9b278ce LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000001e6d2bcfce LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000023b0bac982 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000001df9b26bf3 LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000016e6ffa1ab LOD table [0@40m 1@85m 2@89m], chose LOD2
+map: selector 0000001b0e02a7d8 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000000e1b7f1578 LOD table [0@15m 1@65m], chose LOD1
+map: selector 0000000ea6b24779 LOD table [0@20m 1@90m], chose LOD1
+map: selector 000000104a6eeaf7 LOD table [0@20m 1@40m 2@85m], chose LOD2
+map: selector 000000310ec42fe9 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 000000310ec42fb7 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 000000310ec42fc9 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 000000310ec42fdb LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 00000010d2fa7265 LOD table [0@30m 1@40m], chose LOD1
+map: selector 00000024a3ad1526 LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000001397ef028a LOD table [0@20m 1@80m 2@91m], chose LOD2
+map: selector 00000014f3e01128 LOD table [0@20m 1@40m 2@85m], chose LOD2
+map: selector 00000011b1019447 LOD table [0@20m 1@70m 2@90m], chose LOD2
+map: selector 00000010bca90c29 LOD table [0@30m 1@50m 2@85m], chose LOD2
+map: selector 0000000fe5067838 LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000001b0e02a7b3 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000001201115f17 LOD table [0@20m 1@80m], chose LOD1
+map: selector 0000001344c6a0ae LOD table [0@20m 1@80m 2@85m], chose LOD2
+map: selector 00000011723afda4 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 0000000672ce2d7b LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000000e1b7f156b LOD table [0@20m 1@45m], chose LOD1
+map: selector 0000001692aacfc2 LOD table [0@20m], chose LOD0
+map: selector 00000015f459b217 LOD table [0@10m 1@90m], chose LOD1
+map: selector 00000015f459b14d LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 00000015f459b220 LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000015f459b144 LOD table [0@12m 1@90m], chose LOD1
+map: selector 00000015f459b10e LOD table [0@12m 1@40m], chose LOD1
+map: selector 0000000e1a675af9 LOD table [0@35m], chose LOD0
+map: selector 0000001601d58d4d LOD table [0@20m 1@35m], chose LOD1
+map: selector 0000001692aad116 LOD table [0@20m], chose LOD0
+map: selector 0000000d8c6868db LOD table [0@20m 1@35m], chose LOD1
+map: selector 00000007fd49a099 LOD table [0@20m 1@35m], chose LOD1
+map: selector 0000002ed72a3e40 LOD table [0@20m 1@35m], chose LOD1
+map: selector 00000006aa8ccd8a LOD table [0@20m 1@45m], chose LOD1
+map: selector 00000015f459b186 LOD table [0@12m 1@90m], chose LOD1
+map: selector 00000015d349306c LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000015f459b1c0 LOD table [0@20m 1@65m], chose LOD1
+map: selector 00000015f459b20e LOD table [0@10m 1@90m], chose LOD1
+map: selector 000000203b9d799e LOD table [0@10m 1@35m], chose LOD1
+map: selector 00000015f459b1a5 LOD table [0@12m 1@90m], chose LOD1
+map: selector 00000015f459b12f LOD table [0@12m 1@90m], chose LOD1
+map: selector 00000015f459b15f LOD table [0@12m 1@90m], chose LOD1
+map: selector 0000000e1a675ab2 LOD table [0@20m 1@35m], chose LOD1
+map: selector 00000021ae89c316 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000000f9f1c4d15 LOD table [0@20m 1@35m], chose LOD1
+map: selector 0000001692aacf21 LOD table [0@20m 1@45m], chose LOD1
+map: selector 0000001d8e0c4a01 LOD table [0@20m 1@70m 2@90m], chose LOD2
+map: selector 0000002f6f57c0f5 LOD table [0@30m], chose LOD0
+map: selector 0000000e1a675b55 LOD table [0@35m 1@90m], chose LOD1
+map: selector 00000011da50b6bb LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000002ee3e49e20 LOD table [0@15m], chose LOD0
+map: selector 0000002e8cde5f2c LOD table [0@35m], chose LOD0
+map: selector 00000015f459b1de LOD table [0@12m 1@35m], chose LOD1
+map: selector 00000015f459b1f0 LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000002e8cde5b95 LOD table [0@45m], chose LOD0
+map: selector 00000002ab52ff31 LOD table [0@5m 1@10m 2@20m 3@35m], chose LOD2
+map: selector 0000000672ce2f79 LOD table [0@20m 1@85m], chose LOD1
+map: selector 00000010e580e41c LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000012162731c5 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 00000021ae89cbf4 LOD table [0@12m 1@40m], chose LOD1
+map: selector 00000006794cf921 LOD table [0@20m 1@65m], chose LOD1
+map: selector 00000030aae70240 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000001224c2258a LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 00000010d8245c2c LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000001481e8f705 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 0000001481e8f706 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 000000310ec4331d LOD table [0@20m 2@120m], chose LOD2
+map: selector 000000118ebe1998 LOD table [0@20m], chose LOD0
+map: selector 00000017db858a91 LOD table [0@20m 1@60m 2@90m], chose LOD2
+map: selector 000000117d0003f6 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 0000002467a91e16 LOD table [0@20m 1@40m], chose LOD1
+map: selector 000000203b9d4322 LOD table [0@20m 1@85m], chose LOD1
+map: selector 00000020944d87f2 LOD table [0@20m 1@85m 2@90m], chose LOD2
+map: selector 0000001086caa4c5 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000001086caa4f8 LOD table [0@20m 1@65m], chose LOD1
+map: selector 00000010c75ef3e6 LOD table [0@20m 1@85m 2@90m], chose LOD2
+map: selector 000000109cd233dc LOD table [0@20m 1@85m], chose LOD1
+map: selector 00000010bcb1c860 LOD table [0@20m 1@65m], chose LOD1
+map: selector 00000030b5e4d5ef LOD table [0@20m 1@90m 2@91m], chose LOD2
+map: selector 000000310ec42ce3 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000003273652789 LOD table [0@20m 1@85m], chose LOD1
+map: selector 000000212ba0ff42 LOD table [0@35m 1@60m 2@80m], chose LOD2
+map: selector 00000018a9955f0e LOD table [0@20m 1@35m 2@90m], chose LOD2
+map: selector 00000018a9955e1d LOD table [0@20m 1@60m 2@90m], chose LOD2
+map: selector 0000001ff0f1ddda LOD table [0@20m 1@40m], chose LOD1
+map: selector 000000123f52e4bf LOD table [0@20m 1@90m 2@91m], chose LOD2
+map: selector 0000001394950442 LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000010e580ccff LOD table [0@20m 1@40m 2@85m], chose LOD2
+map: selector 0000001117ff6873 LOD table [0@20m 1@85m], chose LOD1
+map: selector 000000359c7e635b LOD table [0@20m 1@40m 2@85m], chose LOD2
+map: selector 0000001002b54478 LOD table [0@10m 1@65m], chose LOD1
+map: selector 0000001cded94da5 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 0000000792b5361f LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 0000002467a93e2f LOD table [0@20m 1@40m 2@90m], chose LOD2
+map: selector 0000000742b58246 LOD table [0@20m 1@40m 2@65m], chose LOD2
+map: selector 000000104a6ee965 LOD table [0@20m 1@40m 2@90m], chose LOD2
+map: selector 0000002fe336daa2 LOD table [0@20m 1@85m], chose LOD1
+map: selector 0000001a2c478c2f LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000035a5f27469 LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000001086caa921 LOD table [0@20m 1@65m], chose LOD1
+map: selector 00000015b00c4f7d LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000001ee1006b41 LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000018e77f5849 LOD table [0@20m 1@40m 2@90m], chose LOD2
+map: selector 00000030fc35a304 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000002f400e55f3 LOD table [0@85m], chose LOD0
+map: selector 0000000f3c8359c1 LOD table [0@20m 1@50m 2@85m], chose LOD2
+map: selector 0000002fe336d8f6 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 00000014c29adf4e LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000001090d7ee71 LOD table [0@20m 1@40m 2@85m], chose LOD2
+map: selector 0000002f3d4c2b2d LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000002ed72a3fc1 LOD table [0@20m], chose LOD0
+map: selector 0000000e1a675ab1 LOD table [0@20m 1@45m], chose LOD1
+map: selector 0000000672ce317b LOD table [0@20m 1@35m], chose LOD1
+map: selector 0000002ed72a3b86 LOD table [0@35m], chose LOD0
+map: selector 0000002318dc2256 LOD table [0@20m 1@35m], chose LOD1
+map: selector 0000001a2c47bfca LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000001a2c47b93b LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000002e8cde5f0c LOD table [0@15m], chose LOD0
+map: selector 000000163b41ec1f LOD table [0@20m 1@35m], chose LOD1
+map: selector 0000000e1a675b19 LOD table [0@10m 1@35m], chose LOD1
+map: selector 00000023a52bc852 LOD table [0@10m 1@25m 2@35m], chose LOD2
+map: selector 000000162a85cec0 LOD table [0@20m 1@45m], chose LOD1
+map: selector 00000011da50b783 LOD table [0@20m 1@40m], chose LOD1
+map: selector 000000310ec42cb4 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 00000030fc35a788 LOD table [0@20m 1@90m 2@120m], chose LOD2
+map: selector 000000310ec42cd0 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000001843f7b2f8 LOD table [0@20m 1@65m 2@80m], chose LOD2
+map: selector 00000026ae3ee1b8 LOD table [0@20m 1@80m 2@90m], chose LOD2
+map: selector 00000010195c9cb7 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000000fca689483 LOD table [0@20m 1@40m], chose LOD1
+map: selector 000000310ec42cf1 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 000000187dd2cf68 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000001394950526 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000001d555211f5 LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000014e286f5ea LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000014e286f5f0 LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000010eaedcc73 LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000013305052e1 LOD table [0@20m 1@50m 2@85m], chose LOD2
+map: selector 00000010e580e890 LOD table [0@20m 1@40m 2@85m], chose LOD2
+map: selector 00000007324ddb33 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 000000101562b2c3 LOD table [0@20m 1@85m 2@86m], chose LOD2
+map: selector 00000015d3492b11 LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000015f459b205 LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000006babe64d1 LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000002555b36d93 LOD table [0@15m 1@1016m], chose LOD1
+map: selector 00000015f459b17d LOD table [0@12m 1@40m], chose LOD1
+map: selector 0000000757b4ad30 LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000001090d7eada LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000015f459b174 LOD table [0@20m], chose LOD0
+map: selector 0000000e192e2bc7 LOD table [0@15m 1@16m], chose LOD1
+map: selector 00000010256ea5b0 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 00000018a9955e7d LOD table [0@20m 1@60m 2@90m], chose LOD2
+map: selector 00000018a99562a9 LOD table [0@60m 1@61m 2@90m], chose LOD2
+map: selector 00000018a9956334 LOD table [0@20m 1@35m 2@80m], chose LOD2
+map: selector 000000103553cd2a LOD table [0@20m 1@90m 2@91m], chose LOD2
+map: selector 0000002034b37e4f LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 0000001e1202c1dc LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000001ded5bbe42 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000002f400e4b17 LOD table [0@20m], chose LOD0
+map: selector 0000000e1a675b1e LOD table [0@25m], chose LOD0
+map: selector 0000002ee3e4b6db LOD table [0@35m], chose LOD0
+map: selector 0000002ee3e48fdc LOD table [0@15m], chose LOD0
+map: selector 0000002e8cde4d58 LOD table [0@15m], chose LOD0
+map: selector 000000184b8e7464 LOD table [0@20m 1@65m], chose LOD1
+map: selector 00000020944d8de2 LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000017e0cf2655 LOD table [0@20m 1@85m], chose LOD1
+map: selector 0000002df9b27dce LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000000fe5064ff7 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 0000001e1202d385 LOD table [0@20m 1@40m], chose LOD1
+map: selector 000000086403ecc7 LOD table [0@20m 1@40m], chose LOD1
+map: selector 000000256247189c LOD table [0@20m 1@85m], chose LOD1
+map: selector 0000002562473d15 LOD table [0@20m 1@60m 2@85m], chose LOD2
+map: selector 000000162a85cdad LOD table [0@20m 1@40m 2@65m], chose LOD2
+map: selector 00000020944d92eb LOD table [0@20m 1@40m 2@85m], chose LOD2
+map: selector 00000021ae89f989 LOD table [0@12m 1@40m], chose LOD1
+map: selector 0000002318dc0cbc LOD table [0@12m 1@40m 2@85m], chose LOD2
+map: selector 0000002318dc3e9d LOD table [0@12m 1@40m], chose LOD1
+map: selector 00000021f2920933 LOD table [0@12m 1@40m], chose LOD1
+map: selector 0000002318dc0c7b LOD table [0@12m 1@40m], chose LOD1
+map: selector 0000001090d7f590 LOD table [0@20m 1@40m 2@90m], chose LOD2
+map: selector 0000002ee3c76d98 LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000010cdebf180 LOD table [0@30m 1@50m 2@85m], chose LOD2
+map: selector 0000000672ce2bf3 LOD table [0@20m 1@40m], chose LOD1
+map: selector 000000101852e0d6 LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000002fead8dde5 LOD table [0@20m 1@90m 2@120m], chose LOD2
+map: selector 00000029174331bc LOD table [0@40m], chose LOD0
+map: selector 0000002f87ba9786 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000001bd8e27457 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 000000115be48f54 LOD table [0@20m 1@85m 2@86m], chose LOD2
+map: selector 0000002f87ba96e0 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 00000014511fa2c7 LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000021f2920472 LOD table [0@12m 1@40m], chose LOD1
+map: selector 000000153b8a2f1c LOD table [0@20m 1@35m], chose LOD1
+map: selector 0000000e1a675b83 LOD table [0@20m], chose LOD0
+map: selector 0000000e1a675b50 LOD table [0@20m], chose LOD0
+map: selector 0000001b93d0c2d8 LOD table [0@20m 1@40m], chose LOD1
+map: selector 000000162a85ce53 LOD table [0@20m 1@35m], chose LOD1
+map: selector 000000101562b248 LOD table [0@20m 1@45m], chose LOD1
+map: selector 0000001039914b96 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000000e192e2bc5 LOD table [0@15m 1@16m], chose LOD1
+map: selector 0000002e8cde6422 LOD table [0@35m], chose LOD0
+map: selector 0000001a5d6f3596 LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000020944dada5 LOD table [0@12m 1@35m], chose LOD1
+map: selector 0000002a793f2574 LOD table [0@45m], chose LOD0
+map: selector 0000001150d1ec7f LOD table [0@20m 1@35m], chose LOD1
+map: selector 0000001ae9b204b8 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000002420df9a4f LOD table [0@5m 1@10m 2@20m 3@35m], chose LOD2
+map: selector 0000000b63efad44 LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000025624701ca LOD table [0@10m 1@40m], chose LOD1
+map: selector 0000001a567bea67 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000001a567be6da LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000011ead23ef1 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 0000001117ff68e9 LOD table [0@20m 1@80m], chose LOD1
+map: selector 000000167612ddd5 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000001a24aa94c9 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 00000025a05f8d86 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 0000002f87ba980e LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000002f87ba9ae6 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000001bf6205507 LOD table [0@20m 2@80m], chose LOD2
+map: selector 000000167612eeab LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000002f87ba9ef0 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 00000014511fa2ce LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000002526791f23 LOD table [0@20m 1@40m 2@90m], chose LOD2
+map: selector 00000006babe64f0 LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000014661b1b96 LOD table [0@30m 1@85m 2@90m], chose LOD2
+map: selector 0000002e936ce0d0 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000002561d65c9c LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000001086caabe0 LOD table [0@20m 1@40m 2@90m], chose LOD2
+map: selector 00000023a52bf238 LOD table [0@12m 1@40m], chose LOD1
+map: selector 00000022de691e86 LOD table [0@20m 1@40m], chose LOD1
+map: entity matrix out of range: [1.9091528e-31, 5.7e-44, 2.2661822e34, 5.9604645e-8, -1.0000001, 0.0, 0.0, 1.0, 8.940697e-8, 0.0, 0.0, 0.0, 0.0, 0.9999999, 0.0, 0.99998474]
+map: selector 0000002e8cde5f04 LOD table [0@35m], chose LOD0
+map: selector 0000002ee3e4a4f3 LOD table [0@25m], chose LOD0
+map: selector 0000000e1a675b82 LOD table [0@15m], chose LOD0
+map: selector 0000002e8cde506f LOD table [0@25m], chose LOD0
+map: selector 00000015f459b229 LOD table [0@15m 1@45m], chose LOD1
+map: selector 0000001a31ba0146 LOD table [0@20m 1@35m], chose LOD1
+map: selector 0000002e8cde504f LOD table [0@25m], chose LOD0
+map: selector 0000002555b37421 LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000000a807dcf12 LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000001692aad11b LOD table [0@35m], chose LOD0
+map: selector 00000021f2922b9a LOD table [0@12m 1@40m], chose LOD1
+map: selector 0000000ff0d6fbdc LOD table [0@20m 1@35m], chose LOD1
+map: selector 00000030b5e4ee53 LOD table [0@45m], chose LOD0
+map: selector 000000255ecee7ce LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000002f98b9fedf LOD table [0@20m 1@80m 2@90m], chose LOD2
+map: selector 0000002f98b9feeb LOD table [0@20m 1@80m 2@90m], chose LOD2
+map: selector 0000002fd16f068b LOD table [0@20m 1@80m 2@90m], chose LOD2
+map: selector 0000000ea6b246d9 LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000001374df6f2b LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000021f2922739 LOD table [0@12m 1@40m], chose LOD1
+map: selector 00000015b00c76e3 LOD table [0@20m 1@80m 2@80m], chose LOD2
+map: selector 000000198869cbd2 LOD table [0@45m], chose LOD0
+map: selector 00000025a05f9e12 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 00000036a1c4e062 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000003000d28710 LOD table [0@20m 2@80m], chose LOD2
+map: selector 00000014661b36c5 LOD table [0@30m 1@85m 2@90m], chose LOD2
+map: selector 00000014f3469644 LOD table [0@30m 1@85m 2@90m], chose LOD2
+map: selector 0000001608cd2cbf LOD table [0@40m 1@85m 2@90m], chose LOD2
+map: selector 0000001310fdd2ec LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000001672962b33 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000001d7a39c3f8 LOD table [0@20m 1@85m], chose LOD1
+map: selector 0000001d7a39c54a LOD table [0@20m 1@65m], chose LOD1
+map: selector 00000023a52bc573 LOD table [0@20m 1@85m], chose LOD1
+map: selector 0000002555b379e6 LOD table [0@20m 1@40m 2@90m], chose LOD2
+map: selector 00000006babe64c0 LOD table [0@10m 1@65m], chose LOD1
+map: selector 00000017baf64202 LOD table [0@20m 1@35m], chose LOD1
+map: selector 0000001e1202ddb6 LOD table [0@20m 1@65m], chose LOD1
+map: selector 0000001019e4ef84 LOD table [0@20m 1@40m], chose LOD1
+map: selector 000000259877e6f1 LOD table [0@40m], chose LOD0
+map: selector 00000022af31b209 LOD table [0@20m 1@50m 2@85m], chose LOD2
+map: selector 00000015835b41b6 LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000015589efb19 LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000030e7dc6d18 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 0000001030d1dac6 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 00000030473839d7 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 0000003047383a33 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 00000010f2e8eceb LOD table [0@20m], chose LOD0
+map: selector 00000023d916ce38 LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000030e7dc6c71 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 000000084031767e LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000022dbb79a6b LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000001516a1b86a LOD table [0@20m 1@40m], chose LOD1
+map: selector 000000199189b0dd LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000021ae89c415 LOD table [0@20m 1@90m], chose LOD1
+map: selector 000000176c11c446 LOD table [0@20m 1@45m], chose LOD1
+map: selector 00000015f459b1d5 LOD table [0@12m 1@90m], chose LOD1
+map: selector 0000002e8cde5721 LOD table [0@15m 1@35m], chose LOD1
+map: selector 00000023416011ad LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000002555b36651 LOD table [0@10m 1@40m], chose LOD1
+map: selector 00000030351c4986 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 0000000348164d79 LOD table [0@60m 1@90m], chose LOD1
+map: selector 0000001394950520 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000001310fdd312 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 00000010e580c8d9 LOD table [0@20m 1@50m 2@80m], chose LOD2
+map: selector 000000310ec42b27 LOD table [0@20m 1@90m 2@120m], chose LOD2
+map: selector 0000000ea6b24663 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 00000025c9dd56a8 LOD table [0@40m], chose LOD0
+map: selector 0000001d5d803ce0 LOD table [0@40m 1@85m 2@89m], chose LOD2
+map: selector 00000025c9dd558a LOD table [0@40m], chose LOD0
+map: selector 000000118ebe23bd LOD table [0@20m], chose LOD0
+map: selector 0000002fec233f34 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 00000014f2744bda LOD table [0@40m 1@85m 2@89m], chose LOD2
+map: selector 0000002d67c1315b LOD table [0@20m 1@85m 2@90m], chose LOD2
+map: mesh 00000014e1f7363c (entry 21871) not decoded: nonfinite mesh scalar
+map: selector 00000022e8c9a688 LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 000000190087f53c LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 00000035a5f27377 LOD table [0@20m 1@85m], chose LOD1
+map: selector 00000030fc35bcb0 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000001f6306a2c9 LOD table [0@5m 1@10m 2@20m 3@40m], chose LOD2
+map: selector 00000019b6c8fb50 LOD table [0@20m 1@90m], chose LOD1
+map: selector 000000285b0bd0b6 LOD table [0@40m], chose LOD0
+map: selector 000000285b0bd0b7 LOD table [0@40m], chose LOD0
+map: selector 000000285b0bd0b8 LOD table [0@40m], chose LOD0
+map: selector 000000285b0bd0b9 LOD table [0@40m], chose LOD0
+map: selector 00000013850c7f35 LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000016f6c3863f LOD table [0@20m 2@90m], chose LOD2
+map: selector 00000011b101994c LOD table [0@20m 1@75m 2@80m], chose LOD2
+map: selector 0000002f87ba95ab LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000001c996925a3 LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000029174332b2 LOD table [0@40m], chose LOD0
+map: selector 00000030fc35a29a LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 00000002ab52ff02 LOD table [0@5m 1@10m 2@35m], chose LOD2
+map: selector 0000003087d31907 LOD table [0@20m 1@90m 2@120m], chose LOD2
+map: selector 00000015b00c4eff LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000001ad6570967 LOD table [0@20m], chose LOD0
+map: selector 0000002555b373f0 LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000006babe64fe LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000001d8e0c4a47 LOD table [0@20m 1@45m], chose LOD1
+map: selector 00000016edc0b519 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000002e8cde5511 LOD table [0@25m], chose LOD0
+map: selector 0000002ee3e48751 LOD table [0@20m], chose LOD0
+map: selector 0000001b93d0c2d9 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000000e1a675b52 LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000000e1b7f1574 LOD table [0@20m], chose LOD0
+map: selector 0000002ee3e48731 LOD table [0@20m], chose LOD0
+map: selector 0000001af3ec1278 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000002e8cde5c20 LOD table [0@20m 1@35m], chose LOD1
+map: selector 0000002ee3e4a513 LOD table [0@15m], chose LOD0
+map: selector 0000002e8cde4d19 LOD table [0@10m 1@35m], chose LOD1
+map: selector 00000015086fbaa4 LOD table [0@20m 1@40m], chose LOD1
+map: selector 000000234c622ecd LOD table [0@20m 1@80m 2@91m], chose LOD2
+map: selector 0000002e8cde66d8 LOD table [0@20m 1@40m 2@65m], chose LOD2
+map: selector 00000031d9278ae3 LOD table [0@65m], chose LOD0
+map: selector 0000001ae5faeb63 LOD table [0@20m 1@90m 2@91m], chose LOD2
+map: selector 0000000672ce2d26 LOD table [0@20m 1@65m], chose LOD1
+map: selector 000000250b7cb9e7 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000002f6f57c0f3 LOD table [0@30m], chose LOD0
+map: selector 0000001cda0d2f01 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000001cda0d3067 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000001cda0d2ba1 LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000014661b1b0b LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000002555b37f58 LOD table [0@20m 1@64m 2@91m], chose LOD2
+map: selector 00000017baf646c9 LOD table [0@20m 1@35m], chose LOD1
+map: selector 0000002ee3e4a614 LOD table [0@20m 1@35m], chose LOD1
+map: selector 0000001012fa8a64 LOD table [0@20m 1@35m], chose LOD1
+map: selector 0000002f513ee9db LOD table [0@15m], chose LOD0
+map: selector 0000001012fa895d LOD table [0@20m 1@35m], chose LOD1
+map: selector 0000000e1a675b1a LOD table [0@15m 1@35m], chose LOD1
+map: selector 0000001012faa923 LOD table [0@20m 1@35m], chose LOD1
+map: selector 0000001201115f16 LOD table [0@20m 1@80m], chose LOD1
+map: selector 0000001201115f18 LOD table [0@20m 1@80m], chose LOD1
+map: selector 0000002ee3e484e8 LOD table [0@20m 1@65m], chose LOD1
+map: selector 000000196f95bbbe LOD table [0@45m], chose LOD0
+map: selector 000000196f95bbfa LOD table [0@45m], chose LOD0
+map: selector 0000000672ce3234 LOD table [0@20m 1@35m], chose LOD1
+map: selector 000000196f95bbaa LOD table [0@45m], chose LOD0
+map: selector 0000002ed72a3b32 LOD table [0@35m], chose LOD0
+map: selector 00000006babe650b LOD table [0@15m 1@35m], chose LOD1
+map: selector 00000015086fb5bc LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000000e1a675af8 LOD table [0@15m 1@35m], chose LOD1
+map: selector 00000007ceb901d2 LOD table [0@20m 1@35m], chose LOD1
+map: selector 0000001cb0d3fbeb LOD table [0@5m 1@10m 2@20m 3@160m], chose LOD2
+map: selector 000000093af2d676 LOD table [0@20m 1@35m], chose LOD1
+map: selector 0000002e8cde5f34 LOD table [0@15m], chose LOD0
+map: selector 0000000f9f1c4edb LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000000d8c686a09 LOD table [0@20m 1@35m], chose LOD1
+map: selector 000000212ba0f9e2 LOD table [0@20m 1@35m], chose LOD1
+map: selector 0000001078301fb4 LOD table [0@20m 1@35m], chose LOD1
+map: selector 000000196f95bbfb LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000010deaca38b LOD table [0@20m 1@40m], chose LOD1
+map: selector 00000016a07c9b58 LOD table [0@20m 1@40m 2@85m], chose LOD2
+map: selector 000000146e878601 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000001316618e70 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000002555b37377 LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000000e1a675b84 LOD table [0@20m], chose LOD0
+map: selector 00000025c9dd55d0 LOD table [0@40m], chose LOD0
+map: selector 0000002318dc2e15 LOD table [0@12m 1@40m], chose LOD1
+map: selector 00000021f29215bb LOD table [0@12m 1@40m], chose LOD1
+map: selector 0000002ed72a3db1 LOD table [0@35m], chose LOD0
+map: selector 000000212ba0fe8b LOD table [0@20m 1@35m], chose LOD1
+map: selector 0000002d8db0b050 LOD table [0@20m 1@40m], chose LOD1
+map: selector 000000259877e720 LOD table [0@40m], chose LOD0
+map: selector 00000023a52becd6 LOD table [0@12m 1@40m], chose LOD1
+map: selector 0000001ea439433b LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000002fd43e2237 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000002ffdd90278 LOD table [0@35m], chose LOD0
+map: selector 0000002e8cde5b55 LOD table [0@35m], chose LOD0
+map: selector 0000003028459892 LOD table [0@25m], chose LOD0
+map: selector 00000020944daae0 LOD table [0@12m 1@20m 2@40m], chose LOD2
+map: selector 00000023950fbf56 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000001084218afc LOD table [0@20m 1@40m 2@80m], chose LOD2
+map: selector 00000028d0743e2b LOD table [0@20m 1@85m], chose LOD1
+map: selector 00000023a52bd161 LOD table [0@12m 1@35m], chose LOD1
+map: selector 0000001b0e02a820 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000002555b368ca LOD table [0@15m 1@35m], chose LOD1
+map: selector 0000002555b37d96 LOD table [0@15m 1@65m], chose LOD1
+map: selector 0000001c6710747f LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000002555b37c36 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000002ffdd90264 LOD table [0@35m], chose LOD0
+map: selector 00000029d266aff4 LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000001575143c4d LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000002ffdd900cb LOD table [0@35m], chose LOD0
+map: selector 00000024a272a65f LOD table [0@20m 1@40m], chose LOD1
+map: selector 000000178d2e07ee LOD table [0@20m 1@45m], chose LOD1
+map: selector 000000161e6fa69e LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000002f6f57c15b LOD table [0@45m], chose LOD0
+map: selector 000000161e6fa633 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000002562473e39 LOD table [0@20m 1@35m], chose LOD1
+map: selector 0000002e8cde4d78 LOD table [0@25m], chose LOD0
+map: selector 0000001ea4396389 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000001f1a05f9da LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000001f5ca70a27 LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000002ee3e48c1f LOD table [0@35m], chose LOD0
+map: selector 0000002f6f38bff3 LOD table [0@30m], chose LOD0
+map: selector 00000021f2923d3b LOD table [0@15m 1@45m], chose LOD1
+map: selector 0000002ee3e49020 LOD table [0@15m], chose LOD0
+map: selector 000000263ea9926c LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000000e192e2bbc LOD table [0@15m], chose LOD0
+map: selector 0000002555b36de8 LOD table [0@15m 1@40m], chose LOD1
+map: selector 00000011e1a06f2f LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000000e1a675b51 LOD table [0@20m 1@35m], chose LOD1
+map: selector 000000119a409fa8 LOD table [0@10m 1@35m], chose LOD1
+map: selector 00000024a1e641df LOD table [0@20m 1@45m], chose LOD1
+map: selector 0000001e6d2be3f5 LOD table [0@20m 1@90m], chose LOD1
+map: selector 000000161e6fa6f6 LOD table [0@20m 1@90m], chose LOD1
+map: selector 000000161e6fa645 LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000001a21350632 LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000021ae89c25f LOD table [0@20m 1@45m], chose LOD1
+map: selector 000000161e6fa6ff LOD table [0@20m 1@90m], chose LOD1
+map: selector 00000030b5e4db23 LOD table [0@45m], chose LOD0
+map: selector 000000161e6fa6cf LOD table [0@20m 1@90m], chose LOD1
+map: selector 000000161e6fa68c LOD table [0@20m 1@90m], chose LOD1
+map: selector 000000161e6fa63c LOD table [0@20m 1@90m], chose LOD1
+map: selector 000000161e6fa6e0 LOD table [0@20m 1@90m], chose LOD1
+map: selector 000000161e6fa5aa LOD table [0@20m 1@90m], chose LOD1
+map: selector 0000000990d08ede LOD table [0@20m], chose LOD0
+map: selector 00000011632a674b LOD table [0@20m 1@90m], chose LOD1
+map: selector 000000103c1b83dd LOD table [0@20m 1@80m 2@90m], chose LOD2
+map: selector 0000002f98b9fee5 LOD table [0@20m 1@80m 2@90m], chose LOD2
+map: selector 0000002f513eeb13 LOD table [0@15m], chose LOD0
+map: selector 00000025c9dd563f LOD table [0@40m], chose LOD0
+map: selector 0000002ee3e4a4c3 LOD table [0@15m], chose LOD0
+map: selector 0000002f98b9fef1 LOD table [0@20m 1@80m 2@90m], chose LOD2
+map: selector 0000002ee3e4aa9d LOD table [0@20m 1@65m], chose LOD1
+map: selector 000000174b503ccd LOD table [0@20m 1@45m], chose LOD1
+map: selector 000000143bb41422 LOD table [0@5m 1@10m 2@20m 3@160m], chose LOD2
+map: selector 0000002e8cde4fda LOD table [0@10m 1@20m], chose LOD1
+map: selector 0000000ea6b245f1 LOD table [0@20m 1@90m 2@90m], chose LOD2
+map: selector 0000001e894d1f3c LOD table [0@20m 1@40m], chose LOD1
+map: selector 0000001e894d1fc2 LOD table [0@20m 1@40m], chose LOD1
+map: 38564 pieces from 1094/8330 cells (337672 entities, 530850 child refs), 3751 distinct mesh ids, 1016 distinct selectors, LODs [0,1,2]; skipped: 5886 without a matrix, 18687 without a selector, 0 without a LOD record, 0 without a mesh, 5 undecodable meshes, 1 out-of-range matrices, 0 out-of-range meshes, 4087 direct-mesh entities, 0 FAKE backdrops, 278642 outside the radius, 2384 containers expanded, 0 cells without a cell block
+note: texture 00000013876be842 uses unsupported DXGI format 65; not uploaded
+camera: center Vec3(474.5506, 6.254238, 480.28116) size 1014.5 distance 6.0 eye Vec3(477.8646, 7.872018, 485.01404) elevation 0.28
+[2m2026-10-22T16:41:18.482864Z[0m [32m INFO[0m [2mbevy_window::system[0m[2m:[0m Primary window was closed, exiting
+[2m2026-10-22T16:41:18.509221Z[0m [32m INFO[0m [2mbevy_winit::system[0m[2m:[0m Closing window 64v0
