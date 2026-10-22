@@ -219,6 +219,9 @@ fn setup_world(
             motion::load(&options.game_dir, library).expect("decode original navigation tracks");
         player::State::new(&options, matcher, report)
     });
+    if let (Some(state), Some(spawn)) = (state.as_mut(), options.spawn) {
+        state.player.position = Vec3::from_array(spawn);
+    }
     let texture_handles: Vec<_> = loaded
         .scene
         .textures
@@ -311,6 +314,12 @@ fn setup_world(
     let map_mode = !loaded.instances.is_empty();
     let instances = loaded.instances;
     let pieces = loaded.pieces;
+    // In map mode the rig pieces are appended after the unique map meshes.
+    let arno_start = if map_mode {
+        pieces.len().saturating_sub(options.pieces.len())
+    } else {
+        0
+    };
 
     let mut bevy_min = Vec3::splat(f32::INFINITY);
     let mut bevy_max = Vec3::splat(f32::NEG_INFINITY);
@@ -486,7 +495,7 @@ fn setup_world(
         let mut part_meshes: Vec<Vec<Handle<Mesh>>> = Vec::with_capacity(pieces.len());
         let mut part_materials: Vec<Vec<Handle<character_material::CharacterMaterial>>> =
             Vec::with_capacity(pieces.len());
-        for piece in &pieces {
+        for piece in &pieces[..arno_start] {
             let mut positions = Vec::with_capacity(piece.vertices.len());
             let mut normals = Vec::with_capacity(piece.vertices.len());
             let mut uvs = Vec::with_capacity(piece.vertices.len());
@@ -550,7 +559,8 @@ fn setup_world(
                     }
                 }
             });
-    } else {
+    }
+    if options.rigged {
         // Arno pieces as children of one native-space root.
         commands
             .spawn((
@@ -559,7 +569,7 @@ fn setup_world(
                 Visibility::default(),
             ))
             .with_children(|parent| {
-                for piece in &pieces {
+                for piece in &pieces[arno_start..] {
                     let mut skin = library
                         .as_mut()
                         .map(|l| l.skin(piece).expect("validate skin influences and bind"));
@@ -666,12 +676,14 @@ fn setup_world(
     let size = (bevy_max - bevy_min).length().max(1.0);
     let azimuth = options.orbit_deg.to_radians();
     // Multi-cell scenes include the river arms, which stretch the bounds; frame tighter.
-    let distance = size
-        * if map_mode && instances.len() > 1 {
-            1.1
-        } else {
-            1.6
-        };
+    // A player uses a third-person follow camera; otherwise frame the scene.
+    let distance = if options.map_player {
+        6.0
+    } else if map_mode && instances.len() > 1 {
+        size * 1.1
+    } else {
+        size * 1.6
+    };
     let elevation = options.orbit_elevation;
     let eye = center + Vec3::new(azimuth.sin(), elevation, azimuth.cos()).normalize() * distance;
     eprintln!(

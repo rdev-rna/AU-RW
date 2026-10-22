@@ -1340,7 +1340,9 @@ pub fn load_all(options: &Options) -> Result<Loaded> {
     if options.map_cell.is_some() || options.map_cells.is_some() {
         (pieces, instances) = load_map(options, &mut loader)?;
     }
-    let pet: &[Piece] = if options.map_cell.is_some() || options.map_cells.is_some() {
+    // Map mode ignores the rig unless --map-player asked for it.
+    let map_mode = options.map_cell.is_some() || options.map_cells.is_some();
+    let pet: &[Piece] = if map_mode && !options.map_player {
         &[]
     } else {
         &options.pieces

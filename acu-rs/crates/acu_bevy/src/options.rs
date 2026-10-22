@@ -53,6 +53,10 @@ pub struct Options {
     pub map_cells: Option<PathBuf>,
     /// Count resolvable pieces without decoding meshes.
     pub map_dry_run: bool,
+    /// Spawn the Arno rig inside the map so the scene can be walked.
+    pub map_player: bool,
+    /// Player start position in Bevy coordinates (x, y up, z).
+    pub spawn: Option<[f32; 3]>,
     /// Cap on placed pieces; defaults to 400 for one cell and 200000 for a list.
     pub map_piece_limit: Option<usize>,
     /// Preferred LOD level for map meshes; the finest available is used when absent.
@@ -123,6 +127,8 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut map_cell: Option<String> = None;
     let mut map_cells: Option<PathBuf> = None;
     let mut map_dry_run = false;
+    let mut map_player = false;
+    let mut spawn: Option<[f32; 3]> = None;
     let mut map_piece_limit: Option<usize> = None;
     let mut map_lod: u8 = 0;
     let mut map_paris: Option<PathBuf> = None;
@@ -157,6 +163,19 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
                 ))
             }
             "--map-dry-run" => map_dry_run = true,
+            "--map-player" => map_player = true,
+            "--spawn" => {
+                let value = args.next().ok_or("--spawn needs X,Y,Z")?;
+                let parts: Vec<f32> = value
+                    .split(',')
+                    .map(|part| part.trim().parse::<f32>())
+                    .collect::<Result<_, _>>()
+                    .map_err(|e| format!("--spawn {value:?}: {e}"))?;
+                let [x, y, z] = parts.as_slice() else {
+                    return Err("--spawn needs exactly three numbers X,Y,Z".into());
+                };
+                spawn = Some([*x, *y, *z]);
+            }
             "--map-piece-limit" => {
                 map_piece_limit = Some(
                     args.next()
@@ -295,8 +314,8 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
         .unwrap_or_else(|| game_dir.join(DEFAULT_ARCHIVE));
     let mut pieces = Vec::new();
     let map_mode = map_cell.is_some() || map_cells.is_some();
-    let rigged = piece_args.is_empty() && !static_scene && !map_mode;
-    if map_mode {
+    let rigged = piece_args.is_empty() && !static_scene && (!map_mode || map_player);
+    if map_mode && !map_player {
         // Map mode supplies its own pieces; the Arno set and --piece are ignored.
     } else if piece_args.is_empty() {
         for (entry, resource, label) in ARNO_PIECES {
@@ -344,6 +363,8 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
         map_cell,
         map_cells,
         map_dry_run,
+        map_player,
+        spawn,
         map_piece_limit,
         map_lod,
         map_paris,
@@ -375,6 +396,8 @@ OPTIONS:
     --map-cells FILE   Spawn every cell in a JSON list (entry_index per row)
     --map-lod N        Preferred mesh LOD level 0..4 (default 0)
     --map-dry-run      Count resolvable pieces without decoding meshes
+    --map-player       Spawn Arno in the map and enable the walk controls
+    --spawn X,Y,Z      Player start in Bevy coordinates (x, y up, z)
     --map-piece-limit N  Cap placed pieces (400 one cell, 200000 for a list)
     --map-paris FILE   Paris archive used by map mode
     --map-assets FILE  Assets archive used by map mode (LOD meshes)
