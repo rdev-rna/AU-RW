@@ -247,10 +247,15 @@ fn setup_world(
                 28 | 29 => TextureFormat::Rgba8UnormSrgb,
                 87 | 91 => TextureFormat::Bgra8UnormSrgb,
                 83 => TextureFormat::Bc5RgUnorm,
-                other => panic!(
-                    "unsupported diffuse DXGI format {other} for {}",
-                    texture.file_id
-                ),
+                other => {
+                    // A texture format the uploader does not know must not abort the whole
+                    // scene; the material falls back to grey and the texture is named.
+                    eprintln!(
+                        "note: texture {} uses unsupported DXGI format {other}; not uploaded",
+                        texture.file_id
+                    );
+                    return None;
+                }
             };
             if !texture.srgb {
                 format = format.remove_srgb_suffix();
