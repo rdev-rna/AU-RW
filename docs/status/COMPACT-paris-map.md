@@ -85,3 +85,32 @@ Then: loop the 2,168 world-size cells (`record_length > 1000` in
   `docs/status/`, shared files maintainer-owned).
 - No claim without measurement; unknown fields stay unknown in the findings.
 - Lighting is synthetic; no shading or GI parity is claimed anywhere.
+
+## Addendum (same session, after the compact note)
+
+The selector payload is a **record list**, decoded by `tools/align_selectors.py`:
+
+```
+u8   version = 1
+u64  self id
+u32  type = 51dc6b80
+u32  0
+u16  0
+   record at 19, then every 35 bytes:
+     u64  id          = self + 3, self + 4, self + 5 ... (one per sibling object)
+     u32  tag         = 9a3160a3 (constant across selectors)
+     u8   1, u8 1
+     u32  varies      (2d232f68 / 3b7e8954 / ... - likely a name hash)
+     u32  16 or 8
+     f32  20.0 / 22.5 (LOD distance?)
+     u64  0
+```
+
+Four unrelated selectors align perfectly and the ids track `self + k`, so the LOD
+reference is found by reading these records, not by probing ids.
+
+Likely cause of the 2-of-27 collapse now identified: the selector resource lookup falls
+back to `first selector in the package` when the file-id match fails, and most selectors
+live in entry 1 (a shared table with thousands of them) - so every entity ends up with
+that entry's first selector, named `FRV_Street_Row_BievreRiver_26`. Fix: never fall back
+to "first selector"; require an exact file-id or exact name match, and fail loudly.
