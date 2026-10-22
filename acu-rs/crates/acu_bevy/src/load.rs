@@ -161,9 +161,17 @@ pub struct Scene {
     pub textures: Vec<LoadedTexture>,
 }
 
+/// One placement of a unique mesh: the piece index plus the entity's native matrix.
+pub struct MapInstance {
+    pub piece: usize,
+    pub matrix: [f32; 16],
+}
+
 /// Loaded scene: render payload plus the reportable chain.
 pub struct Loaded {
     pub pieces: Vec<LoadedPiece>,
+    /// Fill-mode placements; `pieces` then holds one entry per unique mesh, in local space.
+    pub instances: Vec<MapInstance>,
     pub scene: Scene,
 }
 
@@ -194,7 +202,7 @@ impl Loader {
             }
         }
         // Map mode resolves materials from the assets archive itself.
-        if options.map_cell.is_some() {
+        if options.map_cell.is_some() || options.map_cells.is_some() {
             let assets = options
                 .map_assets
                 .clone()
@@ -674,45 +682,6 @@ fn find_selector(
     None
 }
 
-/// What the entity's own entry yielded for one child id.
-enum EntityLink {
-    Ready {
-        bytes: Vec<u8>,
-        selector_id: u64,
-        selector_bytes: Vec<u8>,
-    },
-    NoEntity,
-    NoSelector,
-}
-
-/// Resolve child id -> entity payload -> its LODSelector payload, all inside one entry.
-fn entity_link(
-    cache: &mut PackageCache,
-    forge: &mut Forge,
-    entity_entry: usize,
-    child: u64,
-) -> Result<EntityLink> {
-    cache.ensure(forge, entity_entry)?;
-    let (package, ids) = cache.view()?;
-    let Some(&position) = ids.get(&child) else {
-        return Ok(EntityLink::NoEntity);
-    };
-    let resource = &package.resources[position];
-    if resource.type_id != TYPE_ENTITY {
-        return Ok(EntityLink::NoEntity);
-    }
-    let bytes = package.bytes[resource.payload.clone()].to_vec();
-    let Some((selector_position, selector_id)) = find_selector(package, ids, &bytes) else {
-        return Ok(EntityLink::NoSelector);
-    };
-    let selector = &package.resources[selector_position];
-    Ok(EntityLink::Ready {
-        bytes,
-        selector_id,
-        selector_bytes: package.bytes[selector.payload.clone()].to_vec(),
-    })
-}
-
 /// Decode the selector's LOD records; any structural mismatch is an error, never a guess.
 fn selector_records(bytes: &[u8], id: u64) -> Result<Vec<LodRecord>> {
     let expected = SELECTOR_HEADER + SELECTOR_RECORDS * SELECTOR_STRIDE + SELECTOR_TRAILER;
@@ -828,22 +797,6 @@ fn entity_matrix(bytes: &[u8]) -> Option<[f32; 16]> {
     Some(matrix)
 }
 
-fn transform_point(m: &[f32; 16], p: [f32; 3]) -> [f32; 3] {
-    [
-        m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12],
-        m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13],
-        m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14],
-    ]
-}
-
-fn transform_direction(m: &[f32; 16], p: [f32; 3]) -> [f32; 3] {
-    [
-        m[0] * p[0] + m[4] * p[1] + m[8] * p[2],
-        m[1] * p[0] + m[5] * p[1] + m[9] * p[2],
-        m[2] * p[0] + m[6] * p[1] + m[10] * p[2],
-    ]
-}
-
 /// Census index: resource id -> every entry that carries it, in file order.
 type Index = HashMap<u64, Vec<usize>>;
 fn read_index(name: &str) -> Result<Index> {
@@ -935,131 +888,162 @@ fn resolve_mesh(
     Ok(None)
 }
 
-/// Spawn one world cell: children -> Entity -> LODSelector -> LOD mesh, with each entity's
-/// matrix baked into the vertices so the existing spawn and camera path works.
-///
-/// The chain is decoded, not searched (ACU-RE-0037): the entity payload references a
-/// `LODSelector` resource in its own entry (found by resolving each reference slot against
-/// that entry's id table and keeping the one whose type is `51dc6b80`); the selector's
-/// five-record table gives the `_assets` entry ids of its LOD meshes; the entry carries one
-/// `415d9568` mesh. Records with `flags 3/0` are empty LOD levels. Every unresolved link is
-/// counted and named on stderr; nothing is substituted.
-pub fn load_map(options: &Options, loader: &mut Loader) -> Result<Vec<LoadedPiece>> {
-    let limits = Limits::default();
-    let paris_path = options
-        .map_paris
-        .clone()
-        .unwrap_or_else(|| options.game_dir.join("DataPC_ACU_Paris.forge"));
-    let assets_path = options
-        .map_assets
-        .clone()
-        .unwrap_or_else(|| options.game_dir.join("DataPC_ACU_Paris_assets.forge"));
-    let mut paris = Forge::open(&paris_path, limits)?;
-    let paris_ids = id_map(&paris);
-    let entity_index = read_index("local/paris-entities.bin")?;
-    let mesh_index = read_index("local/paris-world-meshes.bin")?;
-    let mut assets = Forge::open(&assets_path, limits)?;
-    let assets_entries = id_map(&assets);
+/// Totals across every cell spawned by one invocation.
+#[derive(Default)]
+struct MapTotals {
+    pieces: usize,
+    cells: usize,
+    cells_with_pieces: usize,
+    children: usize,
+    entities: usize,
+    selectors: HashSet<u64>,
+    mesh_refs: HashSet<u64>,
+    lods: HashSet<usize>,
+    reported: HashSet<u64>,
+    skipped_matrix: usize,
+    skipped_no_entity: usize,
+    skipped_no_selector: usize,
+    skipped_no_lod: usize,
+    skipped_no_mesh: usize,
+    skipped_decode: usize,
+    decode_errors: HashSet<u64>,
+    skipped_bad_matrix: usize,
+    skipped_bad_vertices: usize,
+    bad_geometry: HashSet<u64>,
+}
 
-    let spec = options
-        .map_cell
-        .clone()
-        .ok_or("map mode without --map-cell")?;
-    let cell_entry = match spec.parse::<usize>() {
-        Ok(index) => index,
-        Err(_) => {
-            let id = u64::from_str_radix(spec.trim_start_matches("0x"), 16)
-                .map_err(|_| "map cell must be an entry index or a hex file id")?;
-            *paris_ids
-                .get(&id)
-                .ok_or("cell file id is not an entry in the Paris archive")?
-        }
-    };
+/// State shared by every cell of one invocation.
+struct MapContext<'a> {
+    paris: &'a mut Forge,
+    assets: &'a mut Forge,
+    loader: &'a mut Loader,
+    cache: &'a mut PackageCache,
+    mesh_index: &'a Index,
+    assets_entries: &'a HashMap<u64, usize>,
+    paris_ids: &'a HashMap<u64, usize>,
+    paris_path: &'a PathBuf,
+    assets_path: &'a PathBuf,
+    wanted_lod: usize,
+    dry_run: bool,
+    budget: usize,
+    pieces: Vec<LoadedPiece>,
+    /// mesh id -> index in `pieces`; each unique mesh is decoded once.
+    mesh_cache: HashMap<u64, usize>,
+    instances: Vec<MapInstance>,
+    totals: MapTotals,
+}
 
-    let mut cache = PackageCache::default();
-    let children = {
-        cache.ensure(&mut paris, cell_entry)?;
-        let (package, _) = cache.view()?;
+impl MapContext<'_> {
+    fn cell_children(&mut self, cell_entry: usize) -> Result<Vec<u64>> {
+        self.cache.ensure(&mut *self.paris, cell_entry)?;
+        let (package, _) = self.cache.view()?;
         let block = package
             .resources
             .iter()
             .find(|r| r.type_id == TYPE_CELL)
             .ok_or("entry has no GridCellDataBlock resource")?;
-        cell_children(&package.bytes[block.payload.clone()])?
-    };
-    eprintln!("map: cell {} with {} children", spec, children.len());
+        cell_children(&package.bytes[block.payload.clone()])
+    }
 
-    let wanted_lod = options.map_lod as usize;
-    let mut pieces = Vec::new();
-    let mut selectors_used: HashSet<u64> = HashSet::new();
-    let mut meshes_seen: HashSet<String> = HashSet::new();
-    let mut lods_seen: HashSet<usize> = HashSet::new();
-    let mut reported: HashSet<u64> = HashSet::new();
-    let mut skipped_matrix = 0usize;
-    let mut skipped_no_entity = 0usize;
-    let mut skipped_no_selector = 0usize;
-    let mut skipped_no_lod = 0usize;
-    let mut skipped_no_mesh = 0usize;
-
-    for child in children {
-        if pieces.len() >= MAP_PIECE_LIMIT {
-            eprintln!("map: piece limit {MAP_PIECE_LIMIT} reached");
-            break;
-        }
-        let Some(entries) = entity_index.get(&child).filter(|list| !list.is_empty()) else {
-            skipped_no_entity += 1;
-            continue;
+    /// Spawn one world cell. The cell package carries the entities it places, so they are
+    /// taken from its own resource table: walking the child list instead needs one package
+    /// read per child, and a cell whose children live in many entries re-reads (and
+    /// re-inflates) those packages thousands of times.
+    ///
+    /// The chain is decoded, not searched (ACU-RE-0037): each entity payload references a
+    /// `LODSelector` resource in the same entry (found by resolving each reference slot
+    /// against that entry's id table and keeping the one whose type is `51dc6b80`); the
+    /// selector's five-record table gives the mesh ids of its LOD levels; the mesh id is
+    /// resolved by type in the entity entry, an `_assets` entry, the Paris mesh index or a
+    /// Paris entry. Records with `flags 3/0` are empty levels. Nothing is substituted.
+    fn spawn_cell(&mut self, cell_entry: usize) -> Result<()> {
+        let children = match self.cell_children(cell_entry) {
+            Ok(children) => children,
+            Err(error) => {
+                eprintln!("map: cell {cell_entry}: {error}");
+                self.totals.skipped_no_entity += 1;
+                return Ok(());
+            }
         };
-        let mut link = None;
-        let mut saw_entity = false;
-        for &entry in entries {
-            match entity_link(&mut cache, &mut paris, entry, child)? {
-                EntityLink::Ready {
-                    bytes,
-                    selector_id,
-                    selector_bytes,
-                } => {
-                    saw_entity = true;
-                    link = Some((entry, bytes, selector_id, selector_bytes));
-                    break;
-                }
-                EntityLink::NoSelector => {
-                    saw_entity = true;
-                    break;
-                }
-                EntityLink::NoEntity => continue,
+        let entities: Vec<usize> = {
+            let (package, _) = self.cache.view()?;
+            package
+                .resources
+                .iter()
+                .enumerate()
+                .filter(|(_, resource)| resource.type_id == TYPE_ENTITY)
+                .map(|(position, _)| position)
+                .collect()
+        };
+        self.totals.cells += 1;
+        self.totals.children += children.len();
+        self.totals.entities += entities.len();
+        let before = self.totals.pieces;
+        for position in entities {
+            if self.totals.pieces >= self.budget {
+                eprintln!("map: piece limit {} reached", self.budget);
+                break;
             }
+            self.spawn_entity(cell_entry, position)?;
         }
-        let Some((entity_entry, entity_bytes, selector_id, selector_bytes)) = link else {
-            if saw_entity {
-                skipped_no_selector += 1;
-            } else {
-                skipped_no_entity += 1;
-            }
-            continue;
+        if self.totals.pieces > before {
+            self.totals.cells_with_pieces += 1;
+        }
+        Ok(())
+    }
+
+    /// Spawn the entity at `position` inside `cell_entry`'s package.
+    fn spawn_entity(&mut self, entity_entry: usize, position: usize) -> Result<()> {
+        let (entity_bytes, selector_id, selector_bytes) = {
+            let (package, ids) = self.cache.view()?;
+            let entity = &package.resources[position];
+            let bytes = package.bytes[entity.payload.clone()].to_vec();
+            let Some((selector_position, selector_id)) = find_selector(package, ids, &bytes) else {
+                self.totals.skipped_no_selector += 1;
+                return Ok(());
+            };
+            let selector = &package.resources[selector_position];
+            (
+                bytes,
+                selector_id,
+                package.bytes[selector.payload.clone()].to_vec(),
+            )
         };
         let Some(matrix) = entity_matrix(&entity_bytes) else {
-            skipped_matrix += 1;
-            continue;
+            self.totals.skipped_matrix += 1;
+            return Ok(());
         };
+        // A garbage matrix (or a decoder returning uninitialised vertices) would otherwise
+        // poison the whole map's bounds and fly the camera out of the world.
+        if matrix.iter().any(|v| !v.is_finite() || v.abs() > 100_000.0) {
+            self.totals.skipped_bad_matrix += 1;
+            if self
+                .totals
+                .bad_geometry
+                .insert(matrix[12] as u64 ^ matrix[13] as u64)
+            {
+                eprintln!("map: entity matrix out of range: {matrix:?}");
+            }
+            return Ok(());
+        }
         let records = match selector_records(&selector_bytes, selector_id) {
             Ok(records) => records,
             Err(error) => {
                 eprintln!("map: {error}");
-                skipped_no_lod += 1;
-                continue;
+                self.totals.skipped_no_lod += 1;
+                return Ok(());
             }
         };
         // Prefer the requested LOD; fall back to the finest available, never to a wrong level.
         let chosen = records
             .iter()
-            .find(|record| record.level >= wanted_lod)
+            .find(|record| record.level >= self.wanted_lod)
             .or_else(|| records.last());
         let Some(record) = chosen else {
-            skipped_no_lod += 1;
-            continue;
+            self.totals.skipped_no_lod += 1;
+            return Ok(());
         };
-        if reported.insert(selector_id) {
+        if self.totals.reported.insert(selector_id) {
             let table = records
                 .iter()
                 .map(|entry| format!("{}@{:.0}m", entry.level, entry.distance))
@@ -1071,73 +1055,210 @@ pub fn load_map(options: &Options, loader: &mut Loader) -> Result<Vec<LoadedPiec
             );
         }
         let Some((from_assets, mesh_entry, resource)) = resolve_mesh(
-            &mut cache,
-            &mut paris,
-            &mut assets,
+            &mut *self.cache,
+            &mut *self.paris,
+            &mut *self.assets,
             entity_entry,
             record.entry_id,
-            &assets_entries,
-            &paris_ids,
-            &mesh_index,
+            self.assets_entries,
+            self.paris_ids,
+            self.mesh_index,
         )?
         else {
             eprintln!(
                 "map: selector {selector_id:016x} LOD{} mesh {:016x} is in no selected archive",
                 record.level, record.entry_id
             );
-            skipped_no_mesh += 1;
-            continue;
+            self.totals.skipped_no_mesh += 1;
+            return Ok(());
         };
-        let piece = Piece {
-            archive: if from_assets {
-                assets_path.clone()
-            } else {
-                paris_path.clone()
-            },
-            entry: mesh_entry,
-            resource,
-            label: format!("cell-{child:016x}"),
-        };
-        let mut loaded = if from_assets {
-            load_piece(loader, &mut assets, &piece)?
-        } else {
-            load_piece(loader, &mut paris, &piece)?
-        };
-        for vertex in &mut loaded.vertices {
-            vertex.position = transform_point(&matrix, vertex.position);
-            vertex.normal = transform_direction(&matrix, vertex.normal);
-            if let Some(tangent) = vertex.tangent {
-                vertex.tangent = Some(transform_direction(&matrix, tangent));
-            }
-            if let Some(binormal) = vertex.binormal {
-                vertex.binormal = Some(transform_direction(&matrix, binormal));
-            }
+        self.totals.mesh_refs.insert(record.entry_id);
+        self.totals.selectors.insert(selector_id);
+        self.totals.lods.insert(record.level);
+        self.totals.pieces += 1;
+        if self.dry_run {
+            return Ok(());
         }
-        selectors_used.insert(selector_id);
-        meshes_seen.insert(loaded.file_id.clone());
-        lods_seen.insert(record.level);
-        pieces.push(loaded);
+        // One decode per unique mesh; each placement becomes an instance with its matrix.
+        let piece_index = match self.mesh_cache.get(&record.entry_id) {
+            Some(&index) => index,
+            None => {
+                let piece = Piece {
+                    archive: if from_assets {
+                        self.assets_path.clone()
+                    } else {
+                        self.paris_path.clone()
+                    },
+                    entry: mesh_entry,
+                    resource,
+                    label: format!("mesh-{:016x}", record.entry_id),
+                };
+                let loaded = if from_assets {
+                    load_piece(&mut *self.loader, &mut *self.assets, &piece)
+                } else {
+                    load_piece(&mut *self.loader, &mut *self.paris, &piece)
+                };
+                let loaded = match loaded {
+                    Ok(loaded) => loaded,
+                    Err(error) => {
+                        // One unsupported mesh must not abort the map; it is named and
+                        // counted here instead.
+                        if self.totals.decode_errors.insert(record.entry_id) {
+                            eprintln!(
+                                "map: mesh {:016x} (entry {mesh_entry}) not decoded: {error}",
+                                record.entry_id
+                            );
+                        }
+                        self.totals.skipped_decode += 1;
+                        self.totals.pieces -= 1;
+                        self.totals.mesh_refs.remove(&record.entry_id);
+                        return Ok(());
+                    }
+                };
+                if loaded.vertices.iter().any(|v| {
+                    v.position
+                        .iter()
+                        .any(|c| !c.is_finite() || c.abs() > 100_000.0)
+                }) {
+                    if self.totals.bad_geometry.insert(record.entry_id) {
+                        eprintln!(
+                            "map: mesh {:016x} has out-of-range vertices; skipped",
+                            record.entry_id
+                        );
+                    }
+                    self.totals.skipped_bad_vertices += 1;
+                    self.totals.pieces -= 1;
+                    self.totals.mesh_refs.remove(&record.entry_id);
+                    return Ok(());
+                }
+                let index = self.pieces.len();
+                self.pieces.push(loaded);
+                self.mesh_cache.insert(record.entry_id, index);
+                index
+            }
+        };
+        self.instances.push(MapInstance {
+            piece: piece_index,
+            matrix,
+        });
+        Ok(())
     }
-    let lod_list: Vec<String> = {
-        let mut levels: Vec<usize> = lods_seen.iter().copied().collect();
-        levels.sort_unstable();
-        levels.iter().map(|level| level.to_string()).collect()
+}
+
+/// One cell or a JSON list of cells, spawned through the decoded chain.
+pub fn load_map(
+    options: &Options,
+    loader: &mut Loader,
+) -> Result<(Vec<LoadedPiece>, Vec<MapInstance>)> {
+    let limits = Limits::default();
+    let paris_path = options
+        .map_paris
+        .clone()
+        .unwrap_or_else(|| options.game_dir.join("DataPC_ACU_Paris.forge"));
+    let assets_path = options
+        .map_assets
+        .clone()
+        .unwrap_or_else(|| options.game_dir.join("DataPC_ACU_Paris_assets.forge"));
+    let mut paris = Forge::open(&paris_path, limits)?;
+    let paris_ids = id_map(&paris);
+    let mesh_index = read_index("local/paris-world-meshes.bin")?;
+    let mut assets = Forge::open(&assets_path, limits)?;
+    let assets_entries = id_map(&assets);
+
+    let mut cell_entries: Vec<usize> = Vec::new();
+    if let Some(path) = &options.map_cells {
+        #[derive(serde::Deserialize)]
+        struct Row {
+            entry_index: usize,
+        }
+        let text = std::fs::read_to_string(path)
+            .map_err(|e| format!("--map-cells {}: {e}", path.display()))?;
+        let rows: Vec<Row> = serde_json::from_str(&text)
+            .map_err(|e| format!("--map-cells {}: {e}", path.display()))?;
+        cell_entries.extend(rows.into_iter().map(|row| row.entry_index));
+    }
+    if let Some(spec) = &options.map_cell {
+        let entry = match spec.parse::<usize>() {
+            Ok(index) => index,
+            Err(_) => {
+                let id = u64::from_str_radix(spec.trim_start_matches("0x"), 16)
+                    .map_err(|_| "map cell must be an entry index or a hex file id")?;
+                *paris_ids
+                    .get(&id)
+                    .ok_or("cell file id is not an entry in the Paris archive")?
+            }
+        };
+        cell_entries.push(entry);
+    }
+    if cell_entries.is_empty() {
+        return Err("map mode without --map-cell or --map-cells".into());
+    }
+    let budget = options
+        .map_piece_limit
+        .unwrap_or(if options.map_cells.is_some() {
+            200_000
+        } else {
+            MAP_PIECE_LIMIT
+        });
+
+    let mut cache = PackageCache::default();
+    let mut context = MapContext {
+        paris: &mut paris,
+        assets: &mut assets,
+        loader,
+        cache: &mut cache,
+        mesh_index: &mesh_index,
+        assets_entries: &assets_entries,
+        paris_ids: &paris_ids,
+        paris_path: &paris_path,
+        assets_path: &assets_path,
+        wanted_lod: options.map_lod as usize,
+        dry_run: options.map_dry_run,
+        budget,
+        pieces: Vec::new(),
+        mesh_cache: HashMap::new(),
+        instances: Vec::new(),
+        totals: MapTotals::default(),
     };
     eprintln!(
-        "map: {} pieces, {} distinct meshes, {} distinct selectors, LODs [{}]; \
-         skipped: {} without a matrix, {} without an entity, {} without a selector, \
-         {} without a LOD record, {} without a mesh",
-        pieces.len(),
-        meshes_seen.len(),
-        selectors_used.len(),
-        lod_list.join(","),
-        skipped_matrix,
-        skipped_no_entity,
-        skipped_no_selector,
-        skipped_no_lod,
-        skipped_no_mesh
+        "map: {} cells to spawn, piece budget {budget}",
+        cell_entries.len()
     );
-    Ok(pieces)
+    for cell in cell_entries {
+        if context.totals.pieces >= budget {
+            eprintln!("map: piece budget reached before cell {cell}");
+            break;
+        }
+        context.spawn_cell(cell)?;
+    }
+
+    let totals = &context.totals;
+    let mut lods: Vec<usize> = totals.lods.iter().copied().collect();
+    lods.sort_unstable();
+    let lod_list: Vec<String> = lods.iter().map(|level| level.to_string()).collect();
+    eprintln!(
+        "map: {} pieces from {}/{} cells ({} entities, {} child refs), {} distinct mesh ids, \
+         {} distinct selectors, LODs [{}]; skipped: {} without a matrix, {} without a \
+         selector, {} without a LOD record, {} without a mesh, {} undecodable meshes, \
+         {} out-of-range matrices, {} out-of-range meshes, {} cells without a cell block",
+        totals.pieces,
+        totals.cells_with_pieces,
+        totals.cells,
+        totals.entities,
+        totals.children,
+        totals.mesh_refs.len(),
+        totals.selectors.len(),
+        lod_list.join(","),
+        totals.skipped_matrix,
+        totals.skipped_no_selector,
+        totals.skipped_no_lod,
+        totals.skipped_no_mesh,
+        totals.skipped_decode,
+        totals.skipped_bad_matrix,
+        totals.skipped_bad_vertices,
+        totals.skipped_no_entity
+    );
+    Ok((context.pieces, context.instances))
 }
 
 /// Load every piece, reusing one open Forge per archive.
@@ -1146,10 +1267,11 @@ pub fn load_all(options: &Options) -> Result<Loaded> {
     let mut forges: HashMap<PathBuf, Forge> = HashMap::new();
     let mut loader = Loader::new(options);
     let mut pieces = Vec::new();
-    if options.map_cell.is_some() {
-        pieces = load_map(options, &mut loader)?;
+    let mut instances = Vec::new();
+    if options.map_cell.is_some() || options.map_cells.is_some() {
+        (pieces, instances) = load_map(options, &mut loader)?;
     }
-    let pet: &[Piece] = if options.map_cell.is_some() {
+    let pet: &[Piece] = if options.map_cell.is_some() || options.map_cells.is_some() {
         &[]
     } else {
         &options.pieces
@@ -1199,5 +1321,9 @@ pub fn load_all(options: &Options) -> Result<Loaded> {
                 .collect(),
         })
         .collect();
-    Ok(Loaded { pieces, scene })
+    Ok(Loaded {
+        pieces,
+        instances,
+        scene,
+    })
 }

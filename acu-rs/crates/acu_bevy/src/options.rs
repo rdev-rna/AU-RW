@@ -49,6 +49,12 @@ pub struct Options {
     pub pieces: Vec<Piece>,
     /// Map scene: a world cell to spawn, given as an entry index or a 16-digit file id.
     pub map_cell: Option<String>,
+    /// JSON list of cells to spawn in one scene (`[{"entry_index": N}, ...]`).
+    pub map_cells: Option<PathBuf>,
+    /// Count resolvable pieces without decoding meshes.
+    pub map_dry_run: bool,
+    /// Cap on placed pieces; defaults to 400 for one cell and 200000 for a list.
+    pub map_piece_limit: Option<usize>,
     /// Preferred LOD level for map meshes; the finest available is used when absent.
     pub map_lod: u8,
     /// Archives used by map mode; default to the installed Paris pair.
@@ -113,6 +119,9 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut archive: Option<PathBuf> = None;
     let mut piece_args: Vec<String> = Vec::new();
     let mut map_cell: Option<String> = None;
+    let mut map_cells: Option<PathBuf> = None;
+    let mut map_dry_run = false;
+    let mut map_piece_limit: Option<usize> = None;
     let mut map_lod: u8 = 0;
     let mut map_paris: Option<PathBuf> = None;
     let mut map_assets: Option<PathBuf> = None;
@@ -139,6 +148,20 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
             }
             "--piece" => piece_args.push(args.next().ok_or("--piece needs a value")?),
             "--map-cell" => map_cell = Some(args.next().ok_or("--map-cell needs a value")?),
+            "--map-cells" => {
+                map_cells = Some(PathBuf::from(
+                    args.next().ok_or("--map-cells needs a path")?,
+                ))
+            }
+            "--map-dry-run" => map_dry_run = true,
+            "--map-piece-limit" => {
+                map_piece_limit = Some(
+                    args.next()
+                        .ok_or("--map-piece-limit needs a count")?
+                        .parse()
+                        .map_err(|e| format!("--map-piece-limit: {e}"))?,
+                )
+            }
             "--map-lod" => {
                 map_lod = args
                     .next()
@@ -258,8 +281,9 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
         })
         .unwrap_or_else(|| game_dir.join(DEFAULT_ARCHIVE));
     let mut pieces = Vec::new();
-    let rigged = piece_args.is_empty() && !static_scene && map_cell.is_none();
-    if map_cell.is_some() {
+    let map_mode = map_cell.is_some() || map_cells.is_some();
+    let rigged = piece_args.is_empty() && !static_scene && !map_mode;
+    if map_mode {
         // Map mode supplies its own pieces; the Arno set and --piece are ignored.
     } else if piece_args.is_empty() {
         for (entry, resource, label) in ARNO_PIECES {
@@ -305,6 +329,9 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
         game_dir,
         pieces,
         map_cell,
+        map_cells,
+        map_dry_run,
+        map_piece_limit,
         map_lod,
         map_paris,
         map_assets,
@@ -331,7 +358,10 @@ OPTIONS:
                        (default: DataPC_ACU_LGS_BelleEpoque.forge)
     --piece P          ARCHIVE:ENTRY:RESOURCE or ENTRY:RESOURCE (repeatable)
     --map-cell CELL    Spawn a world cell (entry index or 16-digit file id)
+    --map-cells FILE   Spawn every cell in a JSON list (entry_index per row)
     --map-lod N        Preferred mesh LOD level 0..4 (default 0)
+    --map-dry-run      Count resolvable pieces without decoding meshes
+    --map-piece-limit N  Cap placed pieces (400 one cell, 200000 for a list)
     --map-paris FILE   Paris archive used by map mode
     --map-assets FILE  Assets archive used by map mode (LOD meshes)
     --capture PATH     Render headless, save one PNG screenshot, then exit

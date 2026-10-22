@@ -35,6 +35,15 @@ use bevy::window::ExitCondition;
 use options::{Options, parse};
 
 /// Native (Z-up) to Bevy (Y-up) presentation rotation.
+/// Apply a native row-major affine to a point (same convention as the entity matrix).
+fn apply_native_matrix(m: &[f32; 16], p: [f32; 3]) -> [f32; 3] {
+    [
+        m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12],
+        m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13],
+        m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14],
+    ]
+}
+
 fn native_z_up_to_bevy_y_up() -> Quat {
     Quat::from_rotation_x(-std::f32::consts::FRAC_PI_2)
 }
@@ -296,6 +305,8 @@ fn setup_world(
             })
         })
         .collect();
+    let map_mode = !loaded.instances.is_empty();
+    let instances = loaded.instances;
     let pieces = loaded.pieces;
 
     let mut bevy_min = Vec3::splat(f32::INFINITY);
@@ -303,7 +314,6 @@ fn setup_world(
     let mut native_min = [f32::INFINITY; 3];
     let mut native_max = [f32::NEG_INFINITY; 3];
     for piece in &pieces {
-        let (min, max) = piece.bounds();
         println!(
             "piece {} archive={} entry={} resource={} file_id={} entry_sha256={} payload_sha256={} qf={} src={}/{} verts={} tris={}",
             piece.label,
@@ -323,19 +333,44 @@ fn setup_world(
                 .map(|part| part.triangles.len())
                 .sum::<usize>(),
         );
-        for i in 0..3 {
-            native_min[i] = native_min[i].min(min[i]);
-            native_max[i] = native_max[i].max(max[i]);
+    }
+    if map_mode {
+        // Placements, not unique meshes, define the scene bounds.
+        for instance in &instances {
+            let (min, max) = pieces[instance.piece].bounds();
+            for corner in 0..8 {
+                let p = [
+                    if corner & 1 == 0 { min[0] } else { max[0] },
+                    if corner & 2 == 0 { min[1] } else { max[1] },
+                    if corner & 4 == 0 { min[2] } else { max[2] },
+                ];
+                let q = apply_native_matrix(&instance.matrix, p);
+                for i in 0..3 {
+                    native_min[i] = native_min[i].min(q[i]);
+                    native_max[i] = native_max[i].max(q[i]);
+                }
+                let rotated = native_z_up_to_bevy_y_up() * Vec3::from_array(q);
+                bevy_min = bevy_min.min(rotated);
+                bevy_max = bevy_max.max(rotated);
+            }
         }
-        for corner in 0..8 {
-            let p = Vec3::new(
-                if corner & 1 == 0 { min[0] } else { max[0] },
-                if corner & 2 == 0 { min[1] } else { max[1] },
-                if corner & 4 == 0 { min[2] } else { max[2] },
-            );
-            let rotated = native_z_up_to_bevy_y_up() * p;
-            bevy_min = bevy_min.min(rotated);
-            bevy_max = bevy_max.max(rotated);
+    } else {
+        for piece in &pieces {
+            let (min, max) = piece.bounds();
+            for i in 0..3 {
+                native_min[i] = native_min[i].min(min[i]);
+                native_max[i] = native_max[i].max(max[i]);
+            }
+            for corner in 0..8 {
+                let p = Vec3::new(
+                    if corner & 1 == 0 { min[0] } else { max[0] },
+                    if corner & 2 == 0 { min[1] } else { max[1] },
+                    if corner & 4 == 0 { min[2] } else { max[2] },
+                );
+                let rotated = native_z_up_to_bevy_y_up() * p;
+                bevy_min = bevy_min.min(rotated);
+                bevy_max = bevy_max.max(rotated);
+            }
         }
     }
     if pieces.is_empty() {
@@ -391,69 +426,140 @@ fn setup_world(
         ));
     }
 
-    // Arno pieces as children of one native-space root.
-    commands
-        .spawn((
-            player::Character,
-            Transform::from_rotation(native_z_up_to_bevy_y_up()),
-            Visibility::default(),
-        ))
-        .with_children(|parent| {
-            for piece in &pieces {
-                let mut skin = library
-                    .as_mut()
-                    .map(|l| l.skin(piece).expect("validate skin influences and bind"));
-                let mut positions = Vec::with_capacity(piece.vertices.len());
-                let mut normals = Vec::with_capacity(piece.vertices.len());
-                let mut uvs = Vec::with_capacity(piece.vertices.len());
-                let mut tangents = Vec::with_capacity(piece.vertices.len());
-                for v in &piece.vertices {
-                    positions.push(v.position);
-                    normals.push(v.normal);
-                    uvs.push(v.uv0.unwrap_or([0.0, 0.0]));
-                    let n = Vec3::from_array(v.normal).normalize_or_zero();
-                    let t =
-                        Vec3::from_array(v.tangent.unwrap_or([1.0, 0.0, 0.0])).normalize_or_zero();
-                    let b = Vec3::from_array(v.binormal.unwrap_or([0.0, 1.0, 0.0]));
-                    tangents.push([
-                        t.x,
-                        t.y,
-                        t.z,
-                        if n.cross(t).dot(b) < 0.0 { -1.0 } else { 1.0 },
-                    ]);
-                }
-                for part in &piece.parts {
-                    let mesh = Mesh::new(
-                        bevy::render::render_resource::PrimitiveTopology::TriangleList,
-                        bevy::asset::RenderAssetUsages::MAIN_WORLD
-                            | bevy::asset::RenderAssetUsages::RENDER_WORLD,
-                    )
-                    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions.clone())
-                    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals.clone())
-                    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs.clone())
-                    .with_inserted_attribute(Mesh::ATTRIBUTE_TANGENT, tangents.clone())
-                    .with_inserted_indices(bevy::mesh::Indices::U32(
-                        part.triangles.iter().flatten().copied().collect(),
-                    ));
-                    let material = part
-                        .material
-                        .map(|i| bound_materials[i].clone())
-                        .unwrap_or_else(|| character_grey.clone());
-                    let handle = meshes.add(mesh);
-                    if let Some(skin) = skin.as_mut() {
-                        skin.handles.push(handle.clone());
-                    }
-                    parent.spawn((
-                        Mesh3d(handle),
-                        MeshMaterial3d(material),
-                        bevy::camera::visibility::NoFrustumCulling,
-                    ));
-                }
-                if let (Some(state), Some(skin)) = (state.as_mut(), skin) {
-                    state.skins.push(skin);
-                }
+    if map_mode {
+        // One mesh asset per unique piece part; every placement is an instance sharing it.
+        let mut part_meshes: Vec<Vec<Handle<Mesh>>> = Vec::with_capacity(pieces.len());
+        let mut part_materials: Vec<Vec<Handle<character_material::CharacterMaterial>>> =
+            Vec::with_capacity(pieces.len());
+        for piece in &pieces {
+            let mut positions = Vec::with_capacity(piece.vertices.len());
+            let mut normals = Vec::with_capacity(piece.vertices.len());
+            let mut uvs = Vec::with_capacity(piece.vertices.len());
+            let mut tangents = Vec::with_capacity(piece.vertices.len());
+            for v in &piece.vertices {
+                positions.push(v.position);
+                normals.push(v.normal);
+                uvs.push(v.uv0.unwrap_or([0.0, 0.0]));
+                let n = Vec3::from_array(v.normal).normalize_or_zero();
+                let t = Vec3::from_array(v.tangent.unwrap_or([1.0, 0.0, 0.0])).normalize_or_zero();
+                let b = Vec3::from_array(v.binormal.unwrap_or([0.0, 1.0, 0.0]));
+                tangents.push([
+                    t.x,
+                    t.y,
+                    t.z,
+                    if n.cross(t).dot(b) < 0.0 { -1.0 } else { 1.0 },
+                ]);
             }
-        });
+            let mut meshes_for_piece = Vec::with_capacity(piece.parts.len());
+            let mut materials_for_piece = Vec::with_capacity(piece.parts.len());
+            for part in &piece.parts {
+                let mesh = Mesh::new(
+                    bevy::render::render_resource::PrimitiveTopology::TriangleList,
+                    bevy::asset::RenderAssetUsages::MAIN_WORLD
+                        | bevy::asset::RenderAssetUsages::RENDER_WORLD,
+                )
+                .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions.clone())
+                .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals.clone())
+                .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs.clone())
+                .with_inserted_attribute(Mesh::ATTRIBUTE_TANGENT, tangents.clone())
+                .with_inserted_indices(bevy::mesh::Indices::U32(
+                    part.triangles.iter().flatten().copied().collect(),
+                ));
+                meshes_for_piece.push(meshes.add(mesh));
+                materials_for_piece.push(
+                    part.material
+                        .map(|i| bound_materials[i].clone())
+                        .unwrap_or_else(|| character_grey.clone()),
+                );
+            }
+            part_meshes.push(meshes_for_piece);
+            part_materials.push(materials_for_piece);
+        }
+        commands
+            .spawn((
+                Transform::from_rotation(native_z_up_to_bevy_y_up()),
+                Visibility::default(),
+            ))
+            .with_children(|root| {
+                for instance in &instances {
+                    let transform = Transform::from_matrix(Mat4::from_cols_array(&instance.matrix));
+                    for (mesh, material) in part_meshes[instance.piece]
+                        .iter()
+                        .zip(&part_materials[instance.piece])
+                    {
+                        root.spawn((
+                            Mesh3d(mesh.clone()),
+                            MeshMaterial3d(material.clone()),
+                            transform,
+                        ));
+                    }
+                }
+            });
+    } else {
+        // Arno pieces as children of one native-space root.
+        commands
+            .spawn((
+                player::Character,
+                Transform::from_rotation(native_z_up_to_bevy_y_up()),
+                Visibility::default(),
+            ))
+            .with_children(|parent| {
+                for piece in &pieces {
+                    let mut skin = library
+                        .as_mut()
+                        .map(|l| l.skin(piece).expect("validate skin influences and bind"));
+                    let mut positions = Vec::with_capacity(piece.vertices.len());
+                    let mut normals = Vec::with_capacity(piece.vertices.len());
+                    let mut uvs = Vec::with_capacity(piece.vertices.len());
+                    let mut tangents = Vec::with_capacity(piece.vertices.len());
+                    for v in &piece.vertices {
+                        positions.push(v.position);
+                        normals.push(v.normal);
+                        uvs.push(v.uv0.unwrap_or([0.0, 0.0]));
+                        let n = Vec3::from_array(v.normal).normalize_or_zero();
+                        let t = Vec3::from_array(v.tangent.unwrap_or([1.0, 0.0, 0.0]))
+                            .normalize_or_zero();
+                        let b = Vec3::from_array(v.binormal.unwrap_or([0.0, 1.0, 0.0]));
+                        tangents.push([
+                            t.x,
+                            t.y,
+                            t.z,
+                            if n.cross(t).dot(b) < 0.0 { -1.0 } else { 1.0 },
+                        ]);
+                    }
+                    for part in &piece.parts {
+                        let mesh = Mesh::new(
+                            bevy::render::render_resource::PrimitiveTopology::TriangleList,
+                            bevy::asset::RenderAssetUsages::MAIN_WORLD
+                                | bevy::asset::RenderAssetUsages::RENDER_WORLD,
+                        )
+                        .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions.clone())
+                        .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals.clone())
+                        .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs.clone())
+                        .with_inserted_attribute(Mesh::ATTRIBUTE_TANGENT, tangents.clone())
+                        .with_inserted_indices(bevy::mesh::Indices::U32(
+                            part.triangles.iter().flatten().copied().collect(),
+                        ));
+                        let material = part
+                            .material
+                            .map(|i| bound_materials[i].clone())
+                            .unwrap_or_else(|| character_grey.clone());
+                        let handle = meshes.add(mesh);
+                        if let Some(skin) = skin.as_mut() {
+                            skin.handles.push(handle.clone());
+                        }
+                        parent.spawn((
+                            Mesh3d(handle),
+                            MeshMaterial3d(material),
+                            bevy::camera::visibility::NoFrustumCulling,
+                        ));
+                    }
+                    if let (Some(state), Some(skin)) = (state.as_mut(), skin) {
+                        state.skins.push(skin);
+                    }
+                }
+            });
+    }
     if let Some(library) = library {
         loaded.scene.rig = Some(library.report);
     }
@@ -486,7 +592,7 @@ fn setup_world(
         DirectionalLight {
             color: Color::srgb(1.0, 0.91, 0.78),
             illuminance: 18_000.0,
-            shadow_maps_enabled: true,
+            shadow_maps_enabled: !map_mode,
             ..default()
         },
         Transform::from_rotation(Quat::from_euler(EulerRot::YXZ, 0.6, -0.9, 0.0)),
