@@ -7,7 +7,7 @@ Status: done / partial / started / none.
 
 | Area | Status | Scope | Anchors and reuse |
 |---|---|---|---|
-| binding | none | ACU-003 export<->exe binding; reconcile exe hash (STATUS `40ded8de..` vs code_map `748abdc6..`); name registry | NetProtocol string layer 0x140278900-0x141F35C50 |
+| binding | partial | ACU-003 done (ACU-RE-0031): installed exe `748abdc6..`, VA = RVA + 0x140000000; `40ded8de..` unidentified (issue #34). Remaining: name registry | NetProtocol string layer 0x140278900-0x141F35C50 |
 | assets-containers | partial | Forge, patch precedence, map/DLC archives, mod-layer exclusion | `acu_assets` forge/frame/package/catalog; ASSET_COVERAGE.md |
 | assets-types | partial | Entity, EntityGroup, LODSelector, Material/TextureSet/TextureMap variants, skeleton remainder, codec 7/8 | STATUS unsupported-type counts |
 | world-data | none | map/world/layer/cell format; units, axes, tick rate decisions | DECISIONS.md pending items |
