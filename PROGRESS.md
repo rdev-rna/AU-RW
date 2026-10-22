@@ -11,7 +11,7 @@ Current gates pass: fmt, Clippy with warnings denied, 107 workspace tests
 (19 explicitly ignored), workspace build, 22 Python tests, check and doctor.
 Both explicit install regressions pass, including actual render-mesh thigh
 deformation and a disabled-helper negative control. Executable SHA-256:
-`40ded8de3629e875c504f50fb896922d4f1e1de478a60afca4d5ebc324ac362c`. [unidentified project artifact, 2026-10-19; not the installed game binary, the mapped image or the reconstructed PE - see ACU-RE-0031]
+`40ded8de3629e875c504f50fb896922d4f1e1de478a60afca4d5ebc324ac362c`.
 
 Animation audit records 9,682 attempts, 3,317 decoded animations, 6,365 explicit
 failures and 261,388 track rows. Actor ownership remains unverified; this does

@@ -426,18 +426,7 @@ Acceptance:
 
 ## ACU-003 — Bind the pseudocode export to the native build
 
-Status: done (2026-10-22) - bound by headers and file-backed resources; code identity
-is unavailable because the installed file is packed. See ACU-RE-0031.
-
-Tool: `tools/bind_corpus.py`, regression `tools/test_corpus_binding.py`. Result on this
-machine: installed `ACU.exe` SHA-256 `748abdc6...`, mapped image `406d47f6...`
-(125,980,672 B), export `ghidra_functions.csv` 294,030 rows. Header anchors agree,
-`.rsrc`/`.tls` match byte-for-byte, `.text`/`.rdata`/`.data`/`.pdata` have RawSize 0 on
-disk (24.5 % of SizeOfImage is file-backed). Export resolves against the binary's own
-263,663 unwind starts at 0.996712 (161,187 exact, 101,601 chained fragments, 867 absent).
-`.UBX1` differs in 13,208 of 30,335,896 bytes and is the only section declared mutable.
-Do not claim code was byte-compared; do not claim the 867 absent starts or the three
-patched `.UBX1` pages are explained.
+Status: ready; can be investigated independently of archive decoding.
 
 Acceptance: identify the export source/build if available; bind an ACU analysis
 session by executable hash; verify several exported function locations/signatures
