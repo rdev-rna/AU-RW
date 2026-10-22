@@ -35,12 +35,14 @@ The list is now every cell with `record_length > 80`: **8,330 cells**, 530,850 c
 ## Result
 
 ```text
-8,330 cells -> 208,472 placements, 5,773 cells with geometry
-14,952 unique meshes, 15,155 direct-mesh entities (ground/largemesh chunks)
-LODs 0/1/2, bounds ~2.25 km x 2.0 km
+8,330 cells -> 207,867 placements, 5,770 cells with geometry
+337,672 entities scanned, 530,850 child refs
+14,928 unique meshes, 15,155 direct-mesh entities (ground/largemesh chunks)
+LODs 0/1/2, framed extent 2.4 km across
 ```
 
-Evidence: `local/paris-map-full.png`.
+Evidence: `local/paris-map-complete.png` (2560x1440, LOD2, no textures). The Seine, both
+arms, the island, the street grid and the building blocks read correctly at city scale.
 
 ## What changed
 
@@ -63,6 +65,9 @@ Evidence: `local/paris-map-full.png`.
   named in the summary, so the exclusion is measured, not silent.
 - Guards: out-of-range matrices and vertices, undecodable meshes are named and counted.
 - `--map-dry-run`, `--map-piece-limit`, `--orbit-elevation`, `ACU_MAP_TRACE=1`.
+- Framing: a multi-cell scene uses the 2nd..98th percentile of placement origins per axis
+  (the river arms otherwise stretch the frame) and a 1.1x distance multiplier; one cell
+  frames its meshes directly and reports outliers.
 
 ### The blank-capture bug
 
