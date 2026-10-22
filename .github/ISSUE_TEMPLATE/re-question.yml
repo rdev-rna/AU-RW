@@ -1,0 +1,38 @@
+name: Reverse-engineering question
+description: A bounded evidence question. Result is a finding (docs/templates/FINDING.md).
+labels: ["type:re", "status:needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Public repository: addresses, hashes and doc links only. String hits are leads, not proof.
+        Opening this issue reserves the finding number; the PR adds docs/findings/ACU-RE-NNNN-slug.md.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options: [binding, assets-containers, assets-types, world-data, collision-nav, streaming, environment, traversal, statemachine, motion, warping, trajectory, ik, modifiers, crowd, ai-awareness, ai-navigation, combat, render, audio, video, ui, mission, save, progression, coop, physics, tooling, infra]
+    validations: {required: true}
+  - type: textarea
+    id: question
+    attributes:
+      label: Exact question
+    validations: {required: true}
+  - type: textarea
+    id: leads
+    attributes:
+      label: Evidence pointers
+      description: Binary SHA-256 if known, VA/RVA, corpus path and lines, archive identity, file ID (16-digit hex), strings.
+  - type: textarea
+    id: method
+    attributes:
+      label: Suggested method
+      description: Static corpus, IDA/REA (bind the ACU target explicitly), live tap/hook, asset decode.
+  - type: textarea
+    id: falsify
+    attributes:
+      label: What would falsify the expected answer
+  - type: textarea
+    id: depends
+    attributes:
+      label: Depends on

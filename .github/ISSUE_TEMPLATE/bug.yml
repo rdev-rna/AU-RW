@@ -1,0 +1,18 @@
+name: Bug or regression
+description: Something validated is now wrong.
+labels: ["type:bug", "status:needs-triage"]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened vs expected
+    validations: {required: true}
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction (commands, scenario, build)
+    validations: {required: true}
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence (test output, finding IDs, paths)

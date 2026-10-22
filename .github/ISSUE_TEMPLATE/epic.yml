@@ -1,0 +1,13 @@
+name: Epic (subsystem)
+description: Parent issue for one area. Maintainers create these; slices attach as sub-issues.
+labels: ["type:epic"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal and exit criteria
+    validations: {required: true}
+  - type: textarea
+    id: anchors
+    attributes:
+      label: Known evidence anchors, reusable code, open unknowns
