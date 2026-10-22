@@ -862,6 +862,7 @@ fn read_index(name: &str) -> Result<Index> {
 ///   4. a Paris entry whose single mesh carries that id.
 /// Every branch requires the resolved resource's type to be `415d9568`; no id is ever
 /// dereferenced on the strength of a namespace or name rule.
+#[allow(clippy::too_many_arguments)]
 fn resolve_mesh(
     cache: &mut PackageCache,
     paris: &mut Forge,
@@ -871,14 +872,17 @@ fn resolve_mesh(
     assets_entries: &HashMap<u64, usize>,
     paris_entries: &HashMap<u64, usize>,
     mesh_index: &Index,
-) -> Result<Option<(bool, usize, usize)>> {
+    locations: &MeshLocationIndex,
+    extra_archives: &[PathBuf],
+    extra_forges: &mut Vec<Option<Forge>>,
+) -> Result<Option<(MeshArchive, usize, usize)>> {
     cache.ensure(paris, entity_entry)?;
     {
         let (package, ids) = cache.view()?;
         if let Some(&position) = ids.get(&id)
             && package.resources[position].type_id == TYPE_WORLD_MESH
         {
-            return Ok(Some((false, entity_entry, position)));
+            return Ok(Some((MeshArchive::Paris, entity_entry, position)));
         }
     }
     if let Some(&entry) = assets_entries.get(&id) {
@@ -888,33 +892,119 @@ fn resolve_mesh(
             .iter()
             .position(|r| r.type_id == TYPE_WORLD_MESH)
         {
-            return Ok(Some((true, entry, position)));
+            return Ok(Some((MeshArchive::Assets, entry, position)));
         }
     }
     let key = format!("{id:016x}");
     if let Some(entries) = mesh_index.get(&id) {
         for &entry in entries {
-            let package = paris.read_package(entry)?;
+            let Ok(package) = paris.read_package(entry) else {
+                continue;
+            };
             if let Some(position) = package
                 .resources
                 .iter()
                 .position(|r| r.file_id == key && r.type_id == TYPE_WORLD_MESH)
             {
-                return Ok(Some((false, entry, position)));
+                return Ok(Some((MeshArchive::Paris, entry, position)));
+            }
+        }
+    }
+    if let Some(&(slot, entry)) = locations.map.get(&id) {
+        let slot = slot as usize;
+        if slot < extra_archives.len() {
+            if extra_forges.len() <= slot {
+                extra_forges.resize_with(slot + 1, || None);
+            }
+            if extra_forges[slot].is_none() {
+                extra_forges[slot] = Some(Forge::open(&extra_archives[slot], Limits::default())?);
+            }
+            let package = extra_forges[slot]
+                .as_mut()
+                .ok_or("extra archive failed to open")?
+                .read_package(entry as usize)?;
+            if let Some(position) = package
+                .resources
+                .iter()
+                .position(|r| r.file_id == key && r.type_id == TYPE_WORLD_MESH)
+            {
+                return Ok(Some((
+                    MeshArchive::Extra(slot as u8),
+                    entry as usize,
+                    position,
+                )));
             }
         }
     }
     if let Some(&entry) = paris_entries.get(&id) {
-        let package = paris.read_package(entry)?;
+        let Ok(package) = paris.read_package(entry) else {
+            return Ok(None);
+        };
         if let Some(position) = package
             .resources
             .iter()
             .position(|r| r.type_id == TYPE_WORLD_MESH)
         {
-            return Ok(Some((false, entry, position)));
+            return Ok(Some((MeshArchive::Paris, entry, position)));
         }
     }
     Ok(None)
+}
+
+/// Which archive a resolved mesh came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MeshArchive {
+    Assets,
+    Paris,
+    Extra(u8),
+}
+
+/// id -> (archive slot, entry) for meshes outside `DataPC_ACU_Paris.forge`, built from the
+/// asset index by `tools/build_mesh_locations.py`. The census index stores only an entry
+/// number, so without this a mesh in `DataPC_ACU_Paris_assets_patch_03.forge` entry 38 was
+/// looked up in `DataPC_ACU_Paris.forge` entry 38 and lost.
+struct MeshLocationIndex {
+    slots: Vec<PathBuf>,
+    map: HashMap<u64, (u8, u32)>,
+}
+
+fn read_mesh_locations(
+    bin_name: &str,
+    json_name: &str,
+    game_dir: &std::path::Path,
+) -> Result<MeshLocationIndex> {
+    let find = |name: &str| -> Result<PathBuf> {
+        let candidates = [
+            PathBuf::from(name),
+            PathBuf::from("..").join(name),
+            PathBuf::from("../..").join(name),
+        ];
+        candidates
+            .iter()
+            .find(|p| p.exists())
+            .cloned()
+            .ok_or_else(|| format!("{name} not found; run tools/build_mesh_locations.py").into())
+    };
+    let text = std::fs::read_to_string(find(json_name)?)?;
+    let names: Vec<String> = serde_json::from_str(&text)?;
+    let slots: Vec<PathBuf> = names.iter().map(|name| game_dir.join(name)).collect();
+    let bytes = std::fs::read(find(bin_name)?)?;
+    if bytes.len() < 12 || &bytes[0..8] != b"ACUMES02" {
+        return Err(format!("{bin_name}: not an ACUMES02 index").into());
+    }
+    let count = u32::from_le_bytes(bytes[8..12].try_into().unwrap()) as usize;
+    if bytes.len() != 12 + count * 13 {
+        return Err(format!("{bin_name}: length does not match {count} rows").into());
+    }
+    let mut map = HashMap::with_capacity(count);
+    for index in 0..count {
+        let at = 12 + index * 13;
+        let id = u64::from_le_bytes(bytes[at..at + 8].try_into().unwrap());
+        let entry = u32::from_le_bytes(bytes[at + 8..at + 12].try_into().unwrap());
+        let slot = bytes[at + 12];
+        map.insert(id, (slot, entry));
+    }
+    Ok(MeshLocationIndex { slots, map })
 }
 
 /// Totals across every cell spawned by one invocation.
@@ -951,6 +1041,10 @@ struct MapContext<'a> {
     loader: &'a mut Loader,
     cache: &'a mut PackageCache,
     mesh_index: &'a Index,
+    selector_index: &'a Index,
+    locations: &'a MeshLocationIndex,
+    extra_archives: &'a [PathBuf],
+    extra_forges: &'a mut Vec<Option<Forge>>,
     assets_entries: &'a HashMap<u64, usize>,
     paris_ids: &'a HashMap<u64, usize>,
     paris_path: &'a PathBuf,
@@ -1027,6 +1121,122 @@ impl MapContext<'_> {
         Ok(())
     }
 
+    /// Mesh ids an entity payload references, even when the mesh is not in the entity's
+    /// own entry. Candidates are restricted to ids that exist as `415d9568` resources.
+    fn mesh_candidates(&self, bytes: &[u8]) -> Vec<u64> {
+        let mut out = Vec::new();
+        for offset in 0..bytes.len().saturating_sub(7) {
+            let value = u64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap());
+            if value == 0 || out.contains(&value) {
+                continue;
+            }
+            if self.mesh_index.contains_key(&value)
+                || self.assets_entries.contains_key(&value)
+                || self.locations.map.contains_key(&value)
+            {
+                out.push(value);
+                if out.len() >= 32 {
+                    break;
+                }
+            }
+        }
+        out
+    }
+
+    /// Resource name of a mesh id, wherever it lives: `_assets` entry, Paris mesh index,
+    /// or an archive from the locations index.
+    fn mesh_name(&mut self, id: u64) -> Result<Option<String>> {
+        if let Some(&entry) = self.assets_entries.get(&id) {
+            let Ok(package) = self.assets.read_package(entry) else {
+                return Ok(None);
+            };
+            if let Some(position) = package
+                .resources
+                .iter()
+                .position(|r| r.type_id == TYPE_WORLD_MESH)
+            {
+                return Ok(Some(package.resources[position].name.clone()));
+            }
+        }
+        let key = format!("{id:016x}");
+        if let Some(entries) = self.mesh_index.get(&id) {
+            for &entry in entries.iter().take(4) {
+                let Ok(package) = self.paris.read_package(entry) else {
+                    continue;
+                };
+                if let Some(position) = package
+                    .resources
+                    .iter()
+                    .position(|r| r.file_id == key && r.type_id == TYPE_WORLD_MESH)
+                {
+                    return Ok(Some(package.resources[position].name.clone()));
+                }
+            }
+        }
+        if let Some(&(slot, entry)) = self.locations.map.get(&id) {
+            let slot = slot as usize;
+            if slot < self.extra_archives.len() {
+                if self.extra_forges.len() <= slot {
+                    self.extra_forges.resize_with(slot + 1, || None);
+                }
+                if self.extra_forges[slot].is_none() {
+                    self.extra_forges[slot] =
+                        Some(Forge::open(&self.extra_archives[slot], Limits::default())?);
+                }
+                if let Some(forge) = self.extra_forges[slot].as_mut() {
+                    if let Ok(package) = forge.read_package(entry as usize) {
+                        if let Some(position) = package
+                            .resources
+                            .iter()
+                            .position(|r| r.file_id == key && r.type_id == TYPE_WORLD_MESH)
+                        {
+                            return Ok(Some(package.resources[position].name.clone()));
+                        }
+                    }
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// Selector resource referenced from another entry: first payload id that the selector
+    /// index knows, resolved and validated like a local one.
+    fn global_selector(&mut self, bytes: &[u8]) -> Result<Option<(u64, Vec<u8>)>> {
+        let mut tried = 0;
+        for offset in 0..bytes.len().saturating_sub(7) {
+            let value = u64::from_le_bytes(bytes[offset..offset + 8].try_into().unwrap());
+            if value == 0 || !self.selector_index.contains_key(&value) {
+                continue;
+            }
+            tried += 1;
+            if tried > 4 {
+                break;
+            }
+            let key = format!("{value:016x}");
+            for &entry in self
+                .selector_index
+                .get(&value)
+                .into_iter()
+                .flatten()
+                .take(4)
+            {
+                let Ok(package) = self.paris.read_package(entry) else {
+                    continue;
+                };
+                if let Some(position) = package
+                    .resources
+                    .iter()
+                    .position(|r| r.type_id == TYPE_SELECTOR && r.file_id == key)
+                {
+                    let payload =
+                        package.bytes[package.resources[position].payload.clone()].to_vec();
+                    return Ok(Some((value, payload)));
+                }
+            }
+        }
+        Ok(None)
+    }
+
     /// Spawn the entity at `position` inside `cell_entry`'s package.
     fn spawn_entity(&mut self, entity_entry: usize, position: usize) -> Result<()> {
         let (entity_bytes, link) = {
@@ -1074,6 +1284,48 @@ impl MapContext<'_> {
                 return Ok(());
             }
         }
+        let mut link = link;
+        if matches!(link, GeometryLink::None) {
+            // The mesh or selector may live in another package; both fallbacks are
+            // type-checked against the census indices, and a mesh candidate must also
+            // share its name with the entity (the payload can mention unrelated props).
+            if let Some((id, payload)) = self.global_selector(&entity_bytes)? {
+                link = GeometryLink::Selector { id, bytes: payload };
+            } else {
+                let entity_name = {
+                    let (package, _) = self.cache.view()?;
+                    package.resources[position].name.clone()
+                };
+                let candidates = self.mesh_candidates(&entity_bytes);
+                if std::env::var_os("ACU_MAP_TRACE").is_some()
+                    && entity_name.starts_with("Largemesh")
+                {
+                    eprintln!("fallback: {entity_name} candidates {candidates:?}");
+                }
+                let mut best: Option<(usize, u64)> = None;
+                for id in candidates {
+                    let Some(name) = self.mesh_name(id)? else {
+                        continue;
+                    };
+                    let common = name
+                        .chars()
+                        .zip(entity_name.chars())
+                        .take_while(|(a, b)| a == b)
+                        .count();
+                    if common >= 12 && best.map(|(score, _)| common > score).unwrap_or(true) {
+                        best = Some((common, id));
+                    }
+                }
+                if let Some((score, id)) = best {
+                    if std::env::var_os("ACU_MAP_TRACE").is_some()
+                        && entity_name.starts_with("Largemesh")
+                    {
+                        eprintln!("fallback: {entity_name} -> {id:016x} score {score}");
+                    }
+                    link = GeometryLink::Mesh(id);
+                }
+            }
+        }
         let (mesh_id, level) = match link {
             GeometryLink::Selector { id, bytes } => {
                 let records = match selector_records(&bytes, id) {
@@ -1114,10 +1366,17 @@ impl MapContext<'_> {
             }
             GeometryLink::None => {
                 self.totals.skipped_no_selector += 1;
+                if std::env::var_os("ACU_MAP_MISSING").is_some() {
+                    let (package, _) = self.cache.view()?;
+                    eprintln!(
+                        "map-missing: {} {}",
+                        package.resources[position].file_id, package.resources[position].name
+                    );
+                }
                 return Ok(());
             }
         };
-        let Some((from_assets, mesh_entry, resource)) = resolve_mesh(
+        let Some((source, mesh_entry, resource)) = resolve_mesh(
             &mut *self.cache,
             &mut *self.paris,
             &mut *self.assets,
@@ -1126,6 +1385,9 @@ impl MapContext<'_> {
             self.assets_entries,
             self.paris_ids,
             self.mesh_index,
+            self.locations,
+            self.extra_archives,
+            self.extra_forges,
         )?
         else {
             eprintln!("map: mesh {mesh_id:016x} is in no selected archive");
@@ -1144,32 +1406,50 @@ impl MapContext<'_> {
         let piece_index = match self.mesh_cache.get(&mesh_id) {
             Some(&index) => index,
             None => {
+                let archive = match source {
+                    MeshArchive::Assets => self.assets_path.clone(),
+                    MeshArchive::Paris => self.paris_path.clone(),
+                    MeshArchive::Extra(slot) => self
+                        .extra_archives
+                        .get(slot as usize)
+                        .cloned()
+                        .unwrap_or_else(|| self.paris_path.clone()),
+                };
                 let piece = Piece {
-                    archive: if from_assets {
-                        self.assets_path.clone()
-                    } else {
-                        self.paris_path.clone()
-                    },
+                    archive,
                     entry: mesh_entry,
                     resource,
                     label: format!("mesh-{mesh_id:016x}"),
                 };
                 if std::env::var_os("ACU_MAP_TRACE").is_some() {
                     eprintln!(
-                        "map: decode mesh {mesh_id:016x} archive={} entry={mesh_entry} resource={resource}",
-                        if from_assets { "assets" } else { "paris" }
+                        "map: decode mesh {mesh_id:016x} source={source:?} entry={mesh_entry} resource={resource}"
                     );
                 }
-                let loaded = if from_assets {
-                    load_piece(&mut *self.loader, &mut *self.assets, &piece)
-                } else if mesh_entry == entity_entry {
-                    // Same entry we already decoded for this cell: reuse its bytes.
-                    self.cache.ensure(&mut *self.paris, entity_entry)?;
-                    let (package, _) = self.cache.view()?;
-                    let stored = self.cache.stored_sha256.clone();
-                    piece_from(&mut *self.loader, package, &piece, stored)
-                } else {
-                    load_piece(&mut *self.loader, &mut *self.paris, &piece)
+                let loaded = match source {
+                    MeshArchive::Assets => load_piece(&mut *self.loader, &mut *self.assets, &piece),
+                    MeshArchive::Paris if mesh_entry == entity_entry => {
+                        // Same entry we already decoded for this cell: reuse its bytes.
+                        self.cache.ensure(&mut *self.paris, entity_entry)?;
+                        let (package, _) = self.cache.view()?;
+                        let stored = self.cache.stored_sha256.clone();
+                        piece_from(&mut *self.loader, package, &piece, stored)
+                    }
+                    MeshArchive::Paris => load_piece(&mut *self.loader, &mut *self.paris, &piece),
+                    MeshArchive::Extra(slot) => {
+                        let slot = slot as usize;
+                        if self.extra_forges.len() <= slot {
+                            self.extra_forges.resize_with(slot + 1, || None);
+                        }
+                        if self.extra_forges[slot].is_none() {
+                            self.extra_forges[slot] =
+                                Some(Forge::open(&self.extra_archives[slot], Limits::default())?);
+                        }
+                        let forge = self.extra_forges[slot]
+                            .as_mut()
+                            .ok_or("extra archive failed to open")?;
+                        load_piece(&mut *self.loader, forge, &piece)
+                    }
                 };
                 let loaded = match loaded {
                     Ok(loaded) => loaded,
@@ -1241,6 +1521,14 @@ pub fn load_map(
     let mut paris = Forge::open(&paris_path, limits)?;
     let paris_ids = id_map(&paris);
     let mesh_index = read_index("local/paris-world-meshes.bin")?;
+    let selector_index = read_index("local/paris-selectors.bin")?;
+    let locations = read_mesh_locations(
+        "local/paris-mesh-locations.bin",
+        "local/paris-mesh-locations.json",
+        &options.game_dir,
+    )?;
+    let extra_archives = locations.slots.clone();
+    let mut extra_forges: Vec<Option<Forge>> = (0..extra_archives.len()).map(|_| None).collect();
     let mut assets = Forge::open(&assets_path, limits)?;
     let assets_entries = id_map(&assets);
 
@@ -1287,6 +1575,10 @@ pub fn load_map(
         loader,
         cache: &mut cache,
         mesh_index: &mesh_index,
+        selector_index: &selector_index,
+        locations: &locations,
+        extra_archives: &extra_archives,
+        extra_forges: &mut extra_forges,
         assets_entries: &assets_entries,
         paris_ids: &paris_ids,
         paris_path: &paris_path,
