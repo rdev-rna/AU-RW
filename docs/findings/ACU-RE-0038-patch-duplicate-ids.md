@@ -1,4 +1,4 @@
-# ACU-RE-0037 - Duplicate file IDs across Forge carriers (static scan)
+# ACU-RE-0038 - Duplicate file IDs across Forge carriers (static scan)
 
 Date: 2026-10-22. Related: #35 (reserved here), #36, area assets-containers.
 State: partially established. Duplicates and their byte equality are observed. Which copy the
