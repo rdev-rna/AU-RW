@@ -753,33 +753,57 @@ pub fn load_map(options: &Options, loader: &mut Loader) -> Result<Vec<LoadedPiec
             continue;
         };
 
-        let entity_name = entity.name.clone();
         // Harvest the meshes once per selector, not once per entity.
         let meshes = match resolved.get(&child) {
             Some(list) => list.clone(),
             None => {
                 let mut list = Vec::new();
-                for offset in 0..entity_bytes.len().saturating_sub(7) {
-                    let candidate =
-                        u64::from_le_bytes(entity_bytes[offset..offset + 8].try_into().unwrap());
+                // The selector reference sits at a fixed offset: in four unrelated
+                // entities (CanalKit, Wall, Gate, WallRiver) the id is at 100 and again
+                // at 122, 22 bytes apart, with the materials further on. Scan only as a
+                // fallback, because a bare id match elsewhere in the payload collides
+                // with unrelated selectors.
+                let fixed = if entity_bytes.len() >= 108 {
+                    Some(u64::from_le_bytes(entity_bytes[100..108].try_into().unwrap()))
+                } else {
+                    None
+                };
+                let mut candidates: Vec<u64> = Vec::new();
+                if let Some(id) = fixed {
+                    if selector_index.contains_key(&id) {
+                        candidates.push(id);
+                    }
+                }
+                let scan: Vec<u64> = if candidates.is_empty() {
+                    (0..entity_bytes.len().saturating_sub(7))
+                        .map(|offset| {
+                            u64::from_le_bytes(entity_bytes[offset..offset + 8].try_into().unwrap())
+                        })
+                        .collect()
+                } else {
+                    std::mem::take(&mut candidates)
+                };
+                for candidate in scan {
                     let Some(&selector_entry) = selector_index.get(&candidate) else {
                         continue;
                     };
+                    let selector_key = format!("{candidate:016x}");
                     let selector_package = paris.read_package(selector_entry)?;
                     let Some(selector) = selector_package
                         .resources
                         .iter()
-                        .find(|r| r.type_id == TYPE_SELECTOR)
+                        .find(|r| r.type_id == TYPE_SELECTOR && r.file_id == selector_key)
+                        .or_else(|| {
+                            selector_package
+                                .resources
+                                .iter()
+                                .find(|r| r.type_id == TYPE_SELECTOR)
+                        })
                     else {
                         continue;
                     };
-                    let selector_bytes = &selector_package.bytes[selector.payload.clone()];
-                    // The reference is the selector whose name prefixes the entity's, e.g.
-                    // FRV_BV_TanneryFence_03 -> FRV_BV_TanneryFence_03_LOD0. A bare id hit
-                    // is not enough: shared ids in the payload resolve to unrelated selectors.
                     let selector_name = selector.name.clone();
-                    let name_matches = !selector_name.is_empty()
-                        && entity_name.starts_with(selector_name.as_str());
+                    let selector_bytes = &selector_package.bytes[selector.payload.clone()];
                     for inner in 0..selector_bytes.len().saturating_sub(7) {
                         let mesh_id = u64::from_le_bytes(
                             selector_bytes[inner..inner + 8].try_into().unwrap(),
@@ -803,6 +827,15 @@ pub fn load_map(options: &Options, loader: &mut Loader) -> Result<Vec<LoadedPiec
                         else {
                             continue;
                         };
+                        // Keep the LOD whose name belongs to this selector; the payload
+                        // also references shared meshes that are not this object.
+                        let mesh_name = mesh_package.resources[resource].name.clone();
+                        if !selector_name.is_empty()
+                            && !mesh_name.is_empty()
+                            && !mesh_name.starts_with(selector_name.as_str())
+                        {
+                            continue;
+                        }
                         list.push((mesh_entry, resource, from_assets));
                         // One LOD per entity: spawning every level stacks identical
                         // geometry and destroys the scene bounds.
