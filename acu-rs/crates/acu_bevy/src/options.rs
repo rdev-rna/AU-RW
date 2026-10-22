@@ -49,6 +49,8 @@ pub struct Options {
     pub pieces: Vec<Piece>,
     /// Map scene: a world cell to spawn, given as an entry index or a 16-digit file id.
     pub map_cell: Option<String>,
+    /// Preferred LOD level for map meshes; the finest available is used when absent.
+    pub map_lod: u8,
     /// Archives used by map mode; default to the installed Paris pair.
     pub map_paris: Option<PathBuf>,
     pub map_assets: Option<PathBuf>,
@@ -111,6 +113,7 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut archive: Option<PathBuf> = None;
     let mut piece_args: Vec<String> = Vec::new();
     let mut map_cell: Option<String> = None;
+    let mut map_lod: u8 = 0;
     let mut map_paris: Option<PathBuf> = None;
     let mut map_assets: Option<PathBuf> = None;
     let mut capture: Option<PathBuf> = None;
@@ -136,11 +139,25 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
             }
             "--piece" => piece_args.push(args.next().ok_or("--piece needs a value")?),
             "--map-cell" => map_cell = Some(args.next().ok_or("--map-cell needs a value")?),
+            "--map-lod" => {
+                map_lod = args
+                    .next()
+                    .ok_or("--map-lod needs a value")?
+                    .parse()
+                    .map_err(|e| format!("--map-lod: {e}"))?;
+                if map_lod > 4 {
+                    return Err("--map-lod must be 0..4".into());
+                }
+            }
             "--map-paris" => {
-                map_paris = Some(PathBuf::from(args.next().ok_or("--map-paris needs a value")?))
+                map_paris = Some(PathBuf::from(
+                    args.next().ok_or("--map-paris needs a value")?,
+                ))
             }
             "--map-assets" => {
-                map_assets = Some(PathBuf::from(args.next().ok_or("--map-assets needs a value")?))
+                map_assets = Some(PathBuf::from(
+                    args.next().ok_or("--map-assets needs a value")?,
+                ))
             }
             "--capture" => {
                 capture = Some(PathBuf::from(args.next().ok_or("--capture needs a value")?))
@@ -288,6 +305,7 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
         game_dir,
         pieces,
         map_cell,
+        map_lod,
         map_paris,
         map_assets,
         capture,
@@ -312,6 +330,10 @@ OPTIONS:
     --archive FILE     Default archive for ENTRY:RESOURCE pieces
                        (default: DataPC_ACU_LGS_BelleEpoque.forge)
     --piece P          ARCHIVE:ENTRY:RESOURCE or ENTRY:RESOURCE (repeatable)
+    --map-cell CELL    Spawn a world cell (entry index or 16-digit file id)
+    --map-lod N        Preferred mesh LOD level 0..4 (default 0)
+    --map-paris FILE   Paris archive used by map mode
+    --map-assets FILE  Assets archive used by map mode (LOD meshes)
     --capture PATH     Render headless, save one PNG screenshot, then exit
     --report PATH      Write a JSON report of the material/texture chain
     --frames N         Frames rendered before the capture (default 60)
