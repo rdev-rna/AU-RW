@@ -9,6 +9,6 @@ Edit this file only in the PR that lands this area's work.
 
 Evidence rules: string hits are not proof of mechanics (AGENTS.md).
 
-## Evidence note (audit 2026-10-22)
+## Evidence note (updated 2026-10-22)
 
-`acu_motion/src/target_warp.rs` ports a translation-correction kernel from VA 0x140188f00 (controller +448 mode split). Its header cites ACU-RE-0031, which is actually the corpus-binding finding; no finding records this kernel. See the follow-up issue before relying on it.
+`acu_motion/src/target_warp.rs` ports a translation-correction kernel from VA 0x140188F00. [ACU-RE-0032](../findings/ACU-RE-0032-translation-correction-kernel.md) records it (corpus-read, no live gate, caller unknown). It is the first concrete evidence of target-driven root-motion correction; scanner linkage (#50) is still open.
