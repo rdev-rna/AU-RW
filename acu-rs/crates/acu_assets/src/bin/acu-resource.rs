@@ -27,8 +27,8 @@ fn main() -> Result<()> {
         let value = args.get(index + 1);
         match flag {
             "--entry" => entry = Some(value.ok_or("--entry needs an index")?.parse()?),
-            "--fid" => fid = Some(normalise(value.ok_or("--fid needs an id")?)?),
-            "--type" => type_id = Some(normalise(value.ok_or("--type needs a type id")?)?),
+            "--fid" => fid = Some(normalise(value.ok_or("--fid needs an id")?, 16)?),
+            "--type" => type_id = Some(normalise(value.ok_or("--type needs a type id")?, 8)?),
             "--len" => {
                 len = value.ok_or("--len needs a count")?.parse()?;
                 if len > 4096 {
@@ -127,10 +127,10 @@ fn main() -> Result<()> {
 }
 
 /// Accept `0x` prefixes and lower-case the id, matching the library's formatting.
-fn normalise(text: &str) -> Result<String> {
+fn normalise(text: &str, width: usize) -> Result<String> {
     let trimmed = text.trim_start_matches("0x");
-    if trimmed.is_empty() || trimmed.len() > 16 || !trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
+    if trimmed.is_empty() || trimmed.len() > width || !trimmed.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err(format!("{text:?} is not a 64-bit hexadecimal id").into());
     }
-    Ok(format!("{:0>16}", trimmed.to_ascii_lowercase()))
+    Ok(format!("{:0>width$}", trimmed.to_ascii_lowercase()))
 }
