@@ -5,6 +5,6 @@ Edit this file only in the PR that lands this area's work.
 
 - **Status:** partial (done / partial / started / none)
 - **Scope:** deferred renderer, shaders, post FX, particles
-- **Anchors and reuse (leads, not proof):** `acu_bevy/shaders`; RENDERING_SOURCES.md
+- **Anchors and reuse (string locations, not proof):** `DeferredAlbedo*` and `DeferredClusteredLights` built in 0x1422F8420 (189 KB); `acu_bevy/shaders`; RENDERING_SOURCES.md
 
 Evidence rules: string hits are not proof of mechanics (AGENTS.md).

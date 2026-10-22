@@ -6,6 +6,8 @@ to the installed executable is bound by PE headers and file-backed resources
 (ACU-RE-0031); the code bytes themselves are not comparable because the installed file
 is packed. Status: done / partial / started / none.
 
+**Reading addresses:** `..._NetProtocol_ID` strings name network replication messages, not gameplay logic. Profiler-scope strings (`sub_14276E0C0(..., "Ai::...")`) show which function registers a system's update scope. Both are string locations only; confirm with callers and disassembly before claiming behaviour. An earlier census cited several wrong ranges (corrected 2026-10-22).
+
 This index is static. Per-area status, scope and anchors live in `docs/areas/<area>.md`
 (edit only the area you hold a claim on). The table below changes only when an area is added.
 

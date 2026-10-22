@@ -5,6 +5,6 @@ Edit this file only in the PR that lands this area's work.
 
 - **Status:** partial (done / partial / started / none)
 - **Scope:** ACU-003 done (ACU-RE-0031): installed exe `748abdc6..`, VA = RVA + 0x140000000; `40ded8de..` unidentified (issue #34). Remaining: name registry
-- **Anchors and reuse (leads, not proof):** NetProtocol string layer 0x140278900-0x141F35C50
+- **Anchors and reuse (string locations, not proof):** NetProtocol message-name registrations span 0x140278900-0x141F35C50 (network replication tables; they name messages, not logic)
 
 Evidence rules: string hits are not proof of mechanics (AGENTS.md).
