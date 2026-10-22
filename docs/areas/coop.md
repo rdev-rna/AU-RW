@@ -8,3 +8,5 @@ Edit this file only in the PR that lands this area's work.
 - **Anchors and reuse (leads, not proof):** matchmaking ~0x1404DCxxx
 
 Evidence rules: string hits are not proof of mechanics (AGENTS.md).
+
+Milestone: none. ROADMAP.md defers online/co-op; do not invent a multiplayer requirement.

@@ -3,7 +3,7 @@
 Epic: #10 (label `area:motion`). Owner: whoever holds the open claim on this area's slices (docs/PROJECT_BOARD.md).
 Edit this file only in the PR that lands this area's work.
 
-- **Status:** partial (done / partial / started / none)
+- **Status:** started (done / partial / started / none)
 - **Scope:** native locomotion/animation selection (recover, do not assume), reversals, root-motion ownership, codec-7
 - **Anchors and reuse (leads, not proof):** PLAN_MOTION_PARITY (stale, see note); ANIMATION_SOURCES.md; ACU-RE-0029
 
