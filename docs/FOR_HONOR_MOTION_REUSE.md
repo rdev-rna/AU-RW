@@ -1,5 +1,10 @@
 # For Honor motion matcher reuse
 
+> **Status (2026-10-22): scaffolding, not ACU behaviour.** ACU does not use For Honor-style
+> motion matching per the maintainer. These modules drive the current viewer only; do not
+> extend them. Retirement is tracked in issue #99.
+
+
 User-directed reuse, 2026-10-19. Source revision `e77a747fd88b81a185e438039fd5fe3c41b41725`.
 Read-only source: `E:/ReverseEngineering/Projects/ForHonorRustRewrite/fh-rs/crates/fh_combat/src/`.
 

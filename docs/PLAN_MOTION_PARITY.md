@@ -1,5 +1,12 @@
 # Motion parity plan (opened 2026-10-20, replaces the capture-polling loop)
 
+> **Revision note (2026-10-22):** this plan was written around a motion-matching model
+> (matcher/search stages). The maintainer states ACU does not use For Honor-style motion
+> matching; its locomotion is believed to rely on complex motion warping (unconfirmed, see
+> `ANIMATION_SOURCES.md`). Treat matcher-specific phases as stale until re-scoped from
+> binary evidence (issues #10, #54, #99). Pose-stage, modifier and idle gates still stand.
+
+
 Goal: Arno's Rust motion (final bone pose **and** root/facing trajectory) matches
 the original under identical input, with every claim backed by a numeric gate.
 

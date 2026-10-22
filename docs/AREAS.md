@@ -17,8 +17,8 @@ is packed. Status: done / partial / started / none.
 | environment | none | static geometry, props, interiors, lighting/GI, weather (unconfirmed) | `*_gi` archives |
 | traversal | started | scanner, root warp, Parkour states, vault/climb/ledge/drop | ACU-RE-0030; Parkour_* ~0x1406xxxx; MOVEMENT_PLAN |
 | statemachine | partial | native graph, Atom sync groups, controller, input, actor identity | `AtomWorldComponent`; FH `graph.rs`, `anim_state.rs` |
-| motion | partial | native locomotion/animation selection (recover, do not assume), reversals, root-motion ownership, codec-7 | PLAN_MOTION_PARITY; ACU-RE-0029 |
-| warping | partial | motion warping | `acu_motion/src/target_warp.rs` |
+| motion | partial | native locomotion/animation selection (recover, do not assume), reversals, root-motion ownership, codec-7 | PLAN_MOTION_PARITY (stale, see note); ANIMATION_SOURCES.md; ACU-RE-0029 |
+| warping | partial | motion warping (maintainer claim: central to ACU movement; evidence pending) | `acu_motion/src/target_warp.rs` |
 | trajectory | started | landing/trajectory prediction | `traversal::landing_score` (0x140177c40) |
 | ik | none | foot/look-at/hand IK | `Anim::SkeletonIKUpdate` |
 | modifiers | partial | bone modifiers, coat, spring, ragdoll, cloth | ACU-RE-0028; FH cloth (read-only) |
