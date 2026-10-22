@@ -1,0 +1,22 @@
+name: Clear status labels on close
+
+on:
+  issues:
+    types: [closed]
+
+permissions:
+  issues: write
+
+jobs:
+  clear:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Remove status:* labels
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE: ${{ github.event.issue.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          for l in status:claimed status:ready status:in-review status:blocked status:needs-triage; do
+            gh issue edit "$ISSUE" --repo "$REPO" --remove-label "$l" || true
+          done
