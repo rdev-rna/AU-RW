@@ -54,6 +54,9 @@ class AssetDbTests(unittest.TestCase):
     def tearDown(self):
         self.dir.cleanup()
 
+    def root_file(self, name):
+        return self.root / name
+
     def query(self, sql, *args):
         db = sqlite3.connect(self.out)
         try:
@@ -63,7 +66,8 @@ class AssetDbTests(unittest.TestCase):
 
     def test_counts_and_archive_names_normalised(self):
         counts = bdb.build(self.scan, self.out, GAME, baseline_names={"DataPC.forge"})
-        self.assertEqual(counts, {"entries": 2, "controls": 1, "resources": 3, "archives": 2})
+        self.assertEqual(counts, {"entries": 2, "controls": 1, "resources": 3, "textures": 0,
+                                  "archives": 2})
         self.assertEqual(self.query("SELECT name, baseline FROM archive ORDER BY id"),
                          [("DataPC.forge", 1), ("dlc_11/Extra.forge", 0)])
 
@@ -80,6 +84,60 @@ class AssetDbTests(unittest.TestCase):
                              WHERE r.type_id = ? ORDER BY e.id""", "a2b7e917")
         self.assertEqual(rows, [("Diffuse", "TextureMap", 8, 40, 201),
                                 (None, "TextureMap", 8, 40, 201)])
+
+    def test_texture_descriptor_is_attached_to_its_resource(self):
+        tex = resource("000000000000cc01", "a2b7e917", "Normal")
+        tex["texture"] = {"map_type": 11, "category": 5, "user_category": 0, "kind": 1,
+                          "dxgi_format": 87, "width": 4, "height": 8, "depth": 1, "layers": 1,
+                          "mip_count": 3, "storage": "Resident", "gamma": 1, "dynamic": False}
+        write(self.scan, [data(GAME + "/DataPC.forge", 1, "000000000000cc01",
+                               [resource("000000000000cc02", "b3c8f028"), tex])])
+        counts = bdb.build(self.scan, self.out, GAME)
+        self.assertEqual(counts["textures"], 1)
+        self.assertEqual(self.query("""SELECT r.name, t.map_type, t.width, t.height, t.dynamic
+                                       FROM texture t JOIN resource r ON r.id = t.resource_id"""),
+                         [("Normal", 11, 4, 8, 0)])
+
+    def test_override_replaces_an_archive_whole_and_keeps_the_rest(self):
+        a, b = GAME + "/A.forge", GAME + "/B.forge"
+        write(self.scan, [data(a, 1, "00000000000000a1", [resource("00000000000000a1", "t1")]),
+                          data(a, 2, "00000000000000a2", [resource("00000000000000a2", "t1")]),
+                          data(b, 1, "00000000000000b1", [resource("00000000000000b1", "t1")])])
+        newer = self.root_file("rescan.jsonl")
+        write(newer, [data(a, 1, "00000000000000c1", [resource("00000000000000c1", "t9")])])
+        counts = bdb.build(self.scan, self.out, GAME, overrides=[newer])
+        self.assertEqual((counts["entries"], counts["resources"], counts["archives"]), (2, 2, 2))
+        rows = self.query("""SELECT a.name, e.idx, e.file_id FROM entry e
+                             JOIN archive a ON a.id = e.archive_id ORDER BY a.name, e.idx""")
+        self.assertEqual(rows, [("A.forge", 1, "00000000000000c1"),
+                                ("B.forge", 1, "00000000000000b1")])
+        self.assertEqual(self.query("SELECT COUNT(*) FROM entry WHERE file_id = ?",
+                                    "00000000000000a2"), [(0,)])  # stale A rows are gone
+        self.assertEqual(self.query("SELECT value FROM meta WHERE key = 'overrides'"),
+                         [(str(newer),)])
+
+    def test_scan_time_sizes_come_from_the_manifest_and_overrides_win(self):
+        a, b = GAME + "/A.forge", GAME + "/B.forge"
+        write(self.scan, [data(a, 1, "00000000000000a1", []), data(b, 1, "00000000000000b1", [])])
+        (self.root / "summary.json").write_text(json.dumps(
+            {"manifest": [{"path": a.replace("/", "\\"), "length": 100},
+                          {"path": b, "length": 200}]}), encoding="utf-8")
+        (self.root / "rescan").mkdir()
+        newer = self.root_file("rescan/entries.jsonl")
+        write(newer, [data(a, 1, "00000000000000c1", [])])
+        newer.with_name("summary.json").write_text(json.dumps(
+            {"manifest": [{"path": a, "length": 150}]}), encoding="utf-8")
+        bdb.build(self.scan, self.out, GAME, overrides=[newer])
+        self.assertEqual(self.query("SELECT name, scan_size_bytes FROM archive ORDER BY name"),
+                         [("A.forge", 150), ("B.forge", 200)])
+
+    def test_override_errors_name_the_override_file(self):
+        newer = self.root_file("rescan.jsonl")
+        newer.write_text("{broken", encoding="utf-8")
+        with self.assertRaises(bdb.ScanError) as caught:
+            bdb.build(self.scan, self.out, GAME, overrides=[newer])
+        self.assertIn("rescan.jsonl line 1: invalid JSON", str(caught.exception))
+        self.assertFalse(self.out.exists())
 
     def test_empty_name_is_stored_as_null(self):
         write(self.scan, [data(GAME + "/DataPC.forge", 1, "000000000000bb01",
