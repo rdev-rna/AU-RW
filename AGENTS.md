@@ -124,3 +124,8 @@ Save personal continuation handoffs outside repositories under
 Plan / Roadmap; Tried & Failed; Current State & Modified Files; Next Step.
 Link the exact resume path and suggest `/clear` at meaningful checkpoints.
 Do not overwrite another agent's handoff or use project instructions as a diary.
+
+## Coordination
+
+Claim work through GitHub issues before starting and follow `docs/PROJECT_BOARD.md`
+(claim, locks, per-slice status notes, handoffs). Areas: `docs/AREAS.md`.
