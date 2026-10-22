@@ -155,6 +155,12 @@ fn main() {
         plugins = plugins.disable::<bevy::winit::WinitPlugin>();
         app.add_plugins(ScheduleRunnerPlugin::run_loop(Duration::ZERO));
     }
+    app.insert_resource(bevy::winit::WinitSettings {
+        // Keep stepping even if the window lost focus; the old reactive mode made the
+        // viewer look frozen whenever the terminal held focus.
+        focused_mode: bevy::winit::UpdateMode::Continuous,
+        unfocused_mode: bevy::winit::UpdateMode::Continuous,
+    });
     app.add_plugins(plugins)
         .add_plugins(MaterialPlugin::<arena::ArenaMaterial>::default())
         .add_plugins(MaterialPlugin::<character_material::CharacterMaterial>::default())
@@ -221,6 +227,7 @@ fn setup_world(
     });
     if let (Some(state), Some(spawn)) = (state.as_mut(), options.spawn) {
         state.player.position = Vec3::from_array(spawn);
+        state.player.floor = spawn[1];
     }
     let texture_handles: Vec<_> = loaded
         .scene

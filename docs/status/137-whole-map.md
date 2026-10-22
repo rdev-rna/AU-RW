@@ -67,8 +67,12 @@ arms, the island, the street grid and the building blocks read correctly at city
 - `--map-dry-run`, `--map-piece-limit`, `--orbit-elevation`, `ACU_MAP_TRACE=1`.
 - `--map-player` spawns the Arno rig inside the map with the existing walk controls
   (`--spawn X,Y,Z` in Bevy coordinates); the map meshes and the rig are separated by
-  `arno_start` so the skin binder only sees rig pieces. Movement is flat: there is no
-  runtime collision and no gravity, so he walks at the spawn height and through walls.
+  `arno_start` so the skin binder only sees rig pieces.
+- **Why walking did nothing at first**: `acu_sim::blocked` hard-coded the synthetic 24x24 m
+  arena (`|x| > 11.5 || |z| > 11.5`), so at map coordinates every axis step was rejected and
+  only the yaw changed. `Player` now carries `bounds` and `floor`: a map scene sets
+  `bounds = 100_000` and `floor = spawn.y`. Movement is still flat - there is no runtime
+  collision, so he walks through walls and over the river.
 - Framing: a multi-cell scene uses the 2nd..98th percentile of placement origins per axis
   (the river arms otherwise stretch the frame) and a 1.1x distance multiplier; one cell
   frames its meshes directly and reports outliers.
