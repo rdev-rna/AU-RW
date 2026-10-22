@@ -516,12 +516,17 @@ impl Loader {
     }
 }
 
-fn load_piece(loader: &mut Loader, forge: &mut Forge, piece: &Piece) -> Result<LoadedPiece> {
+/// Decode one piece from an already-decoded package. Map mode reuses the cached cell
+/// package here: a cell entry can decode to tens of megabytes and holds many meshes, so
+/// re-inflating it per mesh is the difference between seconds and an hour.
+fn piece_from(
+    loader: &mut Loader,
+    package: &package::Package,
+    piece: &Piece,
+    entry_stored_sha256: String,
+) -> Result<LoadedPiece> {
     loader.entry_archive = piece.archive.clone();
     let limits = loader.limits;
-    let raw = forge.raw(piece.entry)?;
-    let entry_stored_sha256 = sha256(&raw);
-    let package = crate::io::decode_package(raw, limits)?;
     let resource = package
         .resources
         .get(piece.resource)
@@ -586,6 +591,15 @@ fn load_piece(loader: &mut Loader, forge: &mut Forge, piece: &Piece) -> Result<L
     })
 }
 
+/// Read a piece's entry from an archive and decode it.
+fn load_piece(loader: &mut Loader, forge: &mut Forge, piece: &Piece) -> Result<LoadedPiece> {
+    let limits = loader.limits;
+    let raw = forge.raw(piece.entry)?;
+    let stored = sha256(&raw);
+    let package = crate::io::decode_package(raw, limits)?;
+    piece_from(loader, &package, piece, stored)
+}
+
 /// Resource types needed by map mode (ACU-RE-0034/0035/0036).
 const TYPE_CELL: &str = "ac2bbf68";
 const TYPE_ENTITY: &str = "0984415e";
@@ -624,13 +638,17 @@ struct LodRecord {
 struct PackageCache {
     entry: Option<usize>,
     package: Option<package::Package>,
+    stored_sha256: String,
     ids: HashMap<u64, usize>,
 }
 
 impl PackageCache {
     fn ensure(&mut self, forge: &mut Forge, entry: usize) -> Result<()> {
         if self.entry != Some(entry) {
-            let package = forge.read_package(entry)?;
+            let limits = forge.limits;
+            let raw = forge.raw(entry)?;
+            let stored_sha256 = sha256(&raw);
+            let package = crate::io::decode_package(raw, limits)?;
             let mut ids = HashMap::with_capacity(package.resources.len());
             for (position, resource) in package.resources.iter().enumerate() {
                 if let Ok(value) = u64::from_str_radix(&resource.file_id, 16) {
@@ -638,6 +656,7 @@ impl PackageCache {
                 }
             }
             self.package = Some(package);
+            self.stored_sha256 = stored_sha256;
             self.ids = ids;
             self.entry = Some(entry);
         }
@@ -654,18 +673,20 @@ impl PackageCache {
 }
 
 /// Locate the reference in an entity payload that resolves, inside the entity's own entry,
-/// to a `LODSelector` resource. Returns that resource's position and id.
+/// to a resource of `type_id`. Returns that resource's position and id.
 ///
 /// The slot is not at a fixed offset: a light entity's first slot is a light, an FX
-/// entity's first slot is an FX component, and multi-component entities keep their
-/// selector near the end of the payload. Resolving each 8-byte window against the entry's
-/// id table and requiring type `51dc6b80` means only a real selector resource can match;
-/// no name, prefix or neighbouring-id rule is involved. Entities that reference more than
-/// one selector keep the first in payload order (a presentation choice for composites).
-fn find_selector(
+/// entity's first slot is an FX component, a terrain-chunk entity references its
+/// `415d9568` mesh directly, and multi-component entities keep their selector near the end
+/// of the payload. Resolving each 8-byte window against the entry's id table and requiring
+/// the wanted type means only a real resource of that kind can match; no name, prefix or
+/// neighbouring-id rule is involved. An entity that references several resources of the
+/// same type keeps the first in payload order (a presentation choice for composites).
+fn find_component(
     package: &package::Package,
     ids: &HashMap<u64, usize>,
     bytes: &[u8],
+    type_id: &str,
 ) -> Option<(usize, u64)> {
     for offset in 0..bytes.len().saturating_sub(7) {
         let value = u64::from_le_bytes(bytes[offset..offset + 8].try_into().ok()?);
@@ -675,11 +696,19 @@ fn find_selector(
         let Some(&position) = ids.get(&value) else {
             continue;
         };
-        if package.resources[position].type_id == TYPE_SELECTOR {
+        if package.resources[position].type_id == type_id {
             return Some((position, value));
         }
     }
     None
+}
+
+/// The geometry an entity carries: a `LODSelector`, or a direct world mesh (terrain chunks
+/// and other largemesh pieces reference `415d9568` themselves), or none.
+enum GeometryLink {
+    Selector { id: u64, bytes: Vec<u8> },
+    Mesh(u64),
+    None,
 }
 
 /// Decode the selector's LOD records; any structural mismatch is an error, never a guess.
@@ -910,6 +939,7 @@ struct MapTotals {
     skipped_bad_matrix: usize,
     skipped_bad_vertices: usize,
     bad_geometry: HashSet<u64>,
+    direct_meshes: usize,
 }
 
 /// State shared by every cell of one invocation.
@@ -994,20 +1024,24 @@ impl MapContext<'_> {
 
     /// Spawn the entity at `position` inside `cell_entry`'s package.
     fn spawn_entity(&mut self, entity_entry: usize, position: usize) -> Result<()> {
-        let (entity_bytes, selector_id, selector_bytes) = {
+        let (entity_bytes, link) = {
             let (package, ids) = self.cache.view()?;
             let entity = &package.resources[position];
             let bytes = package.bytes[entity.payload.clone()].to_vec();
-            let Some((selector_position, selector_id)) = find_selector(package, ids, &bytes) else {
-                self.totals.skipped_no_selector += 1;
-                return Ok(());
+            let link = if let Some((selector_position, id)) =
+                find_component(package, ids, &bytes, TYPE_SELECTOR)
+            {
+                GeometryLink::Selector {
+                    id,
+                    bytes: package.bytes[package.resources[selector_position].payload.clone()]
+                        .to_vec(),
+                }
+            } else if let Some((_, id)) = find_component(package, ids, &bytes, TYPE_WORLD_MESH) {
+                GeometryLink::Mesh(id)
+            } else {
+                GeometryLink::None
             };
-            let selector = &package.resources[selector_position];
-            (
-                bytes,
-                selector_id,
-                package.bytes[selector.payload.clone()].to_vec(),
-            )
+            (bytes, link)
         };
         let Some(matrix) = entity_matrix(&entity_bytes) else {
             self.totals.skipped_matrix += 1;
@@ -1015,7 +1049,10 @@ impl MapContext<'_> {
         };
         // A garbage matrix (or a decoder returning uninitialised vertices) would otherwise
         // poison the whole map's bounds and fly the camera out of the world.
-        if matrix.iter().any(|v| !v.is_finite() || v.abs() > 100_000.0) {
+        if matrix
+            .iter()
+            .any(|v| !v.is_finite() || v.abs() > 100_000.0)
+        {
             self.totals.skipped_bad_matrix += 1;
             if self
                 .totals
@@ -1026,61 +1063,74 @@ impl MapContext<'_> {
             }
             return Ok(());
         }
-        let records = match selector_records(&selector_bytes, selector_id) {
-            Ok(records) => records,
-            Err(error) => {
-                eprintln!("map: {error}");
-                self.totals.skipped_no_lod += 1;
+        let (mesh_id, level) = match link {
+            GeometryLink::Selector { id, bytes } => {
+                let records = match selector_records(&bytes, id) {
+                    Ok(records) => records,
+                    Err(error) => {
+                        eprintln!("map: {error}");
+                        self.totals.skipped_no_lod += 1;
+                        return Ok(());
+                    }
+                };
+                // Prefer the requested LOD; fall back to the finest available, never to a
+                // wrong level.
+                let chosen = records
+                    .iter()
+                    .find(|record| record.level >= self.wanted_lod)
+                    .or_else(|| records.last());
+                let Some(record) = chosen else {
+                    self.totals.skipped_no_lod += 1;
+                    return Ok(());
+                };
+                if self.totals.reported.insert(id) {
+                    let table = records
+                        .iter()
+                        .map(|entry| format!("{}@{:.0}m", entry.level, entry.distance))
+                        .collect::<Vec<_>>()
+                        .join(" ");
+                    eprintln!(
+                        "map: selector {id:016x} LOD table [{table}], chose LOD{}",
+                        record.level
+                    );
+                }
+                self.totals.selectors.insert(id);
+                (record.entry_id, Some(record.level))
+            }
+            GeometryLink::Mesh(id) => {
+                self.totals.direct_meshes += 1;
+                (id, None)
+            }
+            GeometryLink::None => {
+                self.totals.skipped_no_selector += 1;
                 return Ok(());
             }
         };
-        // Prefer the requested LOD; fall back to the finest available, never to a wrong level.
-        let chosen = records
-            .iter()
-            .find(|record| record.level >= self.wanted_lod)
-            .or_else(|| records.last());
-        let Some(record) = chosen else {
-            self.totals.skipped_no_lod += 1;
-            return Ok(());
-        };
-        if self.totals.reported.insert(selector_id) {
-            let table = records
-                .iter()
-                .map(|entry| format!("{}@{:.0}m", entry.level, entry.distance))
-                .collect::<Vec<_>>()
-                .join(" ");
-            eprintln!(
-                "map: selector {selector_id:016x} LOD table [{table}], chose LOD{}",
-                record.level
-            );
-        }
         let Some((from_assets, mesh_entry, resource)) = resolve_mesh(
             &mut *self.cache,
             &mut *self.paris,
             &mut *self.assets,
             entity_entry,
-            record.entry_id,
+            mesh_id,
             self.assets_entries,
             self.paris_ids,
             self.mesh_index,
         )?
         else {
-            eprintln!(
-                "map: selector {selector_id:016x} LOD{} mesh {:016x} is in no selected archive",
-                record.level, record.entry_id
-            );
+            eprintln!("map: mesh {mesh_id:016x} is in no selected archive");
             self.totals.skipped_no_mesh += 1;
             return Ok(());
         };
-        self.totals.mesh_refs.insert(record.entry_id);
-        self.totals.selectors.insert(selector_id);
-        self.totals.lods.insert(record.level);
+        self.totals.mesh_refs.insert(mesh_id);
+        if let Some(level) = level {
+            self.totals.lods.insert(level);
+        }
         self.totals.pieces += 1;
         if self.dry_run {
             return Ok(());
         }
         // One decode per unique mesh; each placement becomes an instance with its matrix.
-        let piece_index = match self.mesh_cache.get(&record.entry_id) {
+        let piece_index = match self.mesh_cache.get(&mesh_id) {
             Some(&index) => index,
             None => {
                 let piece = Piece {
@@ -1091,10 +1141,22 @@ impl MapContext<'_> {
                     },
                     entry: mesh_entry,
                     resource,
-                    label: format!("mesh-{:016x}", record.entry_id),
+                    label: format!("mesh-{mesh_id:016x}"),
                 };
+                if std::env::var_os("ACU_MAP_TRACE").is_some() {
+                    eprintln!(
+                        "map: decode mesh {mesh_id:016x} archive={} entry={mesh_entry} resource={resource}",
+                        if from_assets { "assets" } else { "paris" }
+                    );
+                }
                 let loaded = if from_assets {
                     load_piece(&mut *self.loader, &mut *self.assets, &piece)
+                } else if mesh_entry == entity_entry {
+                    // Same entry we already decoded for this cell: reuse its bytes.
+                    self.cache.ensure(&mut *self.paris, entity_entry)?;
+                    let (package, _) = self.cache.view()?;
+                    let stored = self.cache.stored_sha256.clone();
+                    piece_from(&mut *self.loader, package, &piece, stored)
                 } else {
                     load_piece(&mut *self.loader, &mut *self.paris, &piece)
                 };
@@ -1103,37 +1165,33 @@ impl MapContext<'_> {
                     Err(error) => {
                         // One unsupported mesh must not abort the map; it is named and
                         // counted here instead.
-                        if self.totals.decode_errors.insert(record.entry_id) {
+                        if self.totals.decode_errors.insert(mesh_id) {
                             eprintln!(
-                                "map: mesh {:016x} (entry {mesh_entry}) not decoded: {error}",
-                                record.entry_id
+                                "map: mesh {mesh_id:016x} (entry {mesh_entry}) not decoded: {error}"
                             );
                         }
                         self.totals.skipped_decode += 1;
                         self.totals.pieces -= 1;
-                        self.totals.mesh_refs.remove(&record.entry_id);
+                        self.totals.mesh_refs.remove(&mesh_id);
                         return Ok(());
                     }
                 };
-                if loaded.vertices.iter().any(|v| {
-                    v.position
-                        .iter()
-                        .any(|c| !c.is_finite() || c.abs() > 100_000.0)
-                }) {
-                    if self.totals.bad_geometry.insert(record.entry_id) {
-                        eprintln!(
-                            "map: mesh {:016x} has out-of-range vertices; skipped",
-                            record.entry_id
-                        );
+                if loaded
+                    .vertices
+                    .iter()
+                    .any(|v| v.position.iter().any(|c| !c.is_finite() || c.abs() > 100_000.0))
+                {
+                    if self.totals.bad_geometry.insert(mesh_id) {
+                        eprintln!("map: mesh {mesh_id:016x} has out-of-range vertices; skipped");
                     }
                     self.totals.skipped_bad_vertices += 1;
                     self.totals.pieces -= 1;
-                    self.totals.mesh_refs.remove(&record.entry_id);
+                    self.totals.mesh_refs.remove(&mesh_id);
                     return Ok(());
                 }
                 let index = self.pieces.len();
                 self.pieces.push(loaded);
-                self.mesh_cache.insert(record.entry_id, index);
+                self.mesh_cache.insert(mesh_id, index);
                 index
             }
         };
@@ -1240,7 +1298,8 @@ pub fn load_map(
         "map: {} pieces from {}/{} cells ({} entities, {} child refs), {} distinct mesh ids, \
          {} distinct selectors, LODs [{}]; skipped: {} without a matrix, {} without a \
          selector, {} without a LOD record, {} without a mesh, {} undecodable meshes, \
-         {} out-of-range matrices, {} out-of-range meshes, {} cells without a cell block",
+         {} out-of-range matrices, {} out-of-range meshes, {} direct-mesh entities, \
+         {} cells without a cell block",
         totals.pieces,
         totals.cells_with_pieces,
         totals.cells,
@@ -1256,6 +1315,7 @@ pub fn load_map(
         totals.skipped_decode,
         totals.skipped_bad_matrix,
         totals.skipped_bad_vertices,
+        totals.direct_meshes,
         totals.skipped_no_entity
     );
     Ok((context.pieces, context.instances))

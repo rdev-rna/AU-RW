@@ -1,64 +1,84 @@
-# 137 - Whole-map pass: 2,168 cells, instanced
+# 137 - Whole-map pass: 8,330 cells, instanced
 
 Issue: #137 (`type:slice`, `area:world-data`). Branch: `acu-137-whole-map`, stacked on
 `acu-135-selector-lod-chain` (#136, ACU-RE-0037).
 
+## How the game loads the map (measured through the asset index)
+
+`DataPC_ACU_Paris.forge` entry 1 holds one `World` resource, `ACU_Paris`
+(`0000000f18b7e1cf`, type `fbb63e47` = CRC-32 of `World`). Its 50,083 candidate links
+resolve to:
+
+| destination | count | meaning |
+| --- | --- | --- |
+| `GridCellDataBlock` (`ac2bbf68`) | 21,160 | every cell package, including the minimap cells |
+| `LocalCubeMap_Cell_N_<hash>` (`eebb2443`) | 23,019 | per-cell reflection cubemaps |
+| `CellID=NNNN` (`5730d30e`) | 2,811 | per-cell streaming metadata |
+| seasonal sets (`41813744`: Summer/Autumn/Winter/Spring/Night) | 2,955 | lighting/climate variants |
+| `WorldTransitionPortal` (`7c00f6af`) | 986 | inter-world transitions |
+| `InventoryItemSettings`, `Entity`, `EntityGroup`, `BulkMesh` | 944 / 422 / 316 / 37 | gameplay and bulk geometry |
+
+So the world is one manifest plus 21,160 self-contained cell packages; a cell package
+carries its entities, their selectors, materials and (for largemesh cells) the meshes
+themselves. The viewer reproduces that by iterating the cell packages, which is why the
+21,160 count matches exactly.
+
+## Cell filter correction
+
+`local/paris-cells.json` has 21,160 cells. 12,830 of them are 71 bytes and hold exactly one
+child, an `a2b7e917` texture named `ACU_Paris_<x>_<y>_Map` - minimap tiles, not geometry.
+The earlier `record_length > 1000` filter was wrong: it also dropped **6,162 real cells**
+(81-1000 bytes, 14-95 children each) that carry props, house corners, lanterns and bushes.
+The list is now every cell with `record_length > 80`: **8,330 cells**, 530,850 child refs,
+337,672 entities.
+
 ## Result
 
-One scene holds the whole Paris world at LOD2, read from the installed archives:
-
 ```text
-143,641 placements from 2,150/2,168 cells
-2,128 unique meshes, 2,158 selectors, LODs 0/1/2
-2.25 km x 2.0 km x 0.5 km, capture 1920x1080
+8,330 cells -> 208,472 placements, 5,773 cells with geometry
+14,952 unique meshes, 15,155 direct-mesh entities (ground/largemesh chunks)
+LODs 0/1/2, bounds ~2.25 km x 2.0 km
 ```
 
-Evidence: `local/paris-map-lod2.png`.
+Evidence: `local/paris-map-full.png`.
 
 ## What changed
 
-- `--map-cells FILE` (JSON `[{ "entry_index": N }, ...]`) spawns many cells in one scene;
-  `tools/world_cells.py` writes `local/paris-world-cells.json` (2,168 rows with
-  `record_length > 1000`).
+- `--map-cells FILE` (JSON `[{ "entry_index": N }, ...]`); `tools/world_cells.py` writes the
+  list.
 - A cell's entities come from the cell package's own `0984415e` resources, not from the
-  child-id list. The child list is heterogeneous (nav, largemesh, other payloads), and the
-  index walk read one package per child: cell 21267 (3,406 entities) needed more than 300 s
-  of CPU that way and under 3 s from the package.
-- `Loaded` now carries `instances: Vec<MapInstance { piece, matrix }>`; `pieces` holds one
-  entry per unique mesh, in local space. `main.rs` builds one mesh handle per part and
-  spawns one entity per part per instance under a Y-up root.
-- `--map-dry-run`, `--map-piece-limit N` (400 single cell, 200,000 list). Per-selector LOD
-  tables, chosen LOD and every unresolved link go to stderr.
-- Guards that keep one bad record from poisoning the scene: out-of-range entity matrices,
-  out-of-range vertices and undecodable meshes are named and counted.
+  child-id list (the list mixes entity, nav, physics and group payloads).
+- **Entry reuse**: `load_piece` re-read and re-inflated the whole entry per mesh. A largemesh
+  cell decodes to tens of megabytes and holds hundreds of meshes, so cell 21267 needed
+  >10 min; reusing the cached package through `piece_from` takes **17 s** for 2,177 pieces.
+- **Direct-mesh entities**: largemesh/terrain chunks carry no `51dc6b80` selector; they
+  reference a `415d9568` mesh themselves (e.g. `Largemesh_MR_GroundMesh_Large_LOD2_Chunk_0005`).
+  The loader now resolves a selector first, then a direct mesh, both by type in the entity's
+  own entry. This is what restores the ground.
+- `b22b3e61` is **Havok collision** (`hk_2013.3.0-r1`, `hknpExternMeshShapeData`), not render
+  geometry: entities that reference only that are skipped, correctly.
+- Mesh instancing: one decode per unique mesh, one `MapInstance` per placement.
+- Guards: out-of-range matrices and vertices, undecodable meshes are named and counted.
+- `--map-dry-run`, `--map-piece-limit`, `ACU_MAP_TRACE=1` (log each mesh decode).
 
 ## Commands and results
 
 ```powershell
 $env:RUSTUP_TOOLCHAIN='stable'
 cargo build --bin acu_bevy
-# from the repo root:
 acu_bevy --game-dir "<install>" --map-cells local\paris-world-cells.json --map-lod 2 `
-         --no-textures --map-piece-limit 400000 --size 1920x1080 --capture local\paris-map-lod2.png
-
-# map: 143640 pieces from 2150/2168 cells (250076 entities, 375609 child refs),
-#      2128 distinct mesh ids, 2158 distinct selectors, LODs [0,1,2];
-#      skipped: 4724 without a matrix, 101452 without a selector, 0 without a LOD record,
-#      24 without a mesh, 235 undecodable meshes, 1 out-of-range matrix, 0 out-of-range
-#      meshes, 0 cells without a cell block
-# native bounds min=[-962.33344, -985.2814, -104.1986] max=[1288.1412, 1024.6433, 396.0409]
-# elapsed 240 s including the capture
+         --no-textures --map-piece-limit 500000 --size 2560x1440 --capture local\paris-map-full.png
 ```
 
-Dry run over the same list (no mesh decode): 135 s, 143,876 resolvable placements,
-2,133 distinct mesh ids.
+Dry run over 8,330 cells: 208,472 resolvable placements in 265 s, 14,952 distinct mesh ids.
 
 ## Remaining uncertainty
 
-- 235 meshes fail to decode (`unsupported vertex format 2 stride 40` and similar); they are
-  counted per mesh id, not yet diagnosed.
-- 4,724 entities have no accepted affine (matrix row 3 not 1.0, or values out of range).
-- 101,452 entities reference no `51dc6b80` selector: lights, light cookies, FX, FakeGI and
-  AI/path markers, plus largemesh-backed objects whose geometry path is still unknown.
-- Water surfaces are absent; the Seine reads as a hole in the aerial.
-- Textures are off in this pass.
+- 2,557 of 8,330 cells contribute no geometry: their entities are lights, FX, FakeGI and AI
+  markers, or reference nothing the loader can type.
+- 123,291 entities reference no selector and no direct mesh.
+- Water surfaces are still absent; the Seine reads as a hole.
+- Textures are off in this pass. 235 meshes fail to decode (vertex format), counted per id.
+- The `World` resource's payload is 1.6 MB of id blocks; the link table gives its targets but
+  the streaming order and load radius are engine behaviour, not decoded.
+
