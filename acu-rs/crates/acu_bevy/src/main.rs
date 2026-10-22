@@ -557,12 +557,28 @@ fn setup_world(
                 Visibility::default(),
             ))
             .with_children(|root| {
+                let mut spawned = 0usize;
+                let mut drawn = 0usize;
+                let radius = options.map_radius;
+                let origin = options.spawn.map(Vec3::from_array);
                 for instance in &instances {
+                    if let (Some(radius), Some(origin)) = (radius, origin) {
+                        let at = Vec3::new(
+                            instance.matrix[12],
+                            instance.matrix[14],
+                            -instance.matrix[13],
+                        );
+                        if at.distance(origin) > radius {
+                            continue;
+                        }
+                    }
+                    drawn += 1;
                     let transform = Transform::from_matrix(Mat4::from_cols_array(&instance.matrix));
                     for (mesh, material) in part_meshes[instance.piece]
                         .iter()
                         .zip(&part_materials[instance.piece])
                     {
+                        spawned += 1;
                         root.spawn((
                             Mesh3d(mesh.clone()),
                             MeshMaterial3d(material.clone()),
@@ -570,6 +586,11 @@ fn setup_world(
                         ));
                     }
                 }
+                println!(
+                    "map: {spawned} entities for {drawn}/{} placements (radius {:?} m)",
+                    instances.len(),
+                    radius
+                );
             });
     }
     if options.rigged {

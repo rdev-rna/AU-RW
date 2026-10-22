@@ -941,6 +941,7 @@ struct MapTotals {
     bad_geometry: HashSet<u64>,
     direct_meshes: usize,
     skipped_fake: usize,
+    skipped_radius: usize,
 }
 
 /// State shared by every cell of one invocation.
@@ -955,6 +956,9 @@ struct MapContext<'a> {
     paris_path: &'a PathBuf,
     assets_path: &'a PathBuf,
     wanted_lod: usize,
+    /// Optional distance filter: native-space centre and radius in metres.
+    centre: Option<[f32; 3]>,
+    radius: Option<f32>,
     dry_run: bool,
     budget: usize,
     pieces: Vec<LoadedPiece>,
@@ -1060,6 +1064,15 @@ impl MapContext<'_> {
                 eprintln!("map: entity matrix out of range: {matrix:?}");
             }
             return Ok(());
+        }
+        if let (Some(centre), Some(radius)) = (self.centre, self.radius) {
+            let dx = matrix[12] - centre[0];
+            let dy = matrix[13] - centre[1];
+            let dz = matrix[14] - centre[2];
+            if dx * dx + dy * dy + dz * dz > radius * radius {
+                self.totals.skipped_radius += 1;
+                return Ok(());
+            }
         }
         let (mesh_id, level) = match link {
             GeometryLink::Selector { id, bytes } => {
@@ -1279,6 +1292,10 @@ pub fn load_map(
         paris_path: &paris_path,
         assets_path: &assets_path,
         wanted_lod: options.map_lod as usize,
+        // --spawn is Bevy (x, y up, z); an instance matrix is native (x, y, z up), so
+        // native = (x, -z, y).
+        centre: options.spawn.map(|[x, y, z]| [x, -z, y]),
+        radius: options.map_radius,
         dry_run: options.map_dry_run,
         budget,
         pieces: Vec::new(),
@@ -1307,7 +1324,7 @@ pub fn load_map(
          {} distinct selectors, LODs [{}]; skipped: {} without a matrix, {} without a \
          selector, {} without a LOD record, {} without a mesh, {} undecodable meshes, \
          {} out-of-range matrices, {} out-of-range meshes, {} direct-mesh entities, \
-         {} FAKE backdrops, {} cells without a cell block",
+         {} FAKE backdrops, {} outside the radius, {} cells without a cell block",
         totals.pieces,
         totals.cells_with_pieces,
         totals.cells,
@@ -1325,6 +1342,7 @@ pub fn load_map(
         totals.skipped_bad_vertices,
         totals.direct_meshes,
         totals.skipped_fake,
+        totals.skipped_radius,
         totals.skipped_no_entity
     );
     Ok((context.pieces, context.instances))
