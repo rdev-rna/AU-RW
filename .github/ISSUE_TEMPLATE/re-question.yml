@@ -1,6 +1,6 @@
 name: Reverse-engineering question
 description: A bounded evidence question. Result is a finding (docs/templates/FINDING.md).
-labels: ["type:re", "status:needs-triage"]
+labels: ["type:re", "stage:research", "status:needs-triage"]
 body:
   - type: markdown
     attributes:
@@ -36,3 +36,8 @@ body:
     id: depends
     attributes:
       label: Depends on
+  - type: textarea
+    id: handoff
+    attributes:
+      label: Expected development handoff
+      description: What build slices should come out of this (see docs/RESEARCH_TO_BUILD.md). Filled in at close as a HANDOFF comment.

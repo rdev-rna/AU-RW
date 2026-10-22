@@ -1,6 +1,6 @@
 name: Slice (bounded work item)
 description: One vertical slice with acceptance criteria. Maps to docs/templates/TASK.md.
-labels: ["type:slice", "status:needs-triage"]
+labels: ["type:slice", "stage:build", "status:needs-triage"]
 body:
   - type: markdown
     attributes:
@@ -20,6 +20,11 @@ body:
       label: Question and bounded scope
       description: One result, small enough for one branch and PR.
     validations: {required: true}
+  - type: input
+    id: finding
+    attributes:
+      label: Finding this implements
+      description: ACU-RE-NNNN and the research issue (#N). If none exists, add label needs-finding and link the research issue that will produce one. See docs/RESEARCH_TO_BUILD.md.
   - type: textarea
     id: inputs
     attributes:
