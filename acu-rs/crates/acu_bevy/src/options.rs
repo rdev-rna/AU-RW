@@ -47,6 +47,11 @@ pub struct Options {
     pub ticks: u32,
     pub game_dir: PathBuf,
     pub pieces: Vec<Piece>,
+    /// Map scene: a world cell to spawn, given as an entry index or a 16-digit file id.
+    pub map_cell: Option<String>,
+    /// Archives used by map mode; default to the installed Paris pair.
+    pub map_paris: Option<PathBuf>,
+    pub map_assets: Option<PathBuf>,
     /// Screenshot path; when set the app captures and exits.
     pub capture: Option<PathBuf>,
     /// Frames to render before capturing.
@@ -105,6 +110,9 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut game_dir: Option<PathBuf> = std::env::var_os("ACU_GAME_DIR").map(PathBuf::from);
     let mut archive: Option<PathBuf> = None;
     let mut piece_args: Vec<String> = Vec::new();
+    let mut map_cell: Option<String> = None;
+    let mut map_paris: Option<PathBuf> = None;
+    let mut map_assets: Option<PathBuf> = None;
     let mut capture: Option<PathBuf> = None;
     let mut frames: u32 = 60;
     let mut orbit_deg: f32 = 35.0;
@@ -127,6 +135,13 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
                 archive = Some(PathBuf::from(args.next().ok_or("--archive needs a value")?));
             }
             "--piece" => piece_args.push(args.next().ok_or("--piece needs a value")?),
+            "--map-cell" => map_cell = Some(args.next().ok_or("--map-cell needs a value")?),
+            "--map-paris" => {
+                map_paris = Some(PathBuf::from(args.next().ok_or("--map-paris needs a value")?))
+            }
+            "--map-assets" => {
+                map_assets = Some(PathBuf::from(args.next().ok_or("--map-assets needs a value")?))
+            }
             "--capture" => {
                 capture = Some(PathBuf::from(args.next().ok_or("--capture needs a value")?))
             }
@@ -226,8 +241,10 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
         })
         .unwrap_or_else(|| game_dir.join(DEFAULT_ARCHIVE));
     let mut pieces = Vec::new();
-    let rigged = piece_args.is_empty() && !static_scene;
-    if piece_args.is_empty() {
+    let rigged = piece_args.is_empty() && !static_scene && map_cell.is_none();
+    if map_cell.is_some() {
+        // Map mode supplies its own pieces; the Arno set and --piece are ignored.
+    } else if piece_args.is_empty() {
         for (entry, resource, label) in ARNO_PIECES {
             pieces.push(Piece {
                 archive: archive.clone(),
@@ -270,6 +287,9 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
         ticks,
         game_dir,
         pieces,
+        map_cell,
+        map_paris,
+        map_assets,
         capture,
         frames,
         orbit_deg,

@@ -193,6 +193,16 @@ impl Loader {
                 catalog_paths.push(path.clone());
             }
         }
+        // Map mode resolves materials from the assets archive itself.
+        if options.map_cell.is_some() {
+            let assets = options
+                .map_assets
+                .clone()
+                .unwrap_or_else(|| options.game_dir.join("DataPC_ACU_Paris_assets.forge"));
+            if !catalog_paths.iter().any(|p| p == &assets) {
+                catalog_paths.push(assets);
+            }
+        }
         Self {
             no_textures: options.no_textures,
             entry_archive: PathBuf::new(),
@@ -568,13 +578,304 @@ fn load_piece(loader: &mut Loader, forge: &mut Forge, piece: &Piece) -> Result<L
     })
 }
 
+/// Resource types needed by map mode (ACU-RE-0034/0035/0036).
+const TYPE_CELL: &str = "ac2bbf68";
+const TYPE_ENTITY: &str = "0984415e";
+const TYPE_SELECTOR: &str = "51dc6b80";
+const TYPE_WORLD_MESH: &str = "415d9568";
+
+/// Highest number of placeable meshes one invocation will spawn.
+const MAP_PIECE_LIMIT: usize = 400;
+
+fn id_map(forge: &Forge) -> HashMap<u64, usize> {
+    let mut map = HashMap::with_capacity(forge.entries.len());
+    for entry in &forge.entries {
+        if let Ok(value) = u64::from_str_radix(&entry.file_id, 16) {
+            map.insert(value, entry.index);
+        }
+    }
+    map
+}
+
+/// Child ids of a GridCellDataBlock: `17 + count*10 + 12` bytes exactly.
+fn cell_children(bytes: &[u8]) -> Result<Vec<u64>> {
+    if bytes.len() < 29 {
+        return Err("cell block shorter than its header".into());
+    }
+    let count = u32::from_le_bytes(bytes[13..17].try_into().unwrap()) as usize;
+    if count > 100_000 || 17 + count * 10 + 12 != bytes.len() {
+        return Err(format!("cell child count {count} does not fit {len} bytes", len = bytes.len()).into());
+    }
+    let mut children = Vec::with_capacity(count);
+    for index in 0..count {
+        let at = 17 + index * 10;
+        children.push(u64::from_le_bytes(bytes[at + 2..at + 10].try_into().unwrap()));
+    }
+    Ok(children)
+}
+
+/// The entity's affine matrix: `u8 version, u64 self, u32 type, u8 flag, f32[16]`.
+/// Rows 0-2 are rotation, row 3 is translation (ACU-RE-0035), stored row-major.
+fn entity_matrix(bytes: &[u8]) -> Option<[f32; 16]> {
+    if bytes.len() < 78 {
+        return None;
+    }
+    let mut matrix = [0f32; 16];
+    for index in 0..16 {
+        let at = 14 + index * 4;
+        matrix[index] = f32::from_le_bytes(bytes[at..at + 4].try_into().unwrap());
+    }
+    if (matrix[15] - 1.0).abs() > 1e-3 {
+        return None;
+    }
+    if matrix.iter().any(|v| !v.is_finite()) {
+        return None;
+    }
+    Some(matrix)
+}
+
+fn transform_point(m: &[f32; 16], p: [f32; 3]) -> [f32; 3] {
+    [
+        m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12],
+        m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13],
+        m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14],
+    ]
+}
+
+fn transform_direction(m: &[f32; 16], p: [f32; 3]) -> [f32; 3] {
+    [
+        m[0] * p[0] + m[4] * p[1] + m[8] * p[2],
+        m[1] * p[0] + m[5] * p[1] + m[9] * p[2],
+        m[2] * p[0] + m[6] * p[1] + m[10] * p[2],
+    ]
+}
+
+fn read_index(name: &str) -> Result<HashMap<u64, usize>> {
+    let candidates = [
+        PathBuf::from(name),
+        PathBuf::from("..").join(name),
+        PathBuf::from("../..").join(name),
+    ];
+    let path = candidates
+        .iter()
+        .find(|p| p.exists())
+        .ok_or_else(|| format!("resource index {name} not found; run tools/build_resource_index.py"))?;
+    let bytes = std::fs::read(path)?;
+    if bytes.len() < 12 || &bytes[0..8] != b"ACUSEL01" {
+        return Err(format!("{}: not an ACUSEL01 index", path.display()).into());
+    }
+    let count = u32::from_le_bytes(bytes[8..12].try_into().unwrap()) as usize;
+    if bytes.len() != 12 + count * 12 {
+        return Err(format!("{}: length does not match {count} rows", path.display()).into());
+    }
+    let mut map = HashMap::with_capacity(count);
+    for index in 0..count {
+        let at = 12 + index * 12;
+        let id = u64::from_le_bytes(bytes[at..at + 8].try_into().unwrap());
+        let entry = u32::from_le_bytes(bytes[at + 8..at + 12].try_into().unwrap()) as usize;
+        map.insert(id, entry);
+    }
+    Ok(map)
+}
+
+/// Spawn one world cell: children -> Entity -> LODSelector -> world mesh, with each
+/// entity's matrix baked into the vertices so the existing spawn and camera path works.
+///
+/// Selector and mesh ids are *resource* ids, so both are resolved through compact
+/// indices built from the census (`tools/build_resource_index.py`). An entity without a
+/// decodable matrix, or whose selector resolves to nothing, is skipped and counted,
+/// never guessed.
+pub fn load_map(options: &Options, loader: &mut Loader) -> Result<Vec<LoadedPiece>> {
+    let limits = Limits::default();
+    let paris_path = options
+        .map_paris
+        .clone()
+        .unwrap_or_else(|| options.game_dir.join("DataPC_ACU_Paris.forge"));
+    let _assets_path = options
+        .map_assets
+        .clone()
+        .unwrap_or_else(|| options.game_dir.join("DataPC_ACU_Paris_assets.forge"));
+    let mut paris = Forge::open(&paris_path, limits)?;
+    let paris_ids = id_map(&paris);
+    let selector_index = read_index("local/paris-selectors.bin")?;
+    let mesh_index = read_index("local/paris-world-meshes.bin")?;
+    let entity_index = read_index("local/paris-entities.bin")?;
+    let mut assets = Forge::open(&_assets_path, limits)?;
+    let assets_entries = id_map(&assets);
+
+    let spec = options
+        .map_cell
+        .clone()
+        .ok_or("map mode without --map-cell")?;
+    let cell_entry = match spec.parse::<usize>() {
+        Ok(index) => index,
+        Err(_) => {
+            let id = u64::from_str_radix(spec.trim_start_matches("0x"), 16)
+                .map_err(|_| "map cell must be an entry index or a hex file id")?;
+            *paris_ids
+                .get(&id)
+                .ok_or("cell file id is not an entry in the Paris archive")?
+        }
+    };
+
+    let package = paris.read_package(cell_entry)?;
+    let block = package
+        .resources
+        .iter()
+        .find(|r| r.type_id == TYPE_CELL)
+        .ok_or("entry has no GridCellDataBlock resource")?;
+    let children = cell_children(&package.bytes[block.payload.clone()])?;
+    eprintln!("map: cell {} with {} children", spec, children.len());
+
+    let mut resolved: HashMap<u64, Vec<(usize, usize, bool)>> = HashMap::new();
+    let mut pieces = Vec::new();
+    let mut skipped_matrix = 0usize;
+    let mut skipped_no_mesh = 0usize;
+    for child in children {
+        if pieces.len() >= MAP_PIECE_LIMIT {
+            eprintln!("map: piece limit {MAP_PIECE_LIMIT} reached");
+            break;
+        }
+        let Some(&entry_index) = entity_index.get(&child) else {
+            continue;
+        };
+        let child_package = paris.read_package(entry_index)?;
+        let Some(entity) = child_package
+            .resources
+            .iter()
+            .find(|r| r.type_id == TYPE_ENTITY)
+        else {
+            continue;
+        };
+        let entity_bytes = &child_package.bytes[entity.payload.clone()];
+        let Some(matrix) = entity_matrix(entity_bytes) else {
+            skipped_matrix += 1;
+            continue;
+        };
+
+        let entity_name = entity.name.clone();
+        // Harvest the meshes once per selector, not once per entity.
+        let meshes = match resolved.get(&child) {
+            Some(list) => list.clone(),
+            None => {
+                let mut list = Vec::new();
+                for offset in 0..entity_bytes.len().saturating_sub(7) {
+                    let candidate =
+                        u64::from_le_bytes(entity_bytes[offset..offset + 8].try_into().unwrap());
+                    let Some(&selector_entry) = selector_index.get(&candidate) else {
+                        continue;
+                    };
+                    let selector_package = paris.read_package(selector_entry)?;
+                    let Some(selector) = selector_package
+                        .resources
+                        .iter()
+                        .find(|r| r.type_id == TYPE_SELECTOR)
+                    else {
+                        continue;
+                    };
+                    let selector_bytes = &selector_package.bytes[selector.payload.clone()];
+                    // The reference is the selector whose name prefixes the entity's, e.g.
+                    // FRV_BV_TanneryFence_03 -> FRV_BV_TanneryFence_03_LOD0. A bare id hit
+                    // is not enough: shared ids in the payload resolve to unrelated selectors.
+                    let selector_name = selector.name.clone();
+                    let name_matches = !selector_name.is_empty()
+                        && entity_name.starts_with(selector_name.as_str());
+                    for inner in 0..selector_bytes.len().saturating_sub(7) {
+                        let mesh_id = u64::from_le_bytes(
+                            selector_bytes[inner..inner + 8].try_into().unwrap(),
+                        );
+                        let (mesh_entry, from_assets) = match mesh_index.get(&mesh_id) {
+                            Some(&entry) => (entry, false),
+                            None => match assets_entries.get(&mesh_id) {
+                                Some(&entry) => (entry, true),
+                                None => continue,
+                            },
+                        };
+                        let mesh_package = if from_assets {
+                            assets.read_package(mesh_entry)?
+                        } else {
+                            paris.read_package(mesh_entry)?
+                        };
+                        let Some(resource) = mesh_package
+                            .resources
+                            .iter()
+                            .position(|r| r.type_id == TYPE_WORLD_MESH)
+                        else {
+                            continue;
+                        };
+                        list.push((mesh_entry, resource, from_assets));
+                        // One LOD per entity: spawning every level stacks identical
+                        // geometry and destroys the scene bounds.
+                        break;
+                    }
+                    if !list.is_empty() {
+                        break;
+                    }
+                }
+                resolved.insert(child, list.clone());
+                list
+            }
+        };
+        if meshes.is_empty() {
+            skipped_no_mesh += 1;
+            continue;
+        }
+        for (mesh_entry, resource, from_assets) in meshes {
+            let piece = Piece {
+                archive: if from_assets {
+                    _assets_path.clone()
+                } else {
+                    paris_path.clone()
+                },
+                entry: mesh_entry,
+                resource,
+                label: format!("cell-{child:016x}"),
+            };
+            let mut loaded = if from_assets {
+                load_piece(loader, &mut assets, &piece)?
+            } else {
+                load_piece(loader, &mut paris, &piece)?
+            };
+            for vertex in &mut loaded.vertices {
+                vertex.position = transform_point(&matrix, vertex.position);
+                vertex.normal = transform_direction(&matrix, vertex.normal);
+                if let Some(tangent) = vertex.tangent {
+                    vertex.tangent = Some(transform_direction(&matrix, tangent));
+                }
+                if let Some(binormal) = vertex.binormal {
+                    vertex.binormal = Some(transform_direction(&matrix, binormal));
+                }
+            }
+            pieces.push(loaded);
+            if pieces.len() >= MAP_PIECE_LIMIT {
+                break;
+            }
+        }
+    }
+    eprintln!(
+        "map: {} placed, {} entities without a matrix, {} without a resolvable mesh",
+        pieces.len(),
+        skipped_matrix,
+        skipped_no_mesh
+    );
+    Ok(pieces)
+}
+
 /// Load every piece, reusing one open Forge per archive.
 pub fn load_all(options: &Options) -> Result<Loaded> {
     let limits = Limits::default();
     let mut forges: HashMap<PathBuf, Forge> = HashMap::new();
     let mut loader = Loader::new(options);
     let mut pieces = Vec::new();
-    for piece in &options.pieces {
+    if options.map_cell.is_some() {
+        pieces = load_map(options, &mut loader)?;
+    }
+    let pet: &[Piece] = if options.map_cell.is_some() {
+        &[]
+    } else {
+        &options.pieces
+    };
+    for piece in pet {
         let forge = match forges.get_mut(&piece.archive) {
             Some(forge) => forge,
             None => {
