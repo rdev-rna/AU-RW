@@ -1032,6 +1032,7 @@ struct MapTotals {
     direct_meshes: usize,
     skipped_fake: usize,
     skipped_radius: usize,
+    containers: usize,
 }
 
 /// State shared by every cell of one invocation.
@@ -1042,6 +1043,7 @@ struct MapContext<'a> {
     cache: &'a mut PackageCache,
     mesh_index: &'a Index,
     selector_index: &'a Index,
+    entity_index: &'a Index,
     locations: &'a MeshLocationIndex,
     extra_archives: &'a [PathBuf],
     extra_forges: &'a mut Vec<Option<Forge>>,
@@ -1113,7 +1115,7 @@ impl MapContext<'_> {
                 eprintln!("map: piece limit {} reached", self.budget);
                 break;
             }
-            self.spawn_entity(cell_entry, position)?;
+            self.spawn_entity(cell_entry, position, None, 0)?;
         }
         if self.totals.pieces > before {
             self.totals.cells_with_pieces += 1;
@@ -1237,8 +1239,36 @@ impl MapContext<'_> {
         Ok(None)
     }
 
+    /// Spawn a child entity by id (a largemesh chunk), composing the container's matrix.
+    fn spawn_entity_by_id(&mut self, id: u64, parent: [f32; 16], depth: usize) -> Result<()> {
+        let Some(entries) = self.entity_index.get(&id) else {
+            return Ok(());
+        };
+        for &entry in entries.iter().take(2) {
+            self.cache.ensure(&mut *self.paris, entry)?;
+            let position = {
+                let (package, ids) = self.cache.view()?;
+                ids.get(&id)
+                    .copied()
+                    .filter(|&position| package.resources[position].type_id == TYPE_ENTITY)
+            };
+            if let Some(position) = position {
+                return self.spawn_entity(entry, position, Some(parent), depth);
+            }
+        }
+        Ok(())
+    }
+
     /// Spawn the entity at `position` inside `cell_entry`'s package.
-    fn spawn_entity(&mut self, entity_entry: usize, position: usize) -> Result<()> {
+    fn spawn_entity(
+        &mut self,
+        entity_entry: usize,
+        position: usize,
+        parent: Option<[f32; 16]>,
+        depth: usize,
+    ) -> Result<()> {
+        // The cache may still hold a chunk entry from a previous expansion.
+        self.cache.ensure(&mut *self.paris, entity_entry)?;
         let (entity_bytes, link) = {
             let (package, ids) = self.cache.view()?;
             let entity = &package.resources[position];
@@ -1275,12 +1305,50 @@ impl MapContext<'_> {
             }
             return Ok(());
         }
+        // A chunk entity's matrix is relative to its container.
+        let matrix = match parent {
+            Some(parent) => {
+                let world = bevy::math::Mat4::from_cols_array(&parent)
+                    * bevy::math::Mat4::from_cols_array(&matrix);
+                world.to_cols_array()
+            }
+            None => matrix,
+        };
         if let (Some(centre), Some(radius)) = (self.centre, self.radius) {
             let dx = matrix[12] - centre[0];
             let dy = matrix[13] - centre[1];
             let dz = matrix[14] - centre[2];
             if dx * dx + dy * dy + dz * dz > radius * radius {
                 self.totals.skipped_radius += 1;
+                return Ok(());
+            }
+        }
+        if matches!(link, GeometryLink::None) && depth == 0 {
+            // Largemesh buildings are containers: the payload lists one Entity per chunk,
+            // and each chunk carries the mesh. Expand one level.
+            let own = {
+                let (package, _) = self.cache.view()?;
+                u64::from_str_radix(&package.resources[position].file_id, 16).unwrap_or(0)
+            };
+            let mut children: Vec<u64> = Vec::new();
+            for offset in 0..entity_bytes.len().saturating_sub(7) {
+                let value =
+                    u64::from_le_bytes(entity_bytes[offset..offset + 8].try_into().unwrap());
+                if value == 0 || children.contains(&value) {
+                    continue;
+                }
+                if self.entity_index.contains_key(&value) && value != own {
+                    children.push(value);
+                    if children.len() >= 96 {
+                        break;
+                    }
+                }
+            }
+            if !children.is_empty() {
+                self.totals.containers += 1;
+                for child in children {
+                    self.spawn_entity_by_id(child, matrix, depth + 1)?;
+                }
                 return Ok(());
             }
         }
@@ -1522,6 +1590,7 @@ pub fn load_map(
     let paris_ids = id_map(&paris);
     let mesh_index = read_index("local/paris-world-meshes.bin")?;
     let selector_index = read_index("local/paris-selectors.bin")?;
+    let entity_index = read_index("local/paris-entities.bin")?;
     let locations = read_mesh_locations(
         "local/paris-mesh-locations.bin",
         "local/paris-mesh-locations.json",
@@ -1576,6 +1645,7 @@ pub fn load_map(
         cache: &mut cache,
         mesh_index: &mesh_index,
         selector_index: &selector_index,
+        entity_index: &entity_index,
         locations: &locations,
         extra_archives: &extra_archives,
         extra_forges: &mut extra_forges,
@@ -1616,7 +1686,8 @@ pub fn load_map(
          {} distinct selectors, LODs [{}]; skipped: {} without a matrix, {} without a \
          selector, {} without a LOD record, {} without a mesh, {} undecodable meshes, \
          {} out-of-range matrices, {} out-of-range meshes, {} direct-mesh entities, \
-         {} FAKE backdrops, {} outside the radius, {} cells without a cell block",
+         {} FAKE backdrops, {} outside the radius, {} containers expanded, \
+         {} cells without a cell block",
         totals.pieces,
         totals.cells_with_pieces,
         totals.cells,
@@ -1635,6 +1706,7 @@ pub fn load_map(
         totals.direct_meshes,
         totals.skipped_fake,
         totals.skipped_radius,
+        totals.containers,
         totals.skipped_no_entity
     );
     Ok((context.pieces, context.instances))
