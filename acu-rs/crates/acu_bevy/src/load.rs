@@ -700,6 +700,10 @@ pub fn load_map(options: &Options, loader: &mut Loader) -> Result<Vec<LoadedPiec
     let selector_index = read_index("local/paris-selectors.bin")?;
     let mesh_index = read_index("local/paris-world-meshes.bin")?;
     let entity_index = read_index("local/paris-entities.bin")?;
+    let selector_names: HashMap<String, usize> = serde_json::from_str(
+        &std::fs::read_to_string("local/paris-selector-names.json")
+            .or_else(|_| std::fs::read_to_string("../local/paris-selector-names.json"))?,
+    )?;
     let mut assets = Forge::open(&_assets_path, limits)?;
     let assets_entries = id_map(&assets);
 
@@ -753,6 +757,7 @@ pub fn load_map(options: &Options, loader: &mut Loader) -> Result<Vec<LoadedPiec
             continue;
         };
 
+        let entity_name = entity.name.clone();
         // Harvest the meshes once per selector, not once per entity.
         let meshes = match resolved.get(&child) {
             Some(list) => list.clone(),
@@ -804,10 +809,22 @@ pub fn load_map(options: &Options, loader: &mut Loader) -> Result<Vec<LoadedPiec
                     };
                     let selector_name = selector.name.clone();
                     let selector_bytes = &selector_package.bytes[selector.payload.clone()];
+                    // Accept the fixed-offset reference always (composite entities use a
+                    // differently named parent), but a scanned collision only when its
+                    // name prefixes the entity's: FRV_Wall_WL_09_042 -> FRV_Wall_WL_09.
+                    if Some(candidate) != fixed && !entity_name.starts_with(&selector.name) {
+                        continue;
+                    }
                     for inner in 0..selector_bytes.len().saturating_sub(7) {
                         let mesh_id = u64::from_le_bytes(
                             selector_bytes[inner..inner + 8].try_into().unwrap(),
                         );
+                        // The selector's LOD objects live in its own id block (in the
+                        // samples, _LOD1 sits 8 above the selector). Accepting any
+                        // entry-table match picked unrelated shared meshes.
+                        if (mesh_id >> 32) != (candidate >> 32) {
+                            continue;
+                        }
                         let (mesh_entry, from_assets) = match mesh_index.get(&mesh_id) {
                             Some(&entry) => (entry, false),
                             None => match assets_entries.get(&mesh_id) {
