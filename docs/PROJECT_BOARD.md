@@ -1,5 +1,18 @@
 # Project board and delegation protocol
 
+## Quickstart (5 steps)
+1. **Pick:** open the project (https://github.com/users/rdev-rna/projects/1) or run
+   `gh issue list -R rdev-rna/AU-RW --label status:ready --label agent-ok --search "no:assignee"`.
+2. **Claim:** assign yourself, swap `status:ready` for `status:claimed`, comment
+   `CLAIM <name> branch=acu-<issue#>-<slug> files=<paths>`.
+3. **Work:** branch `acu-<issue#>-<slug>`; notes in `docs/status/<issue#>-<slug>.md`;
+   findings in `docs/findings/`. Do not edit STATUS.md/TASKS.md/FINDINGS.md.
+4. **Open a PR** with `Closes #N`; label the issue `status:in-review`.
+5. **After merge:** the issue closes; promote slices that were `status:blocked` on it
+   to `status:ready`. New unknowns become new issues, not scope creep.
+Need the game, IDA/REA or a capture directory? Take the lock first (#30, #31, #32).
+Details below.
+
 GitHub issues and the "AU-RW Reconstruction" project are the claim and status
 surface. `docs/` stays the evidence record. The repository is public: issues and
 PRs carry addresses, hashes, finding IDs and doc paths only, never game bytes,
