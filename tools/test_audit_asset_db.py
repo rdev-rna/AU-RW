@@ -127,6 +127,29 @@ class AuditTests(unittest.TestCase):
         self.assertEqual(self.status(self.audit(), "entry indexes contiguous per archive"),
                          "FAIL")
 
+    def make_labels(self, named):
+        """type_label says t1 is 'Thing' (confident, 3 rows); `named` resources carry the name."""
+        self.mutate("""CREATE TABLE type_label (type_id TEXT PRIMARY KEY, label TEXT, category TEXT,
+            confidence TEXT, basis TEXT, rows INTEGER, distinct_ids INTEGER, named_rows INTEGER,
+            decoded_rows INTEGER, sample_names TEXT)""")
+        self.mutate("INSERT INTO type_label VALUES ('t1','Thing','c','crc-name','b',3,3,3,0,'[]')")
+        self.mutate("UPDATE resource SET type_name = 'Thing' WHERE id <= ?", named)
+
+    def test_type_names_that_match_the_labels_pass_and_a_partial_fill_fails(self):
+        self.make_labels(named=3)
+        self.assertEqual(self.status(self.audit(), "resource.type_name agrees with type_label"),
+                         "PASS")
+        self.mutate("UPDATE resource SET type_name = NULL WHERE id = 1")
+        self.assertEqual(self.status(self.audit(), "resource.type_name agrees with type_label"),
+                         "FAIL")
+
+    def test_an_archive_with_only_control_entries_is_named_not_failed(self):
+        self.mutate("INSERT INTO archive (name, size_bytes, baseline, scan_size_bytes) "
+                    "VALUES ('Empty.forge', 1, 1, 1)")
+        details = [d for s, n, d in self.audit().rows
+                   if n == "archives with only control entries (no data)"]
+        self.assertIn("Empty.forge", details[0])
+
     def test_id_set_that_differs_from_the_metadata_pass_fails(self):
         self.summary["target_ids"] = 99
         self.assertEqual(self.status(self.audit(self.summary),

@@ -19,7 +19,7 @@ recorded as a cheap guard against a swapped file; it is not a content check.
   (Entity), `85c817c3` 442,966 (Material), `d70e6670` 403,060 (TextureSet), `415d9568` 203,190 (Mesh).
 - ~121k resources have no name in the scan; they are NULL. 481k distinct names exist.
 - A lookup by file ID returns in about 1 ms. `00000007c2448f42` returns the same two copies and
-  stored lengths as ACU-RE-0037 (67,020 base, 67,045 patch_02).
+  stored lengths as ACU-RE-0038 (67,020 base, 67,045 patch_02).
 
 ## Example queries
 ```sql

@@ -22,8 +22,8 @@ import sys
 # STATUS.md totals came from a scan of a Paris archive that has since changed, and are not a
 # reference. Counts are checked per archive against the metadata parse (--links-summary).
 EXPECTED = {
-    "archives": (63, "acu_assets::forge::discover over the baseline install (ACU-RE-0037)"),
-    "entries_total": (180245, "reachable entries, fresh parse of the current files (ACU-RE-0037)"),
+    "archives": (63, "acu_assets::forge::discover over the baseline install (ACU-RE-0038)"),
+    "entries_total": (180245, "reachable entries, fresh parse of the current files (ACU-RE-0038)"),
     "control_entries": (126, "one global-metadata + one prefetch entry per archive"),
 }
 
@@ -169,7 +169,23 @@ def run(db, links_summary=None, tables=None):
     a.info("data entries with no resources", f"{len(zero)} (e.g. {zero[:4]})")
     a.info("resources without a name", f"{a.one('SELECT COUNT(*) FROM resource WHERE name IS NULL'):,}")
     named = a.one("SELECT COUNT(*) FROM resource WHERE type_name IS NOT NULL")
-    a.info("resources with a type name", f"{named:,} (type names need --type-names)")
+    total = a.one("SELECT COUNT(*) FROM resource")
+    if a.one("SELECT COUNT(*) FROM sqlite_master WHERE name = 'type_label'"):
+        labelled = a.one("SELECT COUNT(*) FROM type_label WHERE confidence IN "
+                         "('observed-decode', 'crc-name')")
+        a.check("resource.type_name agrees with type_label", named == a.one(
+            """SELECT COALESCE(SUM(rows), 0) FROM type_label
+               WHERE confidence IN ('observed-decode', 'crc-name')"""),
+                f"{named:,} resources named via {labelled} confident labels")
+        a.info("resources covered by a confident type label",
+               f"{named:,} of {total:,} ({named / max(total, 1):.1%}); "
+               f"{a.one('SELECT COUNT(*) FROM type_label')} types, "
+               f"{labelled} confidently labelled")
+    else:
+        a.info("resources with a type name", f"{named:,} (index not annotated)")
+    empty = [n for (n,) in a.q("""SELECT ar.name FROM archive ar WHERE NOT EXISTS (
+        SELECT 1 FROM entry e WHERE e.archive_id = ar.id AND e.kind = 'data') ORDER BY 1""")]
+    a.info("archives with only control entries (no data)", f"{len(empty)}: {empty}")
     unk = a.one("SELECT COUNT(*) FROM archive WHERE baseline IS NULL")
     a.info("archives with unknown baseline flag", str(unk))
     return a
