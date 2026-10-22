@@ -69,6 +69,9 @@ struct InspectionCamera {
     azimuth: f32,
     elevation: f32,
     distance: f32,
+    /// Framing distance chosen at spawn; the zoom clamp is relative to it so a city-scale
+    /// camera is not yanked to 20 units on the first frame.
+    initial: f32,
 }
 
 fn inspect_camera(
@@ -91,8 +94,8 @@ fn inspect_camera(
         orbit.elevation = (orbit.elevation
             + (axis(KeyCode::ArrowUp, KeyCode::ArrowDown) - controller.look.y * 1.8) * dt)
             .clamp(-0.1, 1.4);
-        orbit.distance =
-            (orbit.distance * (axis(KeyCode::KeyE, KeyCode::KeyQ) * dt).exp()).clamp(0.4, 20.0);
+        orbit.distance = (orbit.distance * (axis(KeyCode::KeyE, KeyCode::KeyQ) * dt).exp())
+            .clamp((orbit.initial * 0.02).max(0.05), orbit.initial * 4.0);
         let direction = Vec3::new(
             orbit.azimuth.sin() * orbit.elevation.cos(),
             orbit.elevation.sin(),
@@ -334,10 +337,30 @@ fn setup_world(
                 .sum::<usize>(),
         );
     }
-    if map_mode {
-        // Placements, not unique meshes, define the scene bounds.
+    if map_mode && instances.len() > 1 {
+        // A multi-cell scene is framed by its placement origins: terrain and water chunks
+        // span kilometres and would otherwise dominate the bounds and the camera distance.
         for instance in &instances {
-            let (min, max) = pieces[instance.piece].bounds();
+            let q = [
+                instance.matrix[12],
+                instance.matrix[13],
+                instance.matrix[14],
+            ];
+            for i in 0..3 {
+                native_min[i] = native_min[i].min(q[i]);
+                native_max[i] = native_max[i].max(q[i]);
+            }
+            let rotated = native_z_up_to_bevy_y_up() * Vec3::from_array(q);
+            bevy_min = bevy_min.min(rotated);
+            bevy_max = bevy_max.max(rotated);
+        }
+    } else if map_mode {
+        // One cell: frame the meshes themselves. Outliers are reported.
+        let mut outliers: Vec<(f32, String, [f32; 16])> = Vec::new();
+        for instance in &instances {
+            let piece = &pieces[instance.piece];
+            let (min, max) = piece.bounds();
+            let mut extent = 0f32;
             for corner in 0..8 {
                 let p = [
                     if corner & 1 == 0 { min[0] } else { max[0] },
@@ -348,11 +371,21 @@ fn setup_world(
                 for i in 0..3 {
                     native_min[i] = native_min[i].min(q[i]);
                     native_max[i] = native_max[i].max(q[i]);
+                    extent = extent.max(q[i].abs());
                 }
                 let rotated = native_z_up_to_bevy_y_up() * Vec3::from_array(q);
                 bevy_min = bevy_min.min(rotated);
                 bevy_max = bevy_max.max(rotated);
             }
+            outliers.push((extent, piece.label.clone(), instance.matrix));
+        }
+        outliers.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+        for (extent, label, matrix) in outliers.iter().take(6) {
+            eprintln!(
+                "bounds outlier: |coord| {extent:.0} {label} translation {:?} scale-ish {:?}",
+                [matrix[12], matrix[13], matrix[14]],
+                [matrix[0], matrix[5], matrix[10]]
+            );
         }
     } else {
         for piece in &pieces {
@@ -611,7 +644,11 @@ fn setup_world(
     let size = (bevy_max - bevy_min).length().max(1.0);
     let azimuth = options.orbit_deg.to_radians();
     let distance = size * 1.6;
-    let eye = center + Vec3::new(azimuth.sin(), 0.28, azimuth.cos()).normalize() * distance;
+    let elevation = options.orbit_elevation;
+    let eye = center + Vec3::new(azimuth.sin(), elevation, azimuth.cos()).normalize() * distance;
+    eprintln!(
+        "camera: center {center:?} size {size:.1} distance {distance:.1} eye {eye:?} elevation {elevation}"
+    );
     let mut camera = commands.spawn((
         Camera3d::default(),
         Camera {
@@ -620,14 +657,18 @@ fn setup_world(
         },
         Projection::Perspective(PerspectiveProjection {
             fov: 40.0_f32.to_radians(),
+            // City-scale scenes need a far plane well past the default.
+            near: 0.5,
+            far: 100_000.0,
             ..default()
         }),
         Transform::from_translation(eye).looking_at(center, Vec3::Y),
         InspectionCamera {
             center,
             azimuth,
-            elevation: 0.28_f32.atan(),
+            elevation: elevation.atan(),
             distance,
+            initial: distance,
         },
     ));
     if let Some(mut capture) = capture {

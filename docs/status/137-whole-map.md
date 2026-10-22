@@ -58,8 +58,20 @@ Evidence: `local/paris-map-full.png`.
 - `b22b3e61` is **Havok collision** (`hk_2013.3.0-r1`, `hknpExternMeshShapeData`), not render
   geometry: entities that reference only that are skipped, correctly.
 - Mesh instancing: one decode per unique mesh, one `MapInstance` per placement.
+- **`FAKE_*` backdrops are excluded**: fake ground/coast/city-silhouette meshes span the
+  whole map and hid the city from above. They are counted (9 in the largest 200 cells) and
+  named in the summary, so the exclusion is measured, not silent.
 - Guards: out-of-range matrices and vertices, undecodable meshes are named and counted.
-- `--map-dry-run`, `--map-piece-limit`, `ACU_MAP_TRACE=1` (log each mesh decode).
+- `--map-dry-run`, `--map-piece-limit`, `--orbit-elevation`, `ACU_MAP_TRACE=1`.
+
+### The blank-capture bug
+
+`inspect_camera` clamped the orbit distance to `0.4..20.0` every frame, so any scene larger
+than 20 units had its camera snapped to 20 units from the centre on the first frame - a city
+capture came out as uniform sky. The clamp is now relative to the framing distance
+(`initial * 0.02 .. initial * 4.0`). Multi-cell scenes are framed by their **placement
+origins** (terrain and water chunks span kilometres and would otherwise set the camera
+distance), single cells by their mesh bounds. The far plane is explicit (100 km).
 
 ## Commands and results
 

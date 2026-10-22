@@ -66,6 +66,8 @@ pub struct Options {
     pub frames: u32,
     /// Camera azimuth in degrees (orbit around the model).
     pub orbit_deg: f32,
+    /// Camera elevation as a slope (0.28 = ~16 degrees, 0.6 = ~31).
+    pub orbit_elevation: f32,
     /// Render target size for capture (and the windowed view).
     pub size: (u32, u32),
     /// Archives indexed for cross-archive lookups, in selection order.
@@ -128,6 +130,7 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut capture: Option<PathBuf> = None;
     let mut frames: u32 = 60;
     let mut orbit_deg: f32 = 35.0;
+    let mut orbit_elevation: f32 = 0.28;
     let mut size: (u32, u32) = (1280, 720);
     let mut texture_archives: Vec<String> = Vec::new();
     let mut no_textures = false;
@@ -239,6 +242,16 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
                     .parse()
                     .map_err(|e| format!("--frames: {e}"))?;
             }
+            "--orbit-elevation" => {
+                orbit_elevation = args
+                    .next()
+                    .ok_or("--orbit-elevation needs a value")?
+                    .parse()
+                    .map_err(|e| format!("--orbit-elevation: {e}"))?;
+                if !(0.0..=4.0).contains(&orbit_elevation) {
+                    return Err("--orbit-elevation must be 0..4".into());
+                }
+            }
             "--orbit-deg" => {
                 orbit_deg = args
                     .next()
@@ -338,6 +351,7 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
         capture,
         frames,
         orbit_deg,
+        orbit_elevation,
         size,
         texture_archives,
         no_textures,
@@ -368,6 +382,7 @@ OPTIONS:
     --report PATH      Write a JSON report of the material/texture chain
     --frames N         Frames rendered before the capture (default 60)
     --orbit-deg DEG    Camera azimuth around the model (default 35)
+    --orbit-elevation E  Camera elevation as a slope (default 0.28 = ~16 deg)
     --size WxH         Render target size (default 1280x720)
     --texture-archive FILE
                        Extra archive indexed for cross-archive lookups

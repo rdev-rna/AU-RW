@@ -940,6 +940,7 @@ struct MapTotals {
     skipped_bad_vertices: usize,
     bad_geometry: HashSet<u64>,
     direct_meshes: usize,
+    skipped_fake: usize,
 }
 
 /// State shared by every cell of one invocation.
@@ -1049,10 +1050,7 @@ impl MapContext<'_> {
         };
         // A garbage matrix (or a decoder returning uninitialised vertices) would otherwise
         // poison the whole map's bounds and fly the camera out of the world.
-        if matrix
-            .iter()
-            .any(|v| !v.is_finite() || v.abs() > 100_000.0)
-        {
+        if matrix.iter().any(|v| !v.is_finite() || v.abs() > 100_000.0) {
             self.totals.skipped_bad_matrix += 1;
             if self
                 .totals
@@ -1176,11 +1174,21 @@ impl MapContext<'_> {
                         return Ok(());
                     }
                 };
-                if loaded
-                    .vertices
-                    .iter()
-                    .any(|v| v.position.iter().any(|c| !c.is_finite() || c.abs() > 100_000.0))
-                {
+                // `FAKE_*` resources are distant scenery backdrops (fake ground, coast and
+                // city silhouettes) that span the whole map. Rendered from above they hide
+                // the city and inflate the scene bounds, so map mode leaves them out and
+                // says how many it dropped.
+                if loaded.label.starts_with("FAKE_") {
+                    self.totals.skipped_fake += 1;
+                    self.totals.pieces -= 1;
+                    self.totals.mesh_refs.remove(&mesh_id);
+                    return Ok(());
+                }
+                if loaded.vertices.iter().any(|v| {
+                    v.position
+                        .iter()
+                        .any(|c| !c.is_finite() || c.abs() > 100_000.0)
+                }) {
                     if self.totals.bad_geometry.insert(mesh_id) {
                         eprintln!("map: mesh {mesh_id:016x} has out-of-range vertices; skipped");
                     }
@@ -1299,7 +1307,7 @@ pub fn load_map(
          {} distinct selectors, LODs [{}]; skipped: {} without a matrix, {} without a \
          selector, {} without a LOD record, {} without a mesh, {} undecodable meshes, \
          {} out-of-range matrices, {} out-of-range meshes, {} direct-mesh entities, \
-         {} cells without a cell block",
+         {} FAKE backdrops, {} cells without a cell block",
         totals.pieces,
         totals.cells_with_pieces,
         totals.cells,
@@ -1316,6 +1324,7 @@ pub fn load_map(
         totals.skipped_bad_matrix,
         totals.skipped_bad_vertices,
         totals.direct_meshes,
+        totals.skipped_fake,
         totals.skipped_no_entity
     );
     Ok((context.pieces, context.instances))
