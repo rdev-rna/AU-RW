@@ -65,5 +65,19 @@ class OtherTests(unittest.TestCase):
         self.assertEqual([m["body"] for m in board.mentions(cs, "bob", since)], ["@bob please check #5"])
 
 
+class OverlapTests(unittest.TestCase):
+    def test_claim_files(self):
+        self.assertEqual(board.claim_files("CLAIM a branch=x files=docs/a.md, tools/*"), ["docs/a.md", "tools/*"])
+        self.assertEqual(board.claim_files("CLAIM a branch=x files=tbd"), [])
+        self.assertEqual(board.claim_files("hello"), [])
+
+    def test_overlaps(self):
+        self.assertTrue(board.overlaps(["docs/AREAS.md"], ["docs/AREAS.md"]))
+        self.assertTrue(board.overlaps(["docs/areas/motion.md"], ["docs/areas/*"]))
+        self.assertTrue(board.overlaps(["docs"], ["docs/status/x.md"]))
+        self.assertFalse(board.overlaps(["docs/a.md"], ["docs/b.md", "tools/x.py"]))
+        self.assertFalse(board.overlaps([], ["docs/a.md"]))
+
+
 if __name__ == "__main__":
     unittest.main()
