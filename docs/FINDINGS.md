@@ -1,5 +1,13 @@
 # Finding index
 
+Corpus identity: [ACU-RE-0031](findings/ACU-RE-0031-corpus-binary-identity.md) binds the
+mapped runtime image and the function export to installed `ACU.exe` by SHA-256, PE
+headers, `.rsrc` and `.tls`, and resolves the export against the binary's own unwind
+table (0.996712 of 263,663 starts). Code identity is unavailable: the installed file is
+packed, so `.text`/`.rdata`/`.data`/`.pdata` have RawSize 0 and no code byte was
+compared. The verdict is `bound_without_code_comparison`; 867 absent starts and three
+patched `.UBX1` pages remain unexplained.
+
 Latest pose-stage evidence: [ACU-RE-0028](findings/ACU-RE-0028-model-pose-bone-modifiers.md)
 identifies the traced slot-2 array as the model-space pose written by skeleton
 bone modifiers (MaxLookAt, Orientation/PositionConstraint, Hinge), recovers
