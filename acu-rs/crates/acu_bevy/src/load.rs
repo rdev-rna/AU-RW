@@ -2367,12 +2367,30 @@ pub fn load_map(
         "map: {} cells to spawn, piece budget {budget}",
         cell_entries.len()
     );
-    for cell in cell_entries {
+    // A whole-map decode runs for tens of minutes; without progress there is no way to tell
+    // it apart from a hang, so report rate and remaining time as it goes.
+    let started = std::time::Instant::now();
+    let total = cell_entries.len();
+    for (index, cell) in cell_entries.into_iter().enumerate() {
         if context.totals.pieces >= budget {
             eprintln!("map: piece budget reached before cell {cell}");
             break;
         }
         context.spawn_cell(cell)?;
+        if index % 100 == 0 || index + 1 == total {
+            let elapsed = started.elapsed().as_secs_f32();
+            let rate = (index + 1) as f32 / elapsed.max(0.001);
+            let left = (total.saturating_sub(index + 1)) as f32 / rate.max(0.001);
+            eprintln!(
+                "map: {}/{} cells, {:.1} cells/s, {} pieces, {:.0} s elapsed, ~{:.0} s left",
+                index + 1,
+                total,
+                rate,
+                context.totals.pieces,
+                elapsed,
+                left
+            );
+        }
     }
 
     let totals = &context.totals;
