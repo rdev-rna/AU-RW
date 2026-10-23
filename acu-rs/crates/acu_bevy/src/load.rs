@@ -1040,6 +1040,8 @@ struct MapTotals {
     group_members: usize,
     /// Piece indices whose extent has already been measured.
     big_checked: HashSet<usize>,
+    /// Cells without a locatable matrix already reported.
+    zero_cells: usize,
     /// Measured local extent per piece index (metres, largest axis).
     extents: HashMap<usize, f32>,
     /// Mesh ids already reported as oversized.
@@ -1216,6 +1218,19 @@ impl MapRuntime {
                     (sy / count as f64) as f32,
                     count,
                 ));
+            } else if self.totals.zero_cells < 12 {
+                self.totals.zero_cells += 1;
+                // Diagnostic: what does a cell with no locatable matrix actually contain?
+                let (package, _) = self.cache.view()?;
+                let mut histogram: std::collections::BTreeMap<String, usize> =
+                    std::collections::BTreeMap::new();
+                for resource in &package.resources {
+                    *histogram.entry(resource.type_id.clone()).or_default() += 1;
+                }
+                eprintln!(
+                    "centres: cell {cell_entry} has no matrix; {} resources {histogram:?}",
+                    package.resources.len()
+                );
             }
             self.totals.cells += 1;
             return Ok(());
@@ -2202,6 +2217,28 @@ impl MapRuntime {
             "map: large mesh {} '{}' extent {:.0} m, entry {} resource {}, materials {:?}",
             piece.file_id, piece.label, extent, piece.entry, piece.resource, materials
         );
+    }
+
+    /// Everything the decode chain dropped, by reason, so "what is missing" is a number.
+    pub fn skip_report(&self) -> String {
+        let t = &self.totals;
+        format!(
+            "entities {} (no matrix {}, no selector {}, no LOD {}, no mesh {}, undecodable {}, bad matrix {}, bad vertices {}, fake {}), groups {} (members {}), containers {} (chunks {}), direct meshes {}",
+            t.entities,
+            t.skipped_matrix,
+            t.skipped_no_selector,
+            t.skipped_no_lod,
+            t.skipped_no_mesh,
+            t.skipped_decode,
+            t.skipped_bad_matrix,
+            t.skipped_bad_vertices,
+            t.skipped_fake,
+            t.groups,
+            t.group_members,
+            t.containers,
+            t.container_children,
+            t.direct_meshes
+        )
     }
 
     pub fn stats(&self) -> (usize, usize, usize) {

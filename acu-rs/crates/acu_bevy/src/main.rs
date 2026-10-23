@@ -456,6 +456,9 @@ fn stream_cells(
     }
     if added > 0 || dropped > 0 {
         let (pieces, groups, members) = stream.runtime.stats();
+        if added > 0 {
+            eprintln!("stream: skipped {}", stream.runtime.skip_report());
+        }
         eprintln!(
             "stream: at ({:.0},{:.0}) added {added} dropped {dropped} total {} cells, {pieces} pieces, {groups} buildings ({members} parts), {} parts [{} bound, {} textured]",
             position.x,
