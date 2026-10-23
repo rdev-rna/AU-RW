@@ -1061,6 +1061,8 @@ pub struct MapRuntime {
     wanted_lod: usize,
     centre: Option<[f32; 3]>,
     radius: Option<f32>,
+    /// Only spawn building groups within this many metres of `centre` (native).
+    detail_radius: Option<f32>,
     dry_run: bool,
     centres_only: bool,
     budget: usize,
@@ -1157,26 +1159,23 @@ impl MapRuntime {
             }
             self.spawn_entity(cell_entry, position, None, 0)?;
         }
-        // Building rows: EntityGroup resources in the same cell package.
-        let groups: Vec<usize> = {
+        // Building rows: EntityGroup resources in the same cell package. The payloads are
+        // copied now because spawning an entity can swap the cached package, which would
+        // invalidate resource indices read later.
+        let groups: Vec<Vec<u8>> = {
             let (package, _) = self.cache.view()?;
             package
                 .resources
                 .iter()
-                .enumerate()
-                .filter(|(_, resource)| resource.type_id == TYPE_GROUP)
-                .map(|(position, _)| position)
+                .filter(|resource| resource.type_id == TYPE_GROUP)
+                .map(|resource| package.bytes[resource.payload.clone()].to_vec())
                 .collect()
         };
         let mut selector_cache: HashMap<u64, Vec<u8>> = HashMap::new();
-        for position in groups {
+        for bytes in groups {
             if self.totals.pieces >= self.budget {
                 break;
             }
-            let bytes = {
-                let (package, _) = self.cache.view()?;
-                package.bytes[package.resources[position].payload.clone()].to_vec()
-            };
             self.spawn_group(&bytes, &mut selector_cache, cell_entry)?;
         }
         // Groups referenced by the cell's child list live in other entries.
@@ -1456,6 +1455,15 @@ impl MapRuntime {
         }
         if members.is_empty() {
             return Ok(());
+        }
+        if let (Some(detail), Some(centre)) = (self.detail_radius, self.centre) {
+            // Buildings are the expensive part; skip them away from the player and keep
+            // ground/streets/props.
+            let dx = members[0].0[12] - centre[0];
+            let dy = members[0].0[13] - centre[1];
+            if dx * dx + dy * dy > detail * detail {
+                return Ok(());
+            }
         }
         self.totals.groups += 1;
         let base = base.unwrap_or([
@@ -2018,6 +2026,7 @@ impl MapRuntime {
             wanted_lod: options.map_lod as usize,
             centre: options.spawn.map(|[x, y, z]| [x, -z, y]),
             radius: options.map_radius,
+            detail_radius: options.map_detail_radius,
             dry_run: false,
             centres_only: false,
             budget: options.map_piece_limit.unwrap_or(2_000_000),
@@ -2145,6 +2154,7 @@ pub fn load_map(
         // native = (x, -z, y).
         centre: options.spawn.map(|[x, y, z]| [x, -z, y]),
         radius: options.map_radius,
+        detail_radius: options.map_detail_radius,
         dry_run: options.map_dry_run,
         centres_only: options.map_centres_only,
         budget,

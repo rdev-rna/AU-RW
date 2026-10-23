@@ -174,6 +174,7 @@ fn stream_cells(
     mut meshes: ResMut<Assets<Mesh>>,
     mut images: ResMut<Assets<Image>>,
     mut standard_materials: ResMut<Assets<StandardMaterial>>,
+    time: Res<Time>,
     grey: Res<MapGrey>,
     state: Option<Res<player::State>>,
     mut streaming: Option<ResMut<Streaming>>,
@@ -215,9 +216,14 @@ fn stream_cells(
         }
     }
 
+    // Only start a cell while frames are healthy; a slow frame means the previous cell is
+    // still being decoded, and piling on would turn a hitch into a freeze.
     let mut added = 0usize;
+    if time.delta_secs() > 0.05 {
+        return;
+    }
     for entry in target {
-        if added >= 2 {
+        if added >= 1 {
             break;
         }
         if stream.loaded.contains_key(&entry) {
@@ -439,7 +445,7 @@ fn main() {
             waited: 0,
             image: None,
         })
-        .add_systems(Update, (request_capture, capture_timeout));
+        .add_systems(Update, (request_capture, capture_timeout, report_fps));
     }
     bevy::asset::embedded_asset!(app, "shaders/arena.wgsl");
     bevy::asset::embedded_asset!(app, "shaders/character.wgsl");
@@ -1047,6 +1053,28 @@ fn setup_world(
         camera.insert(RenderTarget::Image(handle.into()));
         println!("capture target: offscreen {width}x{height} Rgba8UnormSrgb");
     }
+}
+
+/// Prints measured frame rate every two seconds while streaming is active, so performance
+/// claims are numbers rather than impressions.
+fn report_fps(
+    time: Res<Time>,
+    streams: Query<&Streaming>,
+    mut since: Local<f32>,
+    mut frames: Local<u32>,
+) {
+    if streams.is_empty() {
+        return;
+    }
+    *frames += 1;
+    let now = time.elapsed_secs();
+    if now - *since < 2.0 {
+        return;
+    }
+    let span = now - *since;
+    println!("fps: {:.1} over {span:.1} s", *frames as f32 / span);
+    *frames = 0;
+    *since = now;
 }
 
 fn request_capture(mut commands: Commands, mut capture: ResMut<Capture>) {
