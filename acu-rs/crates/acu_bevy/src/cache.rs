@@ -15,7 +15,7 @@ const MAGIC: &[u8; 8] = b"ACUCACH1";
 pub fn write(path: &Path, loaded: &Loaded) -> Result<(), String> {
     let mut out: Vec<u8> = Vec::new();
     out.extend_from_slice(MAGIC);
-    put_u32(&mut out, 2);
+    put_u32(&mut out, 4);
     put_u32(&mut out, loaded.rig_pieces as u32);
 
     put_u64(&mut out, loaded.pieces.len() as u64);
@@ -86,6 +86,10 @@ pub fn write(path: &Path, loaded: &Loaded) -> Result<(), String> {
                 .map(|index| index as i32)
                 .unwrap_or(-1),
         );
+        put_i32(
+            &mut out,
+            material.normal_texture.map(|i| i as i32).unwrap_or(-1),
+        );
         out.push(u8::from(material.alpha_test_enabled));
         out.push(material.alpha_test_value);
         put_str(&mut out, &material.source);
@@ -100,6 +104,7 @@ pub fn write(path: &Path, loaded: &Loaded) -> Result<(), String> {
         put_u32(&mut out, texture.height);
         put_u32(&mut out, texture.mip_count);
         out.push(u8::from(texture.srgb));
+        put_str(&mut out, &texture.pixel_sha256);
         put_u64(&mut out, texture.pixels.len() as u64);
         out.extend_from_slice(&texture.pixels);
     }
@@ -120,7 +125,10 @@ pub fn read(path: &Path) -> Result<Loaded, String> {
         return Err("cache: not an ACU map cache".into());
     }
     let version = cursor.u32()?;
-    if version != 2 {
+    // Version 3 adds a stored per-texture pixel sha256. Version 4 adds the material's normal
+    // texture index. Version 2 files (the 4.37 GB whole-map dump) carry neither and must keep
+    // loading exactly as before.
+    if version != 2 && version != 3 && version != 4 {
         return Err(format!("cache: version {version} not supported"));
     }
 
@@ -209,11 +217,12 @@ pub fn read(path: &Path) -> Result<Loaded, String> {
     for _ in 0..material_count {
         let file_id = cursor.string()?;
         let diffuse = cursor.i32()?;
+        let normal = if version >= 4 { cursor.i32()? } else { -1 };
         let alpha_test_enabled = cursor.byte()? != 0;
         let alpha_test_value = cursor.byte()?;
         let source = cursor.string()?;
         materials.push(LoadedMaterial {
-            normal_texture: None,
+            normal_texture: (normal >= 0).then_some(normal as usize),
             normal_map: None,
             alpha_test_enabled,
             alpha_test_value,
@@ -233,6 +242,9 @@ pub fn read(path: &Path) -> Result<Loaded, String> {
 
     let texture_count = cursor.u64()? as usize;
     let mut textures = Vec::with_capacity(texture_count);
+    let mut verified = 0usize;
+    let mut mismatched = 0usize;
+    let mut unverified = 0usize;
     for _ in 0..texture_count {
         let file_id = cursor.string()?;
         let dxgi_format = cursor.u32()?;
@@ -241,15 +253,37 @@ pub fn read(path: &Path) -> Result<Loaded, String> {
         let height = cursor.u32()?;
         let mip_count = cursor.u32()?;
         let srgb = cursor.byte()? != 0;
+        let stored_pixel_sha256 = if version >= 3 {
+            cursor.string()?
+        } else {
+            String::new()
+        };
         let length = cursor.u64()? as usize;
         let pixels = cursor.take(length).to_vec();
+        let computed_sha256 = acu_assets::sha256(&pixels);
+        if stored_pixel_sha256.is_empty() {
+            unverified += 1;
+        } else if computed_sha256 == stored_pixel_sha256 {
+            verified += 1;
+        } else {
+            mismatched += 1;
+            eprintln!(
+                "cache: texture {} pixels differ: stored={} computed={} bytes={}",
+                file_id,
+                stored_pixel_sha256
+                    .get(..16)
+                    .unwrap_or(&stored_pixel_sha256),
+                computed_sha256.get(..16).unwrap_or(&computed_sha256),
+                pixels.len()
+            );
+        }
         textures.push(LoadedTexture {
             srgb,
             file_id: file_id.clone(),
             name: file_id,
             source: "cache".into(),
             payload_sha256: String::new(),
-            pixel_sha256: String::new(),
+            pixel_sha256: stored_pixel_sha256,
             dxgi_format,
             gamma,
             width,
@@ -259,6 +293,13 @@ pub fn read(path: &Path) -> Result<Loaded, String> {
             pixels,
         });
     }
+    eprintln!(
+        "cache: textures {}, verified={}, mismatched={}, unverified={}",
+        textures.len(),
+        verified,
+        mismatched,
+        unverified
+    );
 
     let max_piece = instances.iter().map(|i| i.piece).max().unwrap_or(0);
     eprintln!(
