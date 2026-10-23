@@ -1040,8 +1040,53 @@ struct MapTotals {
     group_members: usize,
 }
 
+/// The world transform stored in an EntityGroup header: the valid affine (unit rows,
+/// homogeneous 1) with the largest translation. Measured rule from ACU-RE-0037; the header
+/// ends at the first object record.
+fn group_base(group_bytes: &[u8]) -> Option<[f32; 16]> {
+    const TAG: [u8; 4] = [0x29, 0x8d, 0x65, 0xec];
+    let header_end = group_bytes
+        .windows(4)
+        .position(|window| window == TAG)
+        .map(|position| position.saturating_sub(8))
+        .unwrap_or(group_bytes.len());
+    let mut base = None;
+    let mut best_reach = 0f32;
+    let mut offset = 0usize;
+    while offset + 64 <= header_end {
+        let mut candidate = [0f32; 16];
+        for slot in 0..16 {
+            candidate[slot] = f32::from_le_bytes(
+                group_bytes[offset + slot * 4..offset + slot * 4 + 4]
+                    .try_into()
+                    .unwrap(),
+            );
+        }
+        let mut ok = (candidate[15] - 1.0).abs() < 1e-4;
+        if ok {
+            for row in 0..3 {
+                let r = &candidate[row * 4..row * 4 + 3];
+                if (r[0] * r[0] + r[1] * r[1] + r[2] * r[2] - 1.0).abs() > 1e-3 {
+                    ok = false;
+                    break;
+                }
+            }
+        }
+        if ok && candidate[12..15].iter().all(|v| v.is_finite()) {
+            let reach = candidate[12] * candidate[12] + candidate[13] * candidate[13];
+            if reach > best_reach {
+                best_reach = reach;
+                base = Some(candidate);
+            }
+        }
+        offset += 1;
+    }
+    base
+}
+
 /// State shared by every cell of one invocation; owned so it can live in a Bevy resource
 /// and load cells at runtime (streaming).
+
 pub struct MapRuntime {
     paris: Forge,
     assets: Forge,
@@ -1113,6 +1158,21 @@ impl MapRuntime {
                         sx += matrix[12] as f64;
                         sy += matrix[13] as f64;
                         count += 1;
+                    }
+                }
+                // A cell whose content is only building groups has no loose entity matrix;
+                // without this it never received a centre and was never streamed.
+                if count == 0 {
+                    for resource in &package.resources {
+                        if resource.type_id != TYPE_GROUP {
+                            continue;
+                        }
+                        let bytes = &package.bytes[resource.payload.clone()];
+                        if let Some(base) = group_base(bytes) {
+                            sx += base[12] as f64;
+                            sy += base[13] as f64;
+                            count += 1;
+                        }
                     }
                 }
                 (sx, sy, count)
@@ -1364,41 +1424,7 @@ impl MapRuntime {
         // object (measured: FRV_House_Corner_F_0_03x13x2_01_002 has identity at 26 and
         // (474.8, -864.3, 0.5) at 115; its 28 objects are all within +-10 m). Objects are
         // therefore local offsets and are always placed relative to this header matrix.
-        let header_end = object_starts.first().copied().unwrap_or(group_bytes.len());
-        let mut base: Option<[f32; 16]> = None;
-        let mut best_reach = 0f32;
-        let mut header_offset = 0usize;
-        while header_offset + 64 <= header_end {
-            let mut candidate = [0f32; 16];
-            let mut ok = true;
-            for slot in 0..16 {
-                candidate[slot] = f32::from_le_bytes(
-                    group_bytes[header_offset + slot * 4..header_offset + slot * 4 + 4]
-                        .try_into()
-                        .unwrap(),
-                );
-            }
-            if (candidate[15] - 1.0).abs() > 1e-4 {
-                ok = false;
-            }
-            if ok {
-                for row in 0..3 {
-                    let r = &candidate[row * 4..row * 4 + 3];
-                    if (r[0] * r[0] + r[1] * r[1] + r[2] * r[2] - 1.0).abs() > 1e-3 {
-                        ok = false;
-                        break;
-                    }
-                }
-            }
-            if ok {
-                let reach = candidate[12] * candidate[12] + candidate[13] * candidate[13];
-                if reach > best_reach {
-                    best_reach = reach;
-                    base = Some(candidate);
-                }
-            }
-            header_offset += 1;
-        }
+        let base: Option<[f32; 16]> = group_base(group_bytes);
         let mut members: Vec<([f32; 16], u64)> = Vec::new();
         for (index, &object) in object_starts.iter().enumerate() {
             // Clamp the object window: the payload continues past the object list with
@@ -1456,15 +1482,6 @@ impl MapRuntime {
         if members.is_empty() {
             return Ok(());
         }
-        if let (Some(detail), Some(centre)) = (self.detail_radius, self.centre) {
-            // Buildings are the expensive part; skip them away from the player and keep
-            // ground/streets/props.
-            let dx = members[0].0[12] - centre[0];
-            let dy = members[0].0[13] - centre[1];
-            if dx * dx + dy * dy > detail * detail {
-                return Ok(());
-            }
-        }
         self.totals.groups += 1;
         let base = base.unwrap_or([
             1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
@@ -1483,10 +1500,21 @@ impl MapRuntime {
             resolved.push((world, selector_id));
         }
         let mut xs: Vec<f32> = resolved.iter().map(|(m, _)| m[12]).collect();
+        let mut ys: Vec<f32> = resolved.iter().map(|(m, _)| m[13]).collect();
         let mut zs: Vec<f32> = resolved.iter().map(|(m, _)| m[14]).collect();
         xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        ys.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         zs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
-        let (mx, mz) = (xs[xs.len() / 2], zs[zs.len() / 2]);
+        let (mx, my, mz) = (xs[xs.len() / 2], ys[ys.len() / 2], zs[zs.len() / 2]);
+        // Distance is tested on the resolved world position; object matrices are local to the
+        // group header, so testing them directly placed every building at the origin.
+        if let (Some(detail), Some(centre)) = (self.detail_radius, self.centre) {
+            let dx = mx - centre[0];
+            let dy = my - centre[1];
+            if dx * dx + dy * dy > detail * detail {
+                return Ok(());
+            }
+        }
         for (world, selector_id) in resolved {
             if (world[12] - mx).abs() > 150.0 || (world[14] - mz).abs() > 150.0 {
                 continue;
@@ -2052,6 +2080,14 @@ impl MapRuntime {
             self.spawn_cell(cell)?;
         }
         Ok(std::mem::take(&mut self.instances))
+    }
+
+    pub fn stats(&self) -> (usize, usize, usize) {
+        (
+            self.totals.pieces,
+            self.totals.groups,
+            self.totals.group_members,
+        )
     }
 
     pub fn scene(&self) -> &Scene {

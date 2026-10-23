@@ -285,8 +285,9 @@ fn stream_cells(
         }
     }
     if added > 0 || dropped > 0 {
+        let (pieces, groups, members) = stream.runtime.stats();
         eprintln!(
-            "stream: at ({:.0},{:.0}) added {added} dropped {dropped} total {} cells",
+            "stream: at ({:.0},{:.0}) added {added} dropped {dropped} total {} cells, {pieces} pieces, {groups} buildings ({members} parts)",
             position.x,
             position.z,
             stream.loaded.len()
@@ -1007,7 +1008,9 @@ fn setup_world(
     // Multi-cell scenes include the river arms, which stretch the bounds; frame tighter.
     // A player uses a third-person follow camera; otherwise frame the scene.
     let distance = if options.map_player {
-        6.0
+        // Six metres behind a walker puts the eye inside the nearest wall; the default keeps
+        // the camera above head height and clear of most facades, and it is adjustable.
+        options.map_camera_distance.unwrap_or(12.0)
     } else if map_mode && instances.len() > 1 {
         size * 1.1
     } else {

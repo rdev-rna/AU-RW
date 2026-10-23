@@ -205,3 +205,27 @@ With buildings included, a 300 m radius already needs **~400,000 placements** (5
 single scene: streaming cells around the player is required, which is what the game's `World`
 manifest does. The current whole-map capture (224,310 placements) remains the buildings-light
 aerial.
+
+
+## Streaming fixes (measured)
+
+- **Buildings were skipped entirely.** --map-detail-radius tested members[0] before the
+  header transform was applied. EntityGroup object matrices are local (+-10 m), so comparing them
+  with the player position rejected every group. The test now runs on the resolved median world
+  position. Measured at the quay, radius 250 / detail 150 / LOD2: 283 cells, 19,835 pieces,
+  4,381 buildings (11,654 parts) - previously 0 buildings.
+- **Cells with only building groups had no centroid.** The centroid pass counted entity matrices
+  only, so those cells were never streamed. Group header transforms are now included as a
+  fallback: 6,361 -> 6,537 centres in 21 s.
+- **Third-person camera sat inside walls** (6 m behind at street height). --map-camera-distance
+  now sets it, default 12 m.
+- **Frame rate** (1,600x900, release): 11-26 fps while the ring fills, 49-52 fps steady at
+  radius 200 / detail 80; 124 fps on a light ring at radius 250 / detail 150.
+
+## Open
+
+- Large untextured surfaces (grey masses) intersect the camera in the quay area; not yet
+  identified as material failure or oversized largemesh chunks. Needs a named cell and a mesh id
+  before any change.
+- Ground reads as sky past the streamed ring, because the ring is the only terrain loaded.
+- Cell decode is still synchronous on the main thread (the fill-time frame drops).

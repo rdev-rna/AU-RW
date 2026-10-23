@@ -67,6 +67,8 @@ pub struct Options {
     pub map_centres_only: bool,
     /// Spawn building groups only within this many metres of the spawn point.
     pub map_detail_radius: Option<f32>,
+    /// Third-person camera distance in metres (default 12).
+    pub map_camera_distance: Option<f32>,
     /// Cap on placed pieces; defaults to 400 for one cell and 200000 for a list.
     pub map_piece_limit: Option<usize>,
     /// Preferred LOD level for map meshes; the finest available is used when absent.
@@ -144,6 +146,7 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut map_stream: Option<f32> = None;
     let mut map_centres_only = false;
     let mut map_detail_radius: Option<f32> = None;
+    let mut map_camera_distance: Option<f32> = None;
     let mut map_piece_limit: Option<usize> = None;
     let mut map_lod: u8 = 0;
     let mut map_paris: Option<PathBuf> = None;
@@ -185,6 +188,14 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
                 ))
             }
             "--map-centres-only" => map_centres_only = true,
+            "--map-camera-distance" => {
+                map_camera_distance = Some(
+                    args.next()
+                        .ok_or("--map-camera-distance needs metres")?
+                        .parse()
+                        .map_err(|e| format!("--map-camera-distance: {e}"))?,
+                )
+            }
             "--map-detail-radius" => {
                 map_detail_radius = Some(
                     args.next()
@@ -415,6 +426,7 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
         map_stream,
         map_centres_only,
         map_detail_radius,
+        map_camera_distance,
         map_piece_limit,
         map_lod,
         map_paris,
@@ -453,6 +465,7 @@ OPTIONS:
     --map-stream M     Stream cells within M metres of the player as they move
     --map-centres-only  Only write cell centroids (fast; no placement resolution)
     --map-detail-radius M  Spawn building groups only within M metres of the spawn
+    --map-camera-distance M  Third-person camera distance (default 12 m)
     --map-piece-limit N  Cap placed pieces (400 one cell, 200000 for a list)
     --map-paris FILE   Paris archive used by map mode
     --map-assets FILE  Assets archive used by map mode (LOD meshes)
