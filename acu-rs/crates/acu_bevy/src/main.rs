@@ -162,6 +162,8 @@ struct Streaming {
     /// Where the player was last frame, and for how long they have been still.
     last_position: Vec3,
     still_for: f32,
+    /// Wall-clock time of the last cell decode, to space the unavoidable stalls.
+    last_load: f64,
 }
 
 /// Build one Bevy mesh from a decoded part.
@@ -259,9 +261,13 @@ fn stream_cells(
     }
     stream.last_position = position;
     let mut added = 0usize;
-    if stream.still_for < 0.25 || time.delta_secs() > 0.05 {
+    // One decode per 0.3 s: each costs ~250 ms on the main thread, so back-to-back loads read
+    // as a freeze. Spacing them keeps the fill visible as a stutter instead.
+    let now = time.elapsed_secs_f64();
+    if stream.still_for < 0.25 || time.delta_secs() > 0.05 || now - stream.last_load < 0.3 {
         return;
     }
+    stream.last_load = now;
     for entry in target {
         if added >= 1 {
             break;
@@ -1256,6 +1262,7 @@ fn setup_world(
             colliders: std::collections::HashMap::new(),
             last_position: Vec3::splat(-1.0e9),
             still_for: 0.0,
+            last_load: 0.0,
         });
         commands.insert_resource(MapGrey(grey.clone()));
     }
