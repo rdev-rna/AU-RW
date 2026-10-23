@@ -1304,77 +1304,108 @@ impl MapContext<'_> {
         cache: &mut HashMap<u64, Vec<u8>>,
         entity_entry: usize,
     ) -> Result<()> {
+        // Objects are delimited by the reference tag `ec658d29`; each object holds one
+        // 4x4 matrix and the selector that describes that part. Measured on
+        // FRV_House_Corner_F_0_03x13x2_01_002: 28 objects, 27 with both fields.
+        const TAG: [u8; 4] = [0x29, 0x8d, 0x65, 0xec];
+        let mut object_starts: Vec<usize> = Vec::new();
+        let mut cursor = 0usize;
+        while cursor + 4 <= group_bytes.len() {
+            if group_bytes[cursor..cursor + 4] == TAG && cursor >= 8 {
+                object_starts.push(cursor - 8);
+            }
+            cursor += 1;
+        }
+
         let mut members: Vec<([f32; 16], u64)> = Vec::new();
-        let mut base: Option<[f32; 16]> = None;
-        let mut offset = 0usize;
-        while offset + 64 <= group_bytes.len() {
-            let mut matrix = [0f32; 16];
-            let mut ok = true;
-            for index in 0..16 {
-                matrix[index] = f32::from_le_bytes(
-                    group_bytes[offset + index * 4..offset + index * 4 + 4]
-                        .try_into()
-                        .unwrap(),
-                );
-            }
-            if (matrix[15] - 1.0).abs() > 1e-4 {
-                ok = false;
-            }
-            if ok {
-                for row in 0..3 {
-                    let r = &matrix[row * 4..row * 4 + 3];
-                    let norm = r[0] * r[0] + r[1] * r[1] + r[2] * r[2];
-                    if (norm - 1.0).abs() > 1e-3 {
-                        ok = false;
-                        break;
+        // The base is the object furthest from the origin: the building's world position.
+        let mut best_reach: Option<(f32, [f32; 16])> = None;
+        let mut base_index = 0usize;
+        for (index, &object) in object_starts.iter().enumerate() {
+            let limit = object_starts
+                .get(index + 1)
+                .map(|&next| next)
+                .unwrap_or(group_bytes.len());
+            let mut matrix = None;
+            let mut offset = object + 12;
+            while offset + 64 <= limit.min(group_bytes.len()) {
+                let mut candidate = [0f32; 16];
+                for slot in 0..16 {
+                    candidate[slot] = f32::from_le_bytes(
+                        group_bytes[offset + slot * 4..offset + slot * 4 + 4]
+                            .try_into()
+                            .unwrap(),
+                    );
+                }
+                let mut ok = (candidate[15] - 1.0).abs() < 1e-4;
+                if ok {
+                    for row in 0..3 {
+                        let r = &candidate[row * 4..row * 4 + 3];
+                        if (r[0] * r[0] + r[1] * r[1] + r[2] * r[2] - 1.0).abs() > 1e-3 {
+                            ok = false;
+                            break;
+                        }
                     }
                 }
-            }
-            if !ok
-                || matrix[12..15]
-                    .iter()
-                    .any(|v| !v.is_finite() || v.abs() > 1e5)
-            {
+                if ok
+                    && candidate[12..15]
+                        .iter()
+                        .all(|v| v.is_finite() && v.abs() < 1e5)
+                {
+                    matrix = Some(candidate);
+                    break;
+                }
                 offset += 1;
-                continue;
             }
-            // nearest selector id after the matrix
             let mut selector = None;
-            let end = (offset + 700).min(group_bytes.len().saturating_sub(7));
-            for probe in offset + 64..end {
+            let mut probe = object + 12;
+            while probe + 8 <= limit.min(group_bytes.len()) {
                 let value = u64::from_le_bytes(group_bytes[probe..probe + 8].try_into().unwrap());
                 if value != 0 && self.selector_index.contains_key(&value) {
                     selector = Some(value);
                     break;
                 }
+                probe += 1;
             }
-            if let Some(selector) = selector {
-                let translation = [matrix[12], matrix[13], matrix[14]];
-                let far = translation.iter().any(|v| v.abs() > 100.0);
-                if far && base.is_none() {
-                    base = Some(matrix);
+            if let (Some(matrix), Some(selector)) = (matrix, selector) {
+                let reach = matrix[12] * matrix[12] + matrix[13] * matrix[13];
+                if best_reach.map(|(r, _)| reach > r).unwrap_or(true) {
+                    best_reach = Some((reach, matrix));
+                    base_index = members.len();
                 }
                 members.push((matrix, selector));
-                offset += 64;
-            } else {
-                offset += 1;
             }
         }
         if members.is_empty() {
             return Ok(());
         }
         self.totals.groups += 1;
-        let base = base.unwrap_or([
+        let base = best_reach.map(|(_, matrix)| matrix).unwrap_or([
             1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
         ]);
-        for (local, selector_id) in members {
-            let world = if local[12..15].iter().any(|v| v.abs() > 100.0) {
+        // Resolve every member, then drop the ones that land far from the group's median:
+        // some records carry absolute transforms, and mixing the two rules otherwise
+        // scatters parts of one building over a kilometre.
+        let mut resolved: Vec<([f32; 16], u64)> = Vec::with_capacity(members.len());
+        for (index, (local, selector_id)) in members.into_iter().enumerate() {
+            let world = if index == base_index {
                 local
             } else {
                 let m = bevy::math::Mat4::from_cols_array(&base)
                     * bevy::math::Mat4::from_cols_array(&local);
                 m.to_cols_array()
             };
+            resolved.push((world, selector_id));
+        }
+        let mut xs: Vec<f32> = resolved.iter().map(|(m, _)| m[12]).collect();
+        let mut zs: Vec<f32> = resolved.iter().map(|(m, _)| m[14]).collect();
+        xs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        zs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let (mx, mz) = (xs[xs.len() / 2], zs[zs.len() / 2]);
+        for (world, selector_id) in resolved {
+            if (world[12] - mx).abs() > 150.0 || (world[14] - mz).abs() > 150.0 {
+                continue;
+            }
             let payload = match cache.get(&selector_id) {
                 Some(payload) => payload.clone(),
                 None => {
