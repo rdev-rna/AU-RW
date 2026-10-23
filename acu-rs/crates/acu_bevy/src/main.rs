@@ -108,11 +108,6 @@ fn stream_cells(
         return;
     };
     let position = state.player.position;
-    if position.distance(stream.anchor) < 40.0 {
-        return;
-    }
-    stream.anchor = position;
-
     let here = Vec2::new(position.x, position.z);
     let mut target: HashSet<usize> = HashSet::new();
     for &(entry, x, y) in &stream.centres {
@@ -122,16 +117,26 @@ fn stream_cells(
         }
     }
 
-    let stale: Vec<usize> = stream
-        .loaded
-        .keys()
-        .copied()
-        .filter(|entry| !target.contains(entry))
-        .collect();
-    for entry in stale {
-        if let Some(entities) = stream.loaded.remove(&entry) {
-            for entity in entities {
-                commands.entity(entity).despawn();
+    // Unload only after moving far enough; filling happens every frame so the first
+    // ring arrives progressively instead of in one stall.
+    let moved = position.distance(stream.anchor) >= 40.0;
+    if moved {
+        stream.anchor = position;
+    }
+    let mut dropped = 0usize;
+    if moved {
+        let stale: Vec<usize> = stream
+            .loaded
+            .keys()
+            .copied()
+            .filter(|entry| !target.contains(entry))
+            .collect();
+        for entry in stale {
+            if let Some(entities) = stream.loaded.remove(&entry) {
+                dropped += 1;
+                for entity in entities {
+                    commands.entity(entity).despawn();
+                }
             }
         }
     }
@@ -177,6 +182,14 @@ fn stream_cells(
             }
             Err(error) => eprintln!("stream: cell {entry}: {error}"),
         }
+    }
+    if added > 0 || dropped > 0 {
+        eprintln!(
+            "stream: at ({:.0},{:.0}) added {added} dropped {dropped} total {} cells",
+            position.x,
+            position.z,
+            stream.loaded.len()
+        );
     }
 }
 

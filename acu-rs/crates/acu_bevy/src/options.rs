@@ -63,6 +63,8 @@ pub struct Options {
     pub map_cell_centres: Option<PathBuf>,
     /// Stream cells around the player with this radius in metres.
     pub map_stream: Option<f32>,
+    /// Only compute cell centroids (entity matrices), do not resolve placement.
+    pub map_centres_only: bool,
     /// Cap on placed pieces; defaults to 400 for one cell and 200000 for a list.
     pub map_piece_limit: Option<usize>,
     /// Preferred LOD level for map meshes; the finest available is used when absent.
@@ -138,6 +140,7 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut map_radius: Option<f32> = None;
     let mut map_cell_centres: Option<PathBuf> = None;
     let mut map_stream: Option<f32> = None;
+    let mut map_centres_only = false;
     let mut map_piece_limit: Option<usize> = None;
     let mut map_lod: u8 = 0;
     let mut map_paris: Option<PathBuf> = None;
@@ -178,6 +181,7 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
                     args.next().ok_or("--map-cell-centres needs a path")?,
                 ))
             }
+            "--map-centres-only" => map_centres_only = true,
             "--map-stream" => {
                 map_stream = Some(
                     args.next()
@@ -398,6 +402,7 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
         map_radius,
         map_cell_centres,
         map_stream,
+        map_centres_only,
         map_piece_limit,
         map_lod,
         map_paris,
@@ -434,6 +439,7 @@ OPTIONS:
     --map-radius M     Spawn only placements within M metres of the spawn point
     --map-cell-centres PATH  Write cell entry -> placement centroid JSON
     --map-stream M     Stream cells within M metres of the player as they move
+    --map-centres-only  Only write cell centroids (fast; no placement resolution)
     --map-piece-limit N  Cap placed pieces (400 one cell, 200000 for a list)
     --map-paris FILE   Paris archive used by map mode
     --map-assets FILE  Assets archive used by map mode (LOD meshes)

@@ -1062,6 +1062,7 @@ pub struct MapRuntime {
     centre: Option<[f32; 3]>,
     radius: Option<f32>,
     dry_run: bool,
+    centres_only: bool,
     budget: usize,
     pieces: Vec<LoadedPiece>,
     centres: Vec<(usize, f32, f32, usize)>,
@@ -1095,6 +1096,36 @@ impl MapRuntime {
     /// resolved by type in the entity entry, an `_assets` entry, the Paris mesh index or a
     /// Paris entry. Records with `flags 3/0` are empty levels. Nothing is substituted.
     fn spawn_cell(&mut self, cell_entry: usize) -> Result<()> {
+        if self.centres_only {
+            // Centroid pass: entity matrices only, no selectors, groups or meshes.
+            self.cache.ensure(&mut self.paris, cell_entry)?;
+            let (sx, sy, count) = {
+                let (package, _) = self.cache.view()?;
+                let (mut sx, mut sy, mut count) = (0f64, 0f64, 0usize);
+                for resource in &package.resources {
+                    if resource.type_id != TYPE_ENTITY {
+                        continue;
+                    }
+                    let bytes = &package.bytes[resource.payload.clone()];
+                    if let Some(matrix) = entity_matrix(bytes) {
+                        sx += matrix[12] as f64;
+                        sy += matrix[13] as f64;
+                        count += 1;
+                    }
+                }
+                (sx, sy, count)
+            };
+            if count > 0 {
+                self.centres.push((
+                    cell_entry,
+                    (sx / count as f64) as f32,
+                    (sy / count as f64) as f32,
+                    count,
+                ));
+            }
+            self.totals.cells += 1;
+            return Ok(());
+        }
         let children = match self.cell_children(cell_entry) {
             Ok(children) => children,
             Err(error) => {
@@ -1988,6 +2019,7 @@ impl MapRuntime {
             centre: options.spawn.map(|[x, y, z]| [x, -z, y]),
             radius: options.map_radius,
             dry_run: false,
+            centres_only: false,
             budget: options.map_piece_limit.unwrap_or(2_000_000),
             pieces: Vec::new(),
             centres: Vec::new(),
@@ -2110,6 +2142,7 @@ pub fn load_map(
         centre: options.spawn.map(|[x, y, z]| [x, -z, y]),
         radius: options.map_radius,
         dry_run: options.map_dry_run,
+        centres_only: options.map_centres_only,
         budget,
         pieces: Vec::new(),
         centres: Vec::new(),
@@ -2173,7 +2206,7 @@ pub fn load_map(
                 serde_json::json!({
                     "entry": entry,
                     "x": x,
-                    "z": z,
+                    "y": z,
                     "placements": placements
                 })
             })
