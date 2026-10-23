@@ -1038,6 +1038,10 @@ struct MapTotals {
     container_children: usize,
     groups: usize,
     group_members: usize,
+    /// Piece indices whose extent has already been measured.
+    big_checked: HashSet<usize>,
+    /// Mesh ids already reported as oversized.
+    big_reported: HashSet<String>,
 }
 
 /// The world transform stored in an EntityGroup header: the valid affine (unit rows,
@@ -1632,6 +1636,7 @@ impl MapRuntime {
                 piece: index,
                 matrix: world,
             });
+            self.note_large_mesh(index);
         }
         Ok(())
     }
@@ -2003,6 +2008,7 @@ impl MapRuntime {
             piece: piece_index,
             matrix,
         });
+        self.note_large_mesh(piece_index);
         Ok(())
     }
 }
@@ -2080,6 +2086,45 @@ impl MapRuntime {
             self.spawn_cell(cell)?;
         }
         Ok(std::mem::take(&mut self.instances))
+    }
+
+    /// Report meshes whose local extent is larger than a city block. Oversized direct meshes
+    /// (terrain, backdrops, bad transforms) are the usual reason the camera ends up inside a
+    /// surface, so each one is named once with its material binding.
+    fn note_large_mesh(&mut self, index: usize) {
+        if !self.totals.big_checked.insert(index) {
+            return;
+        }
+        let piece = &self.pieces[index];
+        let (min, max) = piece.bounds();
+        let extent = (max[0] - min[0]).max(max[1] - min[1]).max(max[2] - min[2]);
+        if extent <= 300.0 {
+            return;
+        }
+        if !self.totals.big_reported.insert(piece.file_id.clone()) {
+            return;
+        }
+        let materials: Vec<String> = piece
+            .parts
+            .iter()
+            .map(|part| match part.material {
+                Some(index) => format!(
+                    "{} ({})",
+                    index,
+                    self.loader
+                        .scene
+                        .materials
+                        .get(index)
+                        .map(|material| material.file_id.as_str())
+                        .unwrap_or("?")
+                ),
+                None => "none".to_string(),
+            })
+            .collect();
+        eprintln!(
+            "map: large mesh {} '{}' extent {:.0} m, entry {} resource {}, materials {:?}",
+            piece.file_id, piece.label, extent, piece.entry, piece.resource, materials
+        );
     }
 
     pub fn stats(&self) -> (usize, usize, usize) {

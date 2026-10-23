@@ -14,7 +14,16 @@ pub const DEFAULT_ARCHIVE: &str = "DataPC_ACU_LGS_BelleEpoque.forge";
 /// (ACU-RE-0013): the Arno body textures live in `DataPC_SharedGroup_00.forge`,
 /// the hair-strip textures in `DataPC.forge`. Selection order is presentation
 /// only and never claims patch precedence.
-pub const DEFAULT_TEXTURE_ARCHIVES: &[&str] = &["DataPC_SharedGroup_00.forge", "DataPC.forge"];
+/// Archives the Paris material set resolves against. SharedGroup_01..03 are not optional:
+/// measured over 110 streamed cells, omitting them left 2,525 of 14,298 parts with no diffuse
+/// map (their maps live in SharedGroup_01); including them leaves 294.
+pub const DEFAULT_TEXTURE_ARCHIVES: &[&str] = &[
+    "DataPC_SharedGroup_00.forge",
+    "DataPC_SharedGroup_01.forge",
+    "DataPC_SharedGroup_02.forge",
+    "DataPC_SharedGroup_03.forge",
+    "DataPC.forge",
+];
 
 /// Arno pieces: (entry, resource, label). Identities and payload hashes are in
 /// ACU-RE-0011.

@@ -229,3 +229,19 @@ aerial.
   before any change.
 - Ground reads as sky past the streamed ring, because the ring is the only terrain loaded.
 - Cell decode is still synchronous on the main thread (the fill-time frame drops).
+
+
+## Material coverage (measured, 110 streamed cells at the quay)
+
+| Archive set | Parts with material | Parts textured |
+| --- | --- | --- |
+| default (SharedGroup_00, DataPC) | 14,298 / 14,298 | 11,773 (82%) |
+| four SharedGroup archives only | 10,306 / 14,298 | 9,921 (69%) |
+| SharedGroup_00..03 + DataPC | 14,298 / 14,298 | 14,004 (98%) |
+
+- The 2,525 untextured parts were not materials without a diffuse: 64 named a diffuse id that
+  sset_query.py where locates in DataPC_SharedGroup_01.forge, which the loader never opened.
+- --texture-archive **replaces** the default list, so passing the shared archives alone dropped
+  DataPC.forge and 528 materials stopped resolving. SharedGroup_01..03 are now part of
+  DEFAULT_TEXTURE_ARCHIVES.
+- Untextured materials remaining: 7 (materials with no diffuse by design).

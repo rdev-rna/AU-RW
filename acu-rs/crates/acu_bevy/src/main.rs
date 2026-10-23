@@ -132,6 +132,13 @@ struct Streaming {
     handles: Vec<Vec<Handle<Mesh>>>,
     textures: Vec<Option<Handle<Image>>>,
     materials: Vec<Handle<StandardMaterial>>,
+    /// Part accounting for the streamed ring: how many parts had a material bound, and how
+    /// many of those resolved a diffuse map that actually uploaded.
+    parts: usize,
+    parts_bound: usize,
+    parts_textured: usize,
+    /// Materials with no uploaded diffuse, reported once each.
+    untextured: std::collections::HashSet<String>,
 }
 
 /// Build one Bevy mesh from a decoded part.
@@ -255,6 +262,54 @@ fn stream_cells(
                         stream_material(material, &stream.textures, &mut standard_materials);
                     stream.materials.push(handle);
                 }
+                let (mut parts, mut bound, mut textured) = (0usize, 0usize, 0usize);
+                for instance in &instances {
+                    // Copy the bindings out first: the audit mutates `stream`, so it cannot
+                    // hold a borrow of the runtime across the loop body.
+                    let bindings: Vec<Option<usize>> = stream.runtime.pieces()[instance.piece]
+                        .parts
+                        .iter()
+                        .map(|part| part.material)
+                        .collect();
+                    for binding in bindings {
+                        parts += 1;
+                        let Some(index) = binding else {
+                            continue;
+                        };
+                        bound += 1;
+                        let uploaded = stream
+                            .materials
+                            .get(index)
+                            .and_then(|handle| standard_materials.get(handle))
+                            .map(|material| material.base_color_texture.is_some())
+                            .unwrap_or(false);
+                        if uploaded {
+                            textured += 1;
+                            continue;
+                        }
+                        // Distinguish "no diffuse by design" from "diffuse named but not
+                        // resolved": only the second is a bug in this loader.
+                        let info = stream.runtime.scene().materials.get(index).map(|material| {
+                            (
+                                material.file_id.clone(),
+                                material.selector_diffuse.clone(),
+                                material.set_diffuse.clone(),
+                                material.textures.len(),
+                                material.source.clone(),
+                            )
+                        });
+                        if let Some((file_id, selector, set, textures, source)) = info {
+                            if stream.untextured.insert(file_id.clone()) {
+                                eprintln!(
+                                    "map: untextured material {file_id} selector_diffuse={selector:?} set_diffuse={set:?} textures={textures} source={source}"
+                                );
+                            }
+                        }
+                    }
+                }
+                stream.parts += parts;
+                stream.parts_bound += bound;
+                stream.parts_textured += textured;
                 let mut entities = Vec::with_capacity(instances.len());
                 for instance in &instances {
                     let transform = Transform::from_matrix(Mat4::from_cols_array(&instance.matrix));
@@ -287,10 +342,13 @@ fn stream_cells(
     if added > 0 || dropped > 0 {
         let (pieces, groups, members) = stream.runtime.stats();
         eprintln!(
-            "stream: at ({:.0},{:.0}) added {added} dropped {dropped} total {} cells, {pieces} pieces, {groups} buildings ({members} parts)",
+            "stream: at ({:.0},{:.0}) added {added} dropped {dropped} total {} cells, {pieces} pieces, {groups} buildings ({members} parts), {} parts [{} bound, {} textured]",
             position.x,
             position.z,
-            stream.loaded.len()
+            stream.loaded.len(),
+            stream.parts,
+            stream.parts_bound,
+            stream.parts_textured
         );
     }
 }
@@ -973,6 +1031,10 @@ fn setup_world(
             handles: Vec::new(),
             textures: Vec::new(),
             materials: Vec::new(),
+            parts: 0,
+            parts_bound: 0,
+            parts_textured: 0,
+            untextured: std::collections::HashSet::new(),
         });
         commands.insert_resource(MapGrey(grey.clone()));
     }
