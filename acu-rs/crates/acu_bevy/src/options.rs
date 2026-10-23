@@ -92,6 +92,8 @@ pub struct Options {
     pub map_camera_distance: Option<f32>,
     /// Stream exactly this cell entry (diagnostic: isolates the streaming spawn path).
     pub map_stream_cell: Option<usize>,
+    /// Walk forward automatically (streaming stress test).
+    pub auto_walk: bool,
     /// Fixed camera position (bevy metres) for deterministic stills.
     pub camera_at: Option<[f32; 3]>,
     /// Fixed camera target (bevy metres) for deterministic stills.
@@ -175,6 +177,7 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut map_detail_radius: Option<f32> = None;
     let mut map_camera_distance: Option<f32> = None;
     let mut map_stream_cell: Option<usize> = None;
+    let mut auto_walk = false;
     let mut camera_at: Option<[f32; 3]> = None;
     let mut look_at: Option<[f32; 3]> = None;
     let mut map_piece_limit: Option<usize> = None;
@@ -226,6 +229,7 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
                 let value = args.next().ok_or("--look-at needs X,Y,Z")?;
                 look_at = Some(parse_point(&value)?);
             }
+            "--auto-walk" => auto_walk = true,
             "--map-stream-cell" => {
                 map_stream_cell = Some(
                     args.next()
@@ -474,6 +478,7 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
         map_detail_radius,
         map_camera_distance,
         map_stream_cell,
+        auto_walk,
         camera_at,
         look_at,
         map_piece_limit,
@@ -516,6 +521,7 @@ OPTIONS:
     --map-detail-radius M  Spawn building groups only within M metres of the spawn
     --map-camera-distance M  Third-person camera distance (default 12 m)
     --map-stream-cell E  Stream only cell entry E (diagnostic)
+    --auto-walk        Walk forward automatically (streaming stress test)
     --camera-at X,Y,Z  Fix the camera here (deterministic stills)
     --look-at X,Y,Z    Look at this point when --camera-at is set
     --map-piece-limit N  Cap placed pieces (400 one cell, 200000 for a list)

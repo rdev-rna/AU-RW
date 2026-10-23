@@ -53,6 +53,18 @@ struct MapGrey(Handle<StandardMaterial>);
 #[derive(Resource)]
 struct FixedCamera;
 
+/// Set when `--auto-walk` drives the player forward for a streaming stress test.
+#[derive(Resource)]
+struct AutoWalk;
+
+/// Runs after `controls::sample` so the synthetic movement is not overwritten.
+fn auto_walk(flag: Option<Res<AutoWalk>>, mut controller: ResMut<controls::Controller>) {
+    if flag.is_some() {
+        controller.movement = Vec2::new(0.0, -1.0);
+        controller.high_profile = true;
+    }
+}
+
 /// Upload one decoded texture, or skip it when the format is unknown.
 fn upload_texture(
     texture: &load::LoadedTexture,
@@ -147,6 +159,9 @@ struct Streaming {
     bounds: Option<(Vec3, Vec3)>,
     /// World-space boxes per cell, for camera collision.
     colliders: std::collections::HashMap<usize, Vec<(Vec3, Vec3)>>,
+    /// Where the player was last frame, and for how long they have been still.
+    last_position: Vec3,
+    still_for: f32,
 }
 
 /// Build one Bevy mesh from a decoded part.
@@ -192,6 +207,7 @@ fn stream_cells(
     time: Res<Time>,
     grey: Res<MapGrey>,
     state: Option<Res<player::State>>,
+    controller: Res<controls::Controller>,
     mut streaming: Option<ResMut<Streaming>>,
 ) {
     let (Some(state), Some(mut stream)) = (state, streaming.as_mut()) else {
@@ -232,10 +248,18 @@ fn stream_cells(
         }
     }
 
-    // Only start a cell while frames are healthy; a slow frame means the previous cell is
-    // still being decoded, and piling on would turn a hitch into a freeze.
+    // Cell decode costs ~250 ms on the main thread, so it must not run while the player is
+    // walking: that was a guaranteed freeze on every step. Cells now fill while standing
+    // still, which keeps movement smooth; unloading still happens immediately.
+    let walking = controller.movement.length() > 0.1;
+    if walking || position.distance(stream.last_position) >= 0.02 {
+        stream.still_for = 0.0;
+    } else {
+        stream.still_for += time.delta_secs();
+    }
+    stream.last_position = position;
     let mut added = 0usize;
-    if time.delta_secs() > 0.05 {
+    if stream.still_for < 0.25 || time.delta_secs() > 0.05 {
         return;
     }
     for entry in target {
@@ -472,6 +496,10 @@ struct InspectionCamera {
     report: f32,
     /// Requested boom length before collision.
     report_desired: f32,
+    /// Collision probe results are cached: sweeping twelve rays against tens of thousands of
+    /// boxes every frame cost hundreds of milliseconds.
+    allowed: f32,
+    probe_after: f32,
 }
 
 fn inspect_camera(
@@ -507,16 +535,32 @@ fn inspect_camera(
         // Keep the eye out of walls: the nearest box along the boom pulls it in. Pulling in
         // snaps (never clip), releasing eases back so the view does not jitter.
         let desired = orbit.distance;
-        let mut allowed = desired;
-        if let Some(streaming) = streaming.as_ref() {
+        let mut allowed = orbit.allowed;
+        if orbit.probe_after <= 0.0
+            && let Some(streaming) = streaming.as_ref()
+        {
+            // Only boxes near enough to block the boom are worth testing; the ring holds tens
+            // of thousands and a full scan costs tens of milliseconds.
+            let reach = (desired + 2.0) * (desired + 2.0);
+            let near = |min: &Vec3, max: &Vec3| {
+                orbit
+                    .center
+                    .clamp(*min, *max)
+                    .distance_squared(orbit.center)
+                    <= reach
+            };
             let mut nearest = desired;
             for (min, max) in streaming.colliders.values().flatten() {
+                if !near(min, max) {
+                    continue;
+                }
                 if let Some(hit) = ray_box(orbit.center, direction, *min, *max)
                     && hit < nearest
                 {
                     nearest = hit;
                 }
             }
+            allowed = nearest.min(desired);
             if nearest < desired {
                 allowed = (nearest - 0.35).max(3.0);
                 // A blocked boom must not read as "zoom does nothing". Sweep the boom around
@@ -529,6 +573,9 @@ fn inspect_camera(
                     let dir = boom_direction(candidate, elevation);
                     let mut hit = desired;
                     for (min, max) in streaming.colliders.values().flatten() {
+                        if !near(min, max) {
+                            continue;
+                        }
                         if let Some(found) = ray_box(orbit.center, dir, *min, *max)
                             && found < hit
                         {
@@ -548,6 +595,12 @@ fn inspect_camera(
                     azimuth += delta.clamp(-step, step);
                 }
             }
+        }
+        allowed = allowed.min(desired);
+        orbit.allowed = allowed;
+        orbit.probe_after -= dt;
+        if orbit.probe_after <= 0.0 {
+            orbit.probe_after = 0.2;
         }
         // Pull in immediately (never clip), ease back out when the way is clear. Zooming out
         // used to be clamped away because `actual` was pinned to the smaller of the two.
@@ -641,6 +694,7 @@ fn main() {
     app.add_systems(Update, inspect_camera.after(player::follow));
     app.add_systems(Update, stream_cells.after(player::follow));
     app.add_systems(Update, report_fps);
+    app.add_systems(PreUpdate, auto_walk.after(controls::sample));
     if !headless {
         println!(
             "Controller: left stick walk; hold RT/R2 sprint; RT+X (South/A) upward priority; RT+Circle (East/B) downward priority; right stick camera yaw/pitch. Keyboard: WASD walk; Shift sprint; Shift+Space up; Shift+C down; Space jump; R reset. Arrows camera; Q/E zoom; F2 bind; F3 freeze; Esc exit. Original navigation clips; synthetic arena traversal."
@@ -1200,6 +1254,8 @@ fn setup_world(
             untextured: std::collections::HashSet::new(),
             bounds: None,
             colliders: std::collections::HashMap::new(),
+            last_position: Vec3::splat(-1.0e9),
+            still_for: 0.0,
         });
         commands.insert_resource(MapGrey(grey.clone()));
     }
@@ -1282,6 +1338,8 @@ fn setup_world(
             actual: distance,
             report: distance,
             report_desired: distance,
+            allowed: distance,
+            probe_after: 0.0,
         },
     ));
     if let Some(mut capture) = capture {
@@ -1349,11 +1407,20 @@ fn report_fps(
     cameras: Query<&InspectionCamera>,
     mut since: Local<f32>,
     mut frames: Local<u32>,
+    mut worst_ms: Local<f32>,
+    mut hitches: Local<u32>,
 ) {
     if streams.is_empty() {
         return;
     }
     *frames += 1;
+    let frame_ms = time.delta_secs() * 1000.0;
+    if frame_ms > *worst_ms {
+        *worst_ms = frame_ms;
+    }
+    if frame_ms > 100.0 {
+        *hitches += 1;
+    }
     let now = time.elapsed_secs();
     if now - *since < 2.0 {
         return;
@@ -1365,12 +1432,16 @@ fn report_fps(
         .map(|camera| (camera.report, camera.report_desired))
         .unwrap_or((0.0, 0.0));
     eprintln!(
-        "fps: {:.1} over {span:.1} s, camera {:.1} m (target {:.1} m)",
+        "fps: {:.1} over {span:.1} s, camera {:.1} m (target {:.1} m), worst frame {:.0} ms, {} hitches",
         *frames as f32 / span,
         boom.0,
-        boom.1
+        boom.1,
+        *worst_ms,
+        *hitches
     );
     *frames = 0;
+    *worst_ms = 0.0;
+    *hitches = 0;
     *since = now;
 }
 
@@ -1440,6 +1511,8 @@ mod controller_camera_tests {
                     actual: 5.0,
                     report: 5.0,
                     report_desired: 5.0,
+                    allowed: 5.0,
+                    probe_after: 0.0,
                 },
             ))
             .id();
