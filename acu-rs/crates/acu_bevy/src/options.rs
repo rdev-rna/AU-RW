@@ -59,6 +59,10 @@ pub struct Options {
     pub spawn: Option<[f32; 3]>,
     /// Spawn only placements within this many metres of the spawn point.
     pub map_radius: Option<f32>,
+    /// Write a cell entry -> placement centroid table while scanning.
+    pub map_cell_centres: Option<PathBuf>,
+    /// Stream cells around the player with this radius in metres.
+    pub map_stream: Option<f32>,
     /// Cap on placed pieces; defaults to 400 for one cell and 200000 for a list.
     pub map_piece_limit: Option<usize>,
     /// Preferred LOD level for map meshes; the finest available is used when absent.
@@ -132,6 +136,8 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut map_player = false;
     let mut spawn: Option<[f32; 3]> = None;
     let mut map_radius: Option<f32> = None;
+    let mut map_cell_centres: Option<PathBuf> = None;
+    let mut map_stream: Option<f32> = None;
     let mut map_piece_limit: Option<usize> = None;
     let mut map_lod: u8 = 0;
     let mut map_paris: Option<PathBuf> = None;
@@ -167,6 +173,19 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
             }
             "--map-dry-run" => map_dry_run = true,
             "--map-player" => map_player = true,
+            "--map-cell-centres" => {
+                map_cell_centres = Some(PathBuf::from(
+                    args.next().ok_or("--map-cell-centres needs a path")?,
+                ))
+            }
+            "--map-stream" => {
+                map_stream = Some(
+                    args.next()
+                        .ok_or("--map-stream needs metres")?
+                        .parse()
+                        .map_err(|e| format!("--map-stream: {e}"))?,
+                )
+            }
             "--map-radius" => {
                 map_radius = Some(
                     args.next()
@@ -377,6 +396,8 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
         map_player,
         spawn,
         map_radius,
+        map_cell_centres,
+        map_stream,
         map_piece_limit,
         map_lod,
         map_paris,
@@ -411,6 +432,8 @@ OPTIONS:
     --map-player       Spawn Arno in the map and enable the walk controls
     --spawn X,Y,Z      Player start in Bevy coordinates (x, y up, z)
     --map-radius M     Spawn only placements within M metres of the spawn point
+    --map-cell-centres PATH  Write cell entry -> placement centroid JSON
+    --map-stream M     Stream cells within M metres of the player as they move
     --map-piece-limit N  Cap placed pieces (400 one cell, 200000 for a list)
     --map-paris FILE   Paris archive used by map mode
     --map-assets FILE  Assets archive used by map mode (LOD meshes)

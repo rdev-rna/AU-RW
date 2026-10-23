@@ -1067,6 +1067,10 @@ struct MapContext<'a> {
     /// mesh id -> index in `pieces`; each unique mesh is decoded once.
     mesh_cache: HashMap<u64, usize>,
     instances: Vec<MapInstance>,
+    /// (cell entry, centre x, centre z, placements) per spawned cell.
+    centres: Vec<(usize, f32, f32, usize)>,
+    /// Accumulator for the current cell (x, z, count), kept in dry runs too.
+    centre_sum: (f64, f64, usize),
     totals: MapTotals,
 }
 
@@ -1114,6 +1118,8 @@ impl MapContext<'_> {
         };
         self.totals.cells += 1;
         self.totals.children += children.len();
+        let instance_mark = self.instances.len();
+        self.centre_sum = (0.0, 0.0, 0);
         self.totals.entities += entities.len();
         let before = self.totals.pieces;
         for position in entities {
@@ -1174,6 +1180,16 @@ impl MapContext<'_> {
         }
         if self.totals.pieces > before {
             self.totals.cells_with_pieces += 1;
+        }
+        let _ = instance_mark;
+        let (sx, sz, count) = self.centre_sum;
+        if count > 0 {
+            self.centres.push((
+                cell_entry,
+                (sx / count as f64) as f32,
+                (sz / count as f64) as f32,
+                count,
+            ));
         }
         Ok(())
     }
@@ -1481,6 +1497,9 @@ impl MapContext<'_> {
             };
             self.totals.group_members += 1;
             self.totals.pieces += 1;
+            self.centre_sum.0 += world[12] as f64;
+            self.centre_sum.1 += world[13] as f64;
+            self.centre_sum.2 += 1;
             self.totals.lods.insert(record.level);
             self.totals.mesh_refs.insert(record.entry_id);
             if self.dry_run {
@@ -1818,6 +1837,9 @@ impl MapContext<'_> {
             self.totals.lods.insert(level);
         }
         self.totals.pieces += 1;
+        self.centre_sum.0 += matrix[12] as f64;
+        self.centre_sum.1 += matrix[13] as f64;
+        self.centre_sum.2 += 1;
         if self.dry_run {
             return Ok(());
         }
@@ -2014,6 +2036,8 @@ pub fn load_map(
         dry_run: options.map_dry_run,
         budget,
         pieces: Vec::new(),
+        centres: Vec::new(),
+        centre_sum: (0.0, 0.0, 0),
         mesh_cache: HashMap::new(),
         instances: Vec::new(),
         totals: MapTotals::default(),
@@ -2065,6 +2089,22 @@ pub fn load_map(
         totals.group_members,
         totals.skipped_no_entity
     );
+    if let Some(path) = &options.map_cell_centres {
+        let rows: Vec<serde_json::Value> = context
+            .centres
+            .iter()
+            .map(|&(entry, x, z, placements)| {
+                serde_json::json!({
+                    "entry": entry,
+                    "x": x,
+                    "z": z,
+                    "placements": placements
+                })
+            })
+            .collect();
+        std::fs::write(path, serde_json::to_vec_pretty(&rows)?)?;
+        eprintln!("map: {} cell centres -> {}", rows.len(), path.display());
+    }
     Ok((context.pieces, context.instances))
 }
 
