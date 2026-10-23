@@ -49,6 +49,18 @@ pub struct Piece {
     pub label: String,
 }
 
+fn parse_point(value: &str) -> Result<[f32; 3], String> {
+    let parts: Vec<f32> = value
+        .split(',')
+        .map(|part| part.trim().parse::<f32>())
+        .collect::<Result<_, _>>()
+        .map_err(|e| format!("{value:?}: {e}"))?;
+    let [x, y, z] = parts.as_slice() else {
+        return Err(format!("{value:?} needs exactly three numbers X,Y,Z"));
+    };
+    Ok([*x, *y, *z])
+}
+
 #[derive(Debug, Resource)]
 pub struct Options {
     pub rigged: bool,
@@ -78,6 +90,10 @@ pub struct Options {
     pub map_detail_radius: Option<f32>,
     /// Third-person camera distance in metres (default 12).
     pub map_camera_distance: Option<f32>,
+    /// Fixed camera position (bevy metres) for deterministic stills.
+    pub camera_at: Option<[f32; 3]>,
+    /// Fixed camera target (bevy metres) for deterministic stills.
+    pub look_at: Option<[f32; 3]>,
     /// Cap on placed pieces; defaults to 400 for one cell and 200000 for a list.
     pub map_piece_limit: Option<usize>,
     /// Preferred LOD level for map meshes; the finest available is used when absent.
@@ -156,6 +172,8 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut map_centres_only = false;
     let mut map_detail_radius: Option<f32> = None;
     let mut map_camera_distance: Option<f32> = None;
+    let mut camera_at: Option<[f32; 3]> = None;
+    let mut look_at: Option<[f32; 3]> = None;
     let mut map_piece_limit: Option<usize> = None;
     let mut map_lod: u8 = 0;
     let mut map_paris: Option<PathBuf> = None;
@@ -197,6 +215,14 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
                 ))
             }
             "--map-centres-only" => map_centres_only = true,
+            "--camera-at" => {
+                let value = args.next().ok_or("--camera-at needs X,Y,Z")?;
+                camera_at = Some(parse_point(&value)?);
+            }
+            "--look-at" => {
+                let value = args.next().ok_or("--look-at needs X,Y,Z")?;
+                look_at = Some(parse_point(&value)?);
+            }
             "--map-camera-distance" => {
                 map_camera_distance = Some(
                     args.next()
@@ -436,6 +462,8 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
         map_centres_only,
         map_detail_radius,
         map_camera_distance,
+        camera_at,
+        look_at,
         map_piece_limit,
         map_lod,
         map_paris,
@@ -475,6 +503,8 @@ OPTIONS:
     --map-centres-only  Only write cell centroids (fast; no placement resolution)
     --map-detail-radius M  Spawn building groups only within M metres of the spawn
     --map-camera-distance M  Third-person camera distance (default 12 m)
+    --camera-at X,Y,Z  Fix the camera here (deterministic stills)
+    --look-at X,Y,Z    Look at this point when --camera-at is set
     --map-piece-limit N  Cap placed pieces (400 one cell, 200000 for a list)
     --map-paris FILE   Paris archive used by map mode
     --map-assets FILE  Assets archive used by map mode (LOD meshes)

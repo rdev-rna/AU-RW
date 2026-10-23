@@ -2364,12 +2364,16 @@ pub fn load_all(options: &Options) -> Result<Loaded> {
                     primitive: part.primitive,
                     vertex_base: part.vertex_base,
                     vertex_count: part.vertex_count,
+                    // A part can outlive the material it was bound to (material lists are
+                    // rebuilt per invocation); never index without a check.
                     material: part
                         .material
-                        .map(|index| scene.materials[index].file_id.clone()),
+                        .and_then(|index| scene.materials.get(index))
+                        .map(|material| material.file_id.clone()),
                     material_source: part
                         .material
-                        .map(|index| scene.materials[index].source.clone()),
+                        .and_then(|index| scene.materials.get(index))
+                        .map(|material| material.source.clone()),
                     submesh_index: part.submesh_index,
                     triangles: part.triangles.len(),
                 })

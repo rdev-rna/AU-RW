@@ -49,6 +49,10 @@ fn apply_native_matrix(m: &[f32; 16], p: [f32; 3]) -> [f32; 3] {
 #[derive(Resource)]
 struct MapGrey(Handle<StandardMaterial>);
 
+/// Set when `--camera-at` pins the camera; follow/orbit then leave it alone.
+#[derive(Resource)]
+struct FixedCamera;
+
 /// Upload one decoded texture, or skip it when the format is unknown.
 fn upload_texture(
     texture: &load::LoadedTexture,
@@ -139,6 +143,8 @@ struct Streaming {
     parts_textured: usize,
     /// Materials with no uploaded diffuse, reported once each.
     untextured: std::collections::HashSet<String>,
+    /// World bounds of everything streamed so far, reported once.
+    bounds: Option<(Vec3, Vec3)>,
 }
 
 /// Build one Bevy mesh from a decoded part.
@@ -310,9 +316,33 @@ fn stream_cells(
                 stream.parts += parts;
                 stream.parts_bound += bound;
                 stream.parts_textured += textured;
+                // Where the streamed geometry actually ends up in world space: a mismatch here
+                // against the cell centroids is what puts the camera inside a wall.
+                let mut world_min = Vec3::splat(f32::INFINITY);
+                let mut world_max = Vec3::splat(f32::NEG_INFINITY);
                 let mut entities = Vec::with_capacity(instances.len());
+                // Cell matrices are native (Z up). The non-streaming path gets the y-up
+                // correction from a parent root; streamed entities have no parent, so the
+                // same rotation is folded into each transform. Without it the streamed city
+                // is rotated 90 degrees against the player and every view is inside geometry.
+                let native_to_bevy = Mat4::from_quat(native_z_up_to_bevy_y_up());
                 for instance in &instances {
-                    let transform = Transform::from_matrix(Mat4::from_cols_array(&instance.matrix));
+                    let world = native_to_bevy * Mat4::from_cols_array(&instance.matrix);
+                    let transform = Transform::from_matrix(world);
+                    {
+                        let piece = &stream.runtime.pieces()[instance.piece];
+                        let (min, max) = piece.bounds();
+                        for corner in 0..8 {
+                            let local = Vec3::new(
+                                if corner & 1 == 0 { min[0] } else { max[0] },
+                                if corner & 2 == 0 { min[1] } else { max[1] },
+                                if corner & 4 == 0 { min[2] } else { max[2] },
+                            );
+                            let at = world.transform_point3(local);
+                            world_min = world_min.min(at);
+                            world_max = world_max.max(at);
+                        }
+                    }
                     let piece = &stream.runtime.pieces()[instance.piece];
                     for (part_index, handle) in stream.handles[instance.piece].iter().enumerate() {
                         let material = piece
@@ -333,6 +363,13 @@ fn stream_cells(
                     }
                 }
                 commands.entity(stream.root).add_children(&entities);
+                stream.bounds = Some(match stream.bounds {
+                    Some((lo, hi)) => (lo.min(world_min), hi.max(world_max)),
+                    None => (world_min, world_max),
+                });
+                if stream.loaded.len() <= 2 {
+                    eprintln!("stream: world bounds min {world_min:?} max {world_max:?}");
+                }
                 stream.loaded.insert(entry, entities);
                 added += 1;
             }
@@ -384,6 +421,7 @@ struct InspectionCamera {
 }
 
 fn inspect_camera(
+    fixed: Option<Res<FixedCamera>>,
     keys: Res<ButtonInput<KeyCode>>,
     controller: Res<controls::Controller>,
     time: Res<Time>,
@@ -392,6 +430,9 @@ fn inspect_camera(
 ) {
     if keys.just_pressed(KeyCode::Escape) {
         exit.write(AppExit::Success);
+    }
+    if fixed.is_some() {
+        return;
     }
     let dt = time.delta_secs().min(0.1);
     let axis = |positive, negative| {
@@ -775,6 +816,9 @@ fn setup_world(
         cull_mode: None,
         ..default()
     });
+    // stream_cells requires this resource; without it the system fails validation on every
+    // non-streaming invocation (single cell, dry run), which surfaced as a Resource error.
+    commands.insert_resource(MapGrey(grey.clone()));
     let character_grey = character_materials.add(character_material::CharacterMaterial {
         base: StandardMaterial {
             base_color: Color::srgb(0.72, 0.72, 0.72),
@@ -854,7 +898,7 @@ fn setup_world(
                 meshes_for_piece.push(meshes.add(mesh));
                 materials_for_piece.push(
                     part.material
-                        .map(|i| bound_materials[i].clone())
+                        .and_then(|i| bound_materials.get(i).cloned())
                         .unwrap_or_else(|| character_grey.clone()),
                 );
             }
@@ -950,7 +994,7 @@ fn setup_world(
                         ));
                         let material = part
                             .material
-                            .map(|i| bound_materials[i].clone())
+                            .and_then(|i| bound_materials.get(i).cloned())
                             .unwrap_or_else(|| character_grey.clone());
                         let handle = meshes.add(mesh);
                         if let Some(skin) = skin.as_mut() {
@@ -1035,6 +1079,7 @@ fn setup_world(
             parts_bound: 0,
             parts_textured: 0,
             untextured: std::collections::HashSet::new(),
+            bounds: None,
         });
         commands.insert_resource(MapGrey(grey.clone()));
     }
@@ -1083,6 +1128,17 @@ fn setup_world(
     eprintln!(
         "camera: center {center:?} size {size:.1} distance {distance:.1} eye {eye:?} elevation {elevation}"
     );
+    // A pinned camera makes orientation checks reproducible, independent of the follow rig.
+    let (eye, look) = match (options.camera_at, options.look_at) {
+        (Some(at), look) => {
+            commands.insert_resource(FixedCamera);
+            (
+                Vec3::from_array(at),
+                Vec3::from_array(look.unwrap_or(center.to_array())),
+            )
+        }
+        _ => (eye, center),
+    };
     let mut camera = commands.spawn((
         Camera3d::default(),
         Camera {
@@ -1096,7 +1152,7 @@ fn setup_world(
             far: 100_000.0,
             ..default()
         }),
-        Transform::from_translation(eye).looking_at(center, Vec3::Y),
+        Transform::from_translation(eye).looking_at(look, Vec3::Y),
         InspectionCamera {
             center,
             azimuth,
