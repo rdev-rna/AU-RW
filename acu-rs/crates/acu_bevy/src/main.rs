@@ -1,4 +1,4 @@
-∩╗┐//! Synthetic grey test world with Arno read directly from the install.
+﻿//! Synthetic grey test world with Arno read directly from the install.
 //!
 //! Presentation only: the app reads mesh resources in memory through
 //! `acu_assets`, builds Bevy meshes in native units, and stages them in a
@@ -16,6 +16,7 @@ mod arena;
 mod cache;
 mod character_material;
 mod controls;
+mod instanced;
 mod io;
 mod load;
 mod options;
@@ -32,6 +33,7 @@ use bevy::prelude::*;
 use bevy::render::render_resource::{Extent3d, TextureDimension, TextureFormat};
 use bevy::render::settings::{WgpuFeatures, WgpuSettings};
 use bevy::render::view::screenshot::{Screenshot, ScreenshotCaptured, save_to_disk};
+use bevy::render::view::NoIndirectDrawing;
 use bevy::window::ExitCondition;
 
 use options::{Options, parse};
@@ -165,6 +167,23 @@ struct Streaming {
     still_for: f32,
     /// Wall-clock time of the last cell decode, to space the unavoidable stalls.
     last_load: f64,
+    /// `--map-instanced`: draw the ring through the instanced renderer, one
+    /// entity per (piece, part) with an instance buffer, instead of one entity
+    /// per placement.
+    instanced: bool,
+    /// Instanced path: native Z-up -> Bevy Y-up rotation, baked into each
+    /// instance matrix (the instanced entities have no rotated parent).
+    root_matrix: Mat4,
+    /// Instanced path: per-scene-material bindings, grown as cells load.
+    part_materials: Vec<instanced::MapPartMaterial>,
+    /// Instanced path: the draw entity for each (piece, part), if one exists.
+    instance_entities: Vec<Vec<Option<Entity>>>,
+    /// Instanced path: instance count per (piece, part), so the reported total
+    /// is a sum of real buffer lengths rather than an incrementing guess.
+    instance_counts: Vec<Vec<usize>>,
+    /// Placements of every loaded cell. A piece's instance list is a function
+    /// of the loaded cells, so removing a cell rebuilds exactly from here.
+    cell_instances: HashMap<usize, Vec<load::MapInstance>>,
 }
 
 /// Build one Bevy mesh from a decoded part.
@@ -318,6 +337,113 @@ fn spawn_map(
     }
 }
 
+/// Recompute the instance lists of the given pieces from every loaded cell and
+/// push them to the instanced draw entities.
+///
+/// A piece's per-part instance list depends only on which cells are loaded, so
+/// rebuilding the pieces a changed cell touched is exact: no stale instance can
+/// survive, and untouched pieces keep their buffers. Returns
+/// `(draw parts updated, total instances across all parts)`.
+fn rebuild_instanced_parts(
+    commands: &mut Commands,
+    stream: &mut Streaming,
+    affected: &HashSet<usize>,
+    root: Mat4,
+) -> (usize, usize) {
+    let piece_parts: Vec<usize> = stream
+        .runtime
+        .pieces()
+        .iter()
+        .map(|piece| piece.parts.len())
+        .collect();
+    while stream.instance_entities.len() < piece_parts.len() {
+        let index = stream.instance_entities.len();
+        stream.instance_entities.push(vec![None; piece_parts[index]]);
+        stream.instance_counts.push(vec![0; piece_parts[index]]);
+    }
+    // A piece can gain parts as later cells introduce them; keep the rows aligned.
+    for (piece, &parts) in piece_parts.iter().enumerate() {
+        while stream.instance_entities[piece].len() < parts {
+            stream.instance_entities[piece].push(None);
+            stream.instance_counts[piece].push(0);
+        }
+    }
+
+    let mut buckets: HashMap<usize, Vec<Vec<instanced::InstanceData>>> = HashMap::new();
+    for &piece in affected {
+        if piece < piece_parts.len() {
+            buckets.insert(piece, vec![Vec::new(); piece_parts[piece]]);
+        }
+    }
+    for placements in stream.cell_instances.values() {
+        for instance in placements {
+            let Some(parts) = buckets.get_mut(&instance.piece) else {
+                continue;
+            };
+            let model = root * Mat4::from_cols_array(&instance.matrix);
+            let data = instanced::InstanceData {
+                model: model.to_cols_array(),
+            };
+            // A placement covers every part of its piece, as `spawn_map_instanced` does.
+            for bucket in parts.iter_mut() {
+                bucket.push(data);
+            }
+        }
+    }
+
+    let mut updated = 0usize;
+    for (piece, parts) in buckets {
+        for (part, data) in parts.into_iter().enumerate() {
+            let count = data.len();
+            stream.instance_counts[piece][part] = count;
+            match (stream.instance_entities[piece][part], count) {
+                (Some(entity), 0) => {
+                    commands.entity(entity).despawn();
+                    stream.instance_entities[piece][part] = None;
+                    updated += 1;
+                }
+                (Some(entity), _) => {
+                    // The render path only re-uploads a marked buffer; a part can
+                    // belong to several cells, so its list changes without a respawn.
+                    commands.entity(entity).insert((
+                        instanced::InstanceMaterialData(data),
+                        instanced::InstancesDirty,
+                    ));
+                    updated += 1;
+                }
+                (None, 0) => {}
+                (None, _) => {
+                    let mesh = stream.handles[piece][part].clone();
+                    let material = stream.runtime.pieces()[piece].parts[part]
+                        .material
+                        .and_then(|index| stream.part_materials.get(index).cloned())
+                        .unwrap_or_default();
+                    let entity = commands
+                        .spawn((
+                            Mesh3d(mesh),
+                            material,
+                            instanced::InstanceMaterialData(data),
+                            // The instance matrices are not the entity's `Aabb`, so
+                            // culling would drop the whole part at once.
+                            bevy::camera::visibility::NoFrustumCulling,
+                            Transform::default(),
+                            Visibility::default(),
+                        ))
+                        .id();
+                    stream.instance_entities[piece][part] = Some(entity);
+                    updated += 1;
+                }
+            }
+        }
+    }
+    let total = stream
+        .instance_counts
+        .iter()
+        .flat_map(|counts| counts.iter())
+        .sum();
+    (updated, total)
+}
+
 /// Load and unload cells so the world follows the player. Each update adds at most two
 /// cells, which keeps the hitch small; startup only loads the first ring.
 fn stream_cells(
@@ -351,6 +477,9 @@ fn stream_cells(
         stream.anchor = position;
     }
     let mut dropped = 0usize;
+    let mut unload_parts = 0usize;
+    let mut unload_total = 0usize;
+    let mut unloaded_cells: Vec<(usize, usize)> = Vec::new();
     if moved {
         let stale: Vec<usize> = stream
             .loaded
@@ -358,6 +487,8 @@ fn stream_cells(
             .copied()
             .filter(|entry| !target.contains(entry))
             .collect();
+        // Pieces the unloaded cells used: only their parts can lose instances.
+        let mut affected: HashSet<usize> = HashSet::new();
         for entry in stale {
             stream.colliders.remove(&entry);
             if let Some(entities) = stream.loaded.remove(&entry) {
@@ -365,7 +496,29 @@ fn stream_cells(
                 for entity in entities {
                     commands.entity(entity).despawn();
                 }
+                if stream.instanced {
+                    if let Some(placements) = stream.cell_instances.remove(&entry) {
+                        let mut contribution = 0usize;
+                        for instance in &placements {
+                            affected.insert(instance.piece);
+                            contribution += stream.runtime.pieces()[instance.piece].parts.len();
+                        }
+                        unloaded_cells.push((entry, contribution));
+                    }
+                }
             }
+        }
+        if stream.instanced && !affected.is_empty() {
+            let root = stream.root_matrix;
+            let (parts, total) =
+                rebuild_instanced_parts(&mut commands, &mut stream, &affected, root);
+            unload_parts = parts;
+            unload_total = total;
+        }
+        for (entry, contribution) in &unloaded_cells {
+            eprintln!(
+                "stream: cell {entry} parts={unload_parts} instances=-{contribution} total={unload_total}"
+            );
         }
     }
 
@@ -420,6 +573,35 @@ fn stream_cells(
                         stream_material(material, &stream.textures, &mut standard_materials);
                     stream.materials.push(handle);
                 }
+                if stream.instanced {
+                    // Same inputs as `map_material`, bound per part instead of
+                    // through `CharacterMaterial`: diffuse map and alpha cut-out.
+                    while stream.part_materials.len() < stream.runtime.scene().materials.len() {
+                        let index = stream.part_materials.len();
+                        let material = &stream.runtime.scene().materials[index];
+                        let base_color_texture = material
+                            .diffuse_texture
+                            .and_then(|texture| stream.textures.get(texture).cloned().flatten());
+                        let normal_texture = material
+                            .normal_texture
+                            .and_then(|texture| stream.textures.get(texture).cloned().flatten());
+                        let params = Vec4::new(
+                            if material.alpha_test_enabled {
+                                f32::from(material.alpha_test_value) / 255.0
+                            } else {
+                                0.0
+                            },
+                            if normal_texture.is_some() { 1.0 } else { 0.0 },
+                            0.0,
+                            0.0,
+                        );
+                        stream.part_materials.push(instanced::MapPartMaterial {
+                            base_color_texture,
+                            normal_texture,
+                            params,
+                        });
+                    }
+                }
                 let (mut parts, mut bound, mut textured) = (0usize, 0usize, 0usize);
                 for instance in &instances {
                     // Copy the bindings out first: the audit mutates `stream`, so it cannot
@@ -435,12 +617,20 @@ fn stream_cells(
                             continue;
                         };
                         bound += 1;
-                        let uploaded = stream
-                            .materials
-                            .get(index)
-                            .and_then(|handle| standard_materials.get(handle))
-                            .map(|material| material.base_color_texture.is_some())
-                            .unwrap_or(false);
+                        let uploaded = if stream.instanced {
+                            stream
+                                .part_materials
+                                .get(index)
+                                .map(|material| material.base_color_texture.is_some())
+                                .unwrap_or(false)
+                        } else {
+                            stream
+                                .materials
+                                .get(index)
+                                .and_then(|handle| standard_materials.get(handle))
+                                .map(|material| material.base_color_texture.is_some())
+                                .unwrap_or(false)
+                        };
                         if uploaded {
                             textured += 1;
                             continue;
@@ -539,24 +729,43 @@ fn stream_cells(
                             );
                         }
                     }
-                    let piece = &stream.runtime.pieces()[instance.piece];
-                    for (part_index, handle) in stream.handles[instance.piece].iter().enumerate() {
-                        let material = piece
-                            .parts
-                            .get(part_index)
-                            .and_then(|part| part.material)
-                            .and_then(|index| stream.materials.get(index).cloned())
-                            .unwrap_or_else(|| grey.0.clone());
-                        entities.push(
-                            commands
-                                .spawn((
-                                    Mesh3d(handle.clone()),
-                                    MeshMaterial3d(material),
-                                    transform,
-                                ))
-                                .id(),
-                        );
+                    if !stream.instanced {
+                        let piece = &stream.runtime.pieces()[instance.piece];
+                        for (part_index, handle) in stream.handles[instance.piece].iter().enumerate() {
+                            let material = piece
+                                .parts
+                                .get(part_index)
+                                .and_then(|part| part.material)
+                                .and_then(|index| stream.materials.get(index).cloned())
+                                .unwrap_or_else(|| grey.0.clone());
+                            entities.push(
+                                commands
+                                    .spawn((
+                                        Mesh3d(handle.clone()),
+                                        MeshMaterial3d(material),
+                                        transform,
+                                    ))
+                                    .id(),
+                            );
+                        }
                     }
+                }
+                // Instanced path: the placements are stored so a later unload can
+                // rebuild exactly, then the affected pieces' parts are refreshed.
+                if stream.instanced {
+                    let mut affected: HashSet<usize> = HashSet::new();
+                    let mut contribution = 0usize;
+                    for instance in &instances {
+                        affected.insert(instance.piece);
+                        contribution += stream.runtime.pieces()[instance.piece].parts.len();
+                    }
+                    stream.cell_instances.insert(entry, instances);
+                    let root = stream.root_matrix;
+                    let (parts, total) =
+                        rebuild_instanced_parts(&mut commands, &mut stream, &affected, root);
+                    eprintln!(
+                        "stream: cell {entry} parts={parts} instances={contribution} total={total}"
+                    );
                 }
                 commands.entity(stream.root).add_children(&entities);
                 stream.bounds = Some(match stream.bounds {
@@ -804,6 +1013,7 @@ fn main() {
     app.add_plugins(plugins)
         .add_plugins(MaterialPlugin::<arena::ArenaMaterial>::default())
         .add_plugins(MaterialPlugin::<character_material::CharacterMaterial>::default())
+        .add_plugins(instanced::MapInstancedPlugin)
         .insert_resource(Time::<Fixed>::from_hz(60.0))
         .init_resource::<controls::Controller>()
         .add_systems(PreUpdate, controls::sample.after(bevy::input::InputSystems))
@@ -841,6 +1051,7 @@ fn main() {
     }
     bevy::asset::embedded_asset!(app, "shaders/arena.wgsl");
     bevy::asset::embedded_asset!(app, "shaders/character.wgsl");
+    bevy::asset::embedded_asset!(app, "shaders/map_instanced.wgsl");
     app.run();
 }
 
@@ -924,6 +1135,80 @@ fn setup_world(
             Some(images.add(image))
         })
         .collect();
+    {
+        let mut formats: Vec<u32> = loaded
+            .scene
+            .textures
+            .iter()
+            .map(|texture| texture.dxgi_format)
+            .collect();
+        formats.sort_unstable();
+        formats.dedup();
+        eprintln!(
+            "textures: n={}, uploaded={}, fmt_mix=[{}], bytes_total={}",
+            loaded.scene.textures.len(),
+            texture_handles
+                .iter()
+                .filter(|handle| handle.is_some())
+                .count(),
+            formats
+                .iter()
+                .map(|format| format.to_string())
+                .collect::<Vec<_>>()
+                .join(","),
+            loaded
+                .scene
+                .textures
+                .iter()
+                .map(|texture| texture.pixels.len())
+                .sum::<usize>()
+        );
+    }
+    let mut with_handle = 0usize;
+    let mut with_normal = 0usize;
+    let mut bound_materials: Vec<Handle<character_material::CharacterMaterial>> =
+        Vec::with_capacity(loaded.scene.materials.len());
+    for material in &loaded.scene.materials {
+        let uploaded = |index: Option<usize>| {
+            index.and_then(|index| texture_handles.get(index).cloned().flatten())
+        };
+        let handle_bound = uploaded(material.diffuse_texture).is_some();
+        let has_normal = uploaded(material.normal_texture).is_some();
+        if handle_bound {
+            with_handle += 1;
+        }
+        if has_normal {
+            with_normal += 1;
+        }
+        println!(
+            "material {} diff_tex={:?} handle={} normal={} alpha={}/{} selector_diffuse={:?} set_diffuse={:?}",
+            material.file_id,
+            material.diffuse_texture,
+            if handle_bound { "yes" } else { "no" },
+            if has_normal { "yes" } else { "no" },
+            if material.alpha_test_enabled {
+                "Enabled"
+            } else {
+                "Opaque"
+            },
+            material.alpha_test_value,
+            material.selector_diffuse.as_ref(),
+            material.set_diffuse.as_ref(),
+        );
+        bound_materials.push(map_material(
+            material,
+            &texture_handles,
+            &mut character_materials,
+        ));
+    }
+    println!(
+        "materials: {}, with_handle={with_handle}, with_normal={with_normal}, textures={}",
+        bound_materials.len(),
+        loaded.scene.textures.len()
+    );
+    // The instanced path binds these per part instead of using
+    // `CharacterMaterial`; same inputs, same texture table as `map_material`.
+    let part_materials: Vec<instanced::MapPartMaterial> = loaded
         .scene
         .materials
         .iter()
@@ -933,6 +1218,12 @@ fn setup_world(
                 .and_then(|index| texture_handles.get(index).cloned().flatten());
             let normal_texture = material
                 .normal_texture
+                .and_then(|index| texture_handles.get(index).cloned().flatten());
+            instanced::MapPartMaterial {
+                base_color_texture,
+                params: Vec4::new(
+                    if material.alpha_test_enabled {
+                        f32::from(material.alpha_test_value) / 255.0
                     } else {
                         0.0
                     },
@@ -1248,10 +1539,42 @@ fn setup_world(
     }
 
     if map_mode {
-        let mut part_materials: Vec<Vec<Handle<character_material::CharacterMaterial>>> =
-            part_materials.push(materials_for_piece);
+        if options.map_instanced {
+            let spawned = instanced::spawn_map_instanced(
+                &mut commands,
+                &pieces[..arno_start],
+                &instances,
+                &part_materials,
+                &mut meshes,
+                Mat4::from_quat(native_z_up_to_bevy_y_up()),
+                options.map_radius,
+                options.spawn.map(Vec3::from_array),
+            );
+            println!(
+                "instanced: entities={} placements={} parts={} instances={}",
+                spawned.entities, spawned.placements, spawned.parts, spawned.instances
+            );
+        } else {
+            let spawned = spawn_map(
+            &mut commands,
+            &pieces[..arno_start],
+            &instances,
+            &bound_materials,
+            &character_grey,
+            options.map_radius,
+            options.spawn.map(Vec3::from_array),
+            &mut meshes,
+        );
+        println!(
+            "map: {} entities for {}/{} placements (radius {:?} m), {} pieces with {} triangles",
+            spawned.entities,
+            spawned.placements,
+            instances.len(),
+            options.map_radius,
+            spawned.pieces_with_triangles,
+            spawned.total_triangles
+        );
         }
-                        .zip(&part_materials[instance.piece])
     }
     if options.rigged {
         // Arno pieces as children of one native-space root.
@@ -1399,6 +1722,12 @@ fn setup_world(
             last_position: Vec3::splat(-1.0e9),
             still_for: 0.0,
             last_load: 0.0,
+            instanced: options.map_instanced,
+            root_matrix: Mat4::from_quat(native_z_up_to_bevy_y_up()),
+            part_materials: Vec::new(),
+            instance_entities: Vec::new(),
+            instance_counts: Vec::new(),
+            cell_instances: HashMap::new(),
         });
         commands.insert_resource(MapGrey(grey.clone()));
     }
@@ -1485,6 +1814,11 @@ fn setup_world(
             probe_after: 0.0,
         },
     ));
+    if options.map_instanced {
+        // The instanced draw issues `draw_indexed`, which needs the direct (non
+        // indirect) mesh path on the camera that renders it.
+        camera.insert(NoIndirectDrawing);
+    }
     if let Some(mut capture) = capture {
         let (width, height) = options.size;
         let image = Image::new_target_texture(

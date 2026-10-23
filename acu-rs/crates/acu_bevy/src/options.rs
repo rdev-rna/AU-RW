@@ -106,6 +106,8 @@ pub struct Options {
     pub map_piece_limit: Option<usize>,
     /// Preferred LOD level for map meshes; the finest available is used when absent.
     pub map_lod: u8,
+    /// Draw the map as one instanced entity per unique part (default off).
+    pub map_instanced: bool,
     /// Archives used by map mode; default to the installed Paris pair.
     pub map_paris: Option<PathBuf>,
     pub map_assets: Option<PathBuf>,
@@ -188,6 +190,7 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut look_at: Option<[f32; 3]> = None;
     let mut map_piece_limit: Option<usize> = None;
     let mut map_lod: u8 = 0;
+    let mut map_instanced = false;
     let mut map_paris: Option<PathBuf> = None;
     let mut map_assets: Option<PathBuf> = None;
     let mut capture: Option<PathBuf> = None;
@@ -316,6 +319,7 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
                     return Err("--map-lod must be 0..4".into());
                 }
             }
+            "--map-instanced" => map_instanced = true,
             "--map-paris" => {
                 map_paris = Some(PathBuf::from(
                     args.next().ok_or("--map-paris needs a value")?,
@@ -501,6 +505,7 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
         look_at,
         map_piece_limit,
         map_lod,
+        map_instanced,
         map_paris,
         map_assets,
         capture,
@@ -529,6 +534,7 @@ OPTIONS:
     --map-cell CELL    Spawn a world cell (entry index or 16-digit file id)
     --map-cells FILE   Spawn every cell in a JSON list (entry_index per row)
     --map-lod N        Preferred mesh LOD level 0..4 (default 0)
+    --map-instanced    Draw the map as one instanced entity per unique part (default off)
     --map-dry-run      Count resolvable pieces without decoding meshes
     --map-player       Spawn Arno in the map and enable the walk controls
     --spawn X,Y,Z      Player start in Bevy coordinates (x, y up, z)
