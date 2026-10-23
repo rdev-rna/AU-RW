@@ -2447,6 +2447,40 @@ pub fn load_map(
     Ok((context.pieces, context.instances))
 }
 
+
+/// Cell entries requested by `--map-cells` / `--map-cell`, without loading anything.
+pub fn cell_entries_for(options: &Options) -> Result<Vec<usize>> {
+    let mut entries: Vec<usize> = Vec::new();
+    if let Some(path) = &options.map_cells {
+        #[derive(serde::Deserialize)]
+        struct Row {
+            entry_index: usize,
+        }
+        let text = std::fs::read_to_string(path)
+            .map_err(|e| format!("--map-cells {}: {e}", path.display()))?;
+        let rows: Vec<Row> = serde_json::from_str(&text)
+            .map_err(|e| format!("--map-cells {}: {e}", path.display()))?;
+        entries.extend(rows.into_iter().map(|row| row.entry_index));
+    }
+    if let Some(spec) = &options.map_cell {
+        match spec.parse::<usize>() {
+            Ok(index) => entries.push(index),
+            Err(_) => {
+                let id = u64::from_str_radix(spec.trim_start_matches("0x"), 16)
+                    .map_err(|_| "map cell must be an entry index or a hex file id")?;
+                let paris_path = options
+                    .map_paris
+                    .clone()
+                    .unwrap_or_else(|| options.game_dir.join("DataPC_ACU_Paris.forge"));
+                let paris = Forge::open(&paris_path, Limits::default())?;
+                let ids = id_map(&paris);
+                entries.push(*ids.get(&id).ok_or("cell file id is not an entry in the Paris archive")?);
+            }
+        }
+    }
+    Ok(entries)
+}
+
 /// Load every piece, reusing one open Forge per archive.
 pub fn load_all(options: &Options) -> Result<Loaded> {
     // A cached map is pure data: reading it skips every archive, decode and selector step.
@@ -2459,9 +2493,32 @@ pub fn load_all(options: &Options) -> Result<Loaded> {
     let mut pieces = Vec::new();
     let mut instances = Vec::new();
     let map_mode = options.map_cell.is_some() || options.map_cells.is_some();
-    // Streaming builds its cells at runtime, so nothing is preloaded here.
+    // Streaming builds its cells at runtime, so nothing is preloaded here. The whole-map
+    // path drives the *same* MapRuntime the streaming path uses: the older `load_map` never
+    // bound materials, which is why a full preload produced 0 materials and rendered white.
     if map_mode && options.map_stream.is_none() {
-        (pieces, instances) = load_map(options, &mut loader)?;
+        let cells = cell_entries_for(options)?;
+        let mut runtime = MapRuntime::new(options)?;
+        let instances = runtime.load_cells(&cells)?;
+        let loaded = Loaded {
+            pieces: runtime.pieces,
+            instances,
+            scene: runtime.loader.scene,
+            rig_pieces: options.pieces.len(),
+        };
+        if let Some(path) = &options.cache_write {
+            crate::cache::write(path, &loaded)
+                .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
+            eprintln!(
+                "cache: wrote {} pieces, {} instances, {} materials, {} textures to {}",
+                loaded.pieces.len(),
+                loaded.instances.len(),
+                loaded.scene.materials.len(),
+                loaded.scene.textures.len(),
+                path.display()
+            );
+        }
+        return Ok(loaded);
     }
     // Map mode ignores the rig unless --map-player asked for it.
     let map_mode = options.map_cell.is_some() || options.map_cells.is_some();
