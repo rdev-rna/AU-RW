@@ -156,3 +156,20 @@ exist in Paris.
 
 Next: decode the group record boundary rather than the matrix/selector adjacency, then re-check
 `Cell05073` - the target is that a normal street cell references hundreds of house parts.
+
+### EntityGroup object decode (validated, placement still wrong)
+
+Object boundaries are delimited by the reference tag `ec658d29`. In
+`FRV_House_Corner_F_0_03x13x2_01_002` that gives **28 objects**, **27 with both a 4x4 matrix and a
+`51dc6b80` selector** inside the object, and the group carries a count of 29 at offset 176, so the
+layout is confirmed. Each selector has one mesh record (e.g. `0x114e089b9f` -> `0x10170c7e49`), i.e.
+one part of the row.
+
+The loader now spawns per object: first matrix + first selector inside the object, base = the object
+with the largest translation, other members relative to it, members more than 150 m from the group
+median dropped. A 500 m radius yields **54,487 groups / 389,539 members**.
+
+Still not right: `Cell04814` (4 groups, 66 members) frames to about 988 m, so some records carry
+absolute transforms and mixing the two rules scatters parts; the district render still shows the
+ground carpet without building shells. Next: validate one group against a known building position
+before trusting the rule.
