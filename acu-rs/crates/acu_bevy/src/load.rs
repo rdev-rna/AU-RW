@@ -1040,43 +1040,40 @@ struct MapTotals {
     group_members: usize,
 }
 
-/// State shared by every cell of one invocation.
-struct MapContext<'a> {
-    paris: &'a mut Forge,
-    assets: &'a mut Forge,
-    loader: &'a mut Loader,
-    cache: &'a mut PackageCache,
-    mesh_index: &'a Index,
-    selector_index: &'a Index,
-    entity_index: &'a Index,
-    group_index: &'a Index,
-    locations: &'a MeshLocationIndex,
-    extra_archives: &'a [PathBuf],
-    extra_forges: &'a mut Vec<Option<Forge>>,
-    assets_entries: &'a HashMap<u64, usize>,
-    paris_ids: &'a HashMap<u64, usize>,
-    paris_path: &'a PathBuf,
-    assets_path: &'a PathBuf,
+/// State shared by every cell of one invocation; owned so it can live in a Bevy resource
+/// and load cells at runtime (streaming).
+pub struct MapRuntime {
+    paris: Forge,
+    assets: Forge,
+    loader: Loader,
+    cache: PackageCache,
+    entity_index: Index,
+    group_index: Index,
+    selector_index: Index,
+    mesh_index: Index,
+    locations: MeshLocationIndex,
+    assets_entries: HashMap<u64, usize>,
+    paris_ids: HashMap<u64, usize>,
+    paris_path: PathBuf,
+    assets_path: PathBuf,
+    extra_archives: Vec<PathBuf>,
+    extra_forges: Vec<Option<Forge>>,
     wanted_lod: usize,
-    /// Optional distance filter: native-space centre and radius in metres.
     centre: Option<[f32; 3]>,
     radius: Option<f32>,
     dry_run: bool,
     budget: usize,
     pieces: Vec<LoadedPiece>,
-    /// mesh id -> index in `pieces`; each unique mesh is decoded once.
+    centres: Vec<(usize, f32, f32, usize)>,
+    centre_sum: (f64, f64, usize),
     mesh_cache: HashMap<u64, usize>,
     instances: Vec<MapInstance>,
-    /// (cell entry, centre x, centre z, placements) per spawned cell.
-    centres: Vec<(usize, f32, f32, usize)>,
-    /// Accumulator for the current cell (x, z, count), kept in dry runs too.
-    centre_sum: (f64, f64, usize),
     totals: MapTotals,
 }
 
-impl MapContext<'_> {
+impl MapRuntime {
     fn cell_children(&mut self, cell_entry: usize) -> Result<Vec<u64>> {
-        self.cache.ensure(&mut *self.paris, cell_entry)?;
+        self.cache.ensure(&mut self.paris, cell_entry)?;
         let (package, _) = self.cache.view()?;
         let block = package
             .resources
@@ -1163,7 +1160,7 @@ impl MapContext<'_> {
                 continue;
             };
             for &entry in entries.iter().take(2) {
-                self.cache.ensure(&mut *self.paris, entry)?;
+                self.cache.ensure(&mut self.paris, entry)?;
                 let payload = {
                     let (package, ids) = self.cache.view()?;
                     ids.get(child).and_then(|&position| {
@@ -1480,17 +1477,17 @@ impl MapContext<'_> {
                 return Ok(());
             }
             let Some((source, mesh_entry, resource)) = resolve_mesh(
-                &mut *self.cache,
-                &mut *self.paris,
-                &mut *self.assets,
+                &mut self.cache,
+                &mut self.paris,
+                &mut self.assets,
                 entity_entry,
                 record.entry_id,
-                self.assets_entries,
-                self.paris_ids,
-                self.mesh_index,
-                self.locations,
-                self.extra_archives,
-                self.extra_forges,
+                &self.assets_entries,
+                &self.paris_ids,
+                &self.mesh_index,
+                &self.locations,
+                &self.extra_archives,
+                &mut self.extra_forges,
             )?
             else {
                 continue;
@@ -1525,11 +1522,9 @@ impl MapContext<'_> {
                     };
                     let loaded = match source {
                         MeshArchive::Assets => {
-                            load_piece(&mut *self.loader, &mut *self.assets, &piece)
+                            load_piece(&mut self.loader, &mut self.assets, &piece)
                         }
-                        MeshArchive::Paris => {
-                            load_piece(&mut *self.loader, &mut *self.paris, &piece)
-                        }
+                        MeshArchive::Paris => load_piece(&mut self.loader, &mut self.paris, &piece),
                         MeshArchive::Extra(slot) => {
                             let slot = slot as usize;
                             if self.extra_forges.len() <= slot {
@@ -1544,7 +1539,7 @@ impl MapContext<'_> {
                             let forge = self.extra_forges[slot]
                                 .as_mut()
                                 .ok_or("extra archive failed to open")?;
-                            load_piece(&mut *self.loader, forge, &piece)
+                            load_piece(&mut self.loader, forge, &piece)
                         }
                     };
                     let loaded = match loaded {
@@ -1601,7 +1596,7 @@ impl MapContext<'_> {
             return Ok(());
         };
         for &entry in entries.iter().take(2) {
-            self.cache.ensure(&mut *self.paris, entry)?;
+            self.cache.ensure(&mut self.paris, entry)?;
             let position = {
                 let (package, ids) = self.cache.view()?;
                 ids.get(&id)
@@ -1624,7 +1619,7 @@ impl MapContext<'_> {
         depth: usize,
     ) -> Result<()> {
         // The cache may still hold a chunk entry from a previous expansion.
-        self.cache.ensure(&mut *self.paris, entity_entry)?;
+        self.cache.ensure(&mut self.paris, entity_entry)?;
         let (entity_bytes, link) = {
             let (package, ids) = self.cache.view()?;
             let entity = &package.resources[position];
@@ -1815,17 +1810,17 @@ impl MapContext<'_> {
             }
         };
         let Some((source, mesh_entry, resource)) = resolve_mesh(
-            &mut *self.cache,
-            &mut *self.paris,
-            &mut *self.assets,
+            &mut self.cache,
+            &mut self.paris,
+            &mut self.assets,
             entity_entry,
             mesh_id,
-            self.assets_entries,
-            self.paris_ids,
-            self.mesh_index,
-            self.locations,
-            self.extra_archives,
-            self.extra_forges,
+            &self.assets_entries,
+            &self.paris_ids,
+            &self.mesh_index,
+            &self.locations,
+            &self.extra_archives,
+            &mut self.extra_forges,
         )?
         else {
             eprintln!("map: mesh {mesh_id:016x} is in no selected archive");
@@ -1868,15 +1863,15 @@ impl MapContext<'_> {
                     );
                 }
                 let loaded = match source {
-                    MeshArchive::Assets => load_piece(&mut *self.loader, &mut *self.assets, &piece),
+                    MeshArchive::Assets => load_piece(&mut self.loader, &mut self.assets, &piece),
                     MeshArchive::Paris if mesh_entry == entity_entry => {
                         // Same entry we already decoded for this cell: reuse its bytes.
-                        self.cache.ensure(&mut *self.paris, entity_entry)?;
+                        self.cache.ensure(&mut self.paris, entity_entry)?;
                         let (package, _) = self.cache.view()?;
                         let stored = self.cache.stored_sha256.clone();
-                        piece_from(&mut *self.loader, package, &piece, stored)
+                        piece_from(&mut self.loader, package, &piece, stored)
                     }
-                    MeshArchive::Paris => load_piece(&mut *self.loader, &mut *self.paris, &piece),
+                    MeshArchive::Paris => load_piece(&mut self.loader, &mut self.paris, &piece),
                     MeshArchive::Extra(slot) => {
                         let slot = slot as usize;
                         if self.extra_forges.len() <= slot {
@@ -1889,7 +1884,7 @@ impl MapContext<'_> {
                         let forge = self.extra_forges[slot]
                             .as_mut()
                             .ok_or("extra archive failed to open")?;
-                        load_piece(&mut *self.loader, forge, &piece)
+                        load_piece(&mut self.loader, forge, &piece)
                     }
                 };
                 let loaded = match loaded {
@@ -1942,6 +1937,88 @@ impl MapContext<'_> {
             matrix,
         });
         Ok(())
+    }
+}
+
+impl MapRuntime {
+    /// Build a runtime that can load cells on demand: forges, census indices, template
+    /// index and the package cache stay alive between calls.
+    pub fn new(options: &Options) -> Result<Self> {
+        let limits = Limits::default();
+        let paris_path = options
+            .map_paris
+            .clone()
+            .unwrap_or_else(|| options.game_dir.join("DataPC_ACU_Paris.forge"));
+        let assets_path = options
+            .map_assets
+            .clone()
+            .unwrap_or_else(|| options.game_dir.join("DataPC_ACU_Paris_assets.forge"));
+        let paris = Forge::open(&paris_path, limits)?;
+        let paris_ids = id_map(&paris);
+        let entity_index = read_index("local/paris-entities.bin")?;
+        let group_index = read_index("local/paris-groups.bin")?;
+        let selector_index = read_index("local/paris-selectors.bin")?;
+        let mesh_index = read_index("local/paris-world-meshes.bin")?;
+        let locations = read_mesh_locations(
+            "local/paris-mesh-locations.bin",
+            "local/paris-mesh-locations.json",
+            &options.game_dir,
+        )?;
+        let extra_archives = locations.slots.clone();
+        let extra_forges: Vec<Option<Forge>> = (0..extra_archives.len()).map(|_| None).collect();
+        let assets = Forge::open(&assets_path, limits)?;
+        let assets_entries = id_map(&assets);
+        Ok(Self {
+            paris,
+            assets,
+            loader: Loader::new(options),
+            cache: PackageCache::default(),
+            entity_index,
+            group_index,
+            selector_index,
+            mesh_index,
+            locations,
+            assets_entries,
+            paris_ids,
+            paris_path,
+            assets_path,
+            extra_archives,
+            extra_forges,
+            wanted_lod: options.map_lod as usize,
+            centre: options.spawn.map(|[x, y, z]| [x, -z, y]),
+            radius: options.map_radius,
+            dry_run: false,
+            budget: options.map_piece_limit.unwrap_or(2_000_000),
+            pieces: Vec::new(),
+            centres: Vec::new(),
+            centre_sum: (0.0, 0.0, 0),
+            mesh_cache: HashMap::new(),
+            instances: Vec::new(),
+            totals: MapTotals::default(),
+        })
+    }
+
+    /// Load the given cells and return their placements. Mesh payloads stay decoded in
+    /// `pieces`, so a mesh shared by several cells is decoded once.
+    pub fn load_cells(&mut self, cells: &[usize]) -> Result<Vec<MapInstance>> {
+        self.instances.clear();
+        self.centre_sum = (0.0, 0.0, 0);
+        for &cell in cells {
+            if self.totals.pieces >= self.budget {
+                eprintln!("map: piece budget {} reached while streaming", self.budget);
+                break;
+            }
+            self.spawn_cell(cell)?;
+        }
+        Ok(std::mem::take(&mut self.instances))
+    }
+
+    pub fn pieces(&self) -> &[LoadedPiece] {
+        &self.pieces
+    }
+
+    pub fn totals(&self) -> &MapTotals {
+        &self.totals
     }
 }
 
@@ -2011,23 +2088,22 @@ pub fn load_map(
             MAP_PIECE_LIMIT
         });
 
-    let mut cache = PackageCache::default();
-    let mut context = MapContext {
-        paris: &mut paris,
-        assets: &mut assets,
-        loader,
-        cache: &mut cache,
-        mesh_index: &mesh_index,
-        selector_index: &selector_index,
-        entity_index: &entity_index,
-        group_index: &group_index,
-        locations: &locations,
-        extra_archives: &extra_archives,
-        extra_forges: &mut extra_forges,
-        assets_entries: &assets_entries,
-        paris_ids: &paris_ids,
-        paris_path: &paris_path,
-        assets_path: &assets_path,
+    let mut context = MapRuntime {
+        paris,
+        assets,
+        loader: Loader::new(options),
+        cache: PackageCache::default(),
+        mesh_index,
+        selector_index,
+        entity_index,
+        group_index,
+        locations,
+        extra_archives,
+        extra_forges,
+        assets_entries,
+        paris_ids,
+        paris_path,
+        assets_path,
         wanted_lod: options.map_lod as usize,
         // --spawn is Bevy (x, y up, z); an instance matrix is native (x, y, z up), so
         // native = (x, -z, y).
@@ -2115,7 +2191,9 @@ pub fn load_all(options: &Options) -> Result<Loaded> {
     let mut loader = Loader::new(options);
     let mut pieces = Vec::new();
     let mut instances = Vec::new();
-    if options.map_cell.is_some() || options.map_cells.is_some() {
+    let map_mode = options.map_cell.is_some() || options.map_cells.is_some();
+    // Streaming builds its cells at runtime, so nothing is preloaded here.
+    if map_mode && options.map_stream.is_none() {
         (pieces, instances) = load_map(options, &mut loader)?;
     }
     // Map mode ignores the rig unless --map-player asked for it.

@@ -21,6 +21,7 @@ mod options;
 mod player;
 mod rig;
 
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -42,6 +43,141 @@ fn apply_native_matrix(m: &[f32; 16], p: [f32; 3]) -> [f32; 3] {
         m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13],
         m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14],
     ]
+}
+
+/// Grey material used for streamed map cells (textures are a later pass).
+#[derive(Resource)]
+struct MapGrey(Handle<character_material::CharacterMaterial>);
+
+/// Cells loaded by distance around the player.
+#[derive(Resource)]
+struct Streaming {
+    runtime: load::MapRuntime,
+    /// (cell entry, native x, native y) from `--map-cell-centres`.
+    centres: Vec<(usize, f32, f32)>,
+    radius: f32,
+    loaded: HashMap<usize, Vec<Entity>>,
+    anchor: Vec3,
+    root: Entity,
+    handles: Vec<Vec<Handle<Mesh>>>,
+}
+
+/// Build one Bevy mesh from a decoded part.
+fn part_mesh(piece: &load::LoadedPiece, part: &load::LoadedPart) -> Mesh {
+    let mut positions = Vec::with_capacity(piece.vertices.len());
+    let mut normals = Vec::with_capacity(piece.vertices.len());
+    let mut uvs = Vec::with_capacity(piece.vertices.len());
+    let mut tangents = Vec::with_capacity(piece.vertices.len());
+    for v in &piece.vertices {
+        positions.push(v.position);
+        normals.push(v.normal);
+        uvs.push(v.uv0.unwrap_or([0.0, 0.0]));
+        let n = Vec3::from_array(v.normal).normalize_or_zero();
+        let t = Vec3::from_array(v.tangent.unwrap_or([1.0, 0.0, 0.0])).normalize_or_zero();
+        let b = Vec3::from_array(v.binormal.unwrap_or([0.0, 1.0, 0.0]));
+        tangents.push([
+            t.x,
+            t.y,
+            t.z,
+            if n.cross(t).dot(b) < 0.0 { -1.0 } else { 1.0 },
+        ]);
+    }
+    Mesh::new(
+        bevy::render::render_resource::PrimitiveTopology::TriangleList,
+        bevy::asset::RenderAssetUsages::MAIN_WORLD | bevy::asset::RenderAssetUsages::RENDER_WORLD,
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_TANGENT, tangents)
+    .with_inserted_indices(bevy::mesh::Indices::U32(
+        part.triangles.iter().flatten().copied().collect(),
+    ))
+}
+
+/// Load and unload cells so the world follows the player. Each update adds at most two
+/// cells, which keeps the hitch small; startup only loads the first ring.
+fn stream_cells(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    grey: Res<MapGrey>,
+    state: Option<Res<player::State>>,
+    mut streaming: Option<ResMut<Streaming>>,
+) {
+    let (Some(state), Some(mut stream)) = (state, streaming.as_mut()) else {
+        return;
+    };
+    let position = state.player.position;
+    if position.distance(stream.anchor) < 40.0 {
+        return;
+    }
+    stream.anchor = position;
+
+    let here = Vec2::new(position.x, position.z);
+    let mut target: HashSet<usize> = HashSet::new();
+    for &(entry, x, y) in &stream.centres {
+        // native (x, y) -> Bevy (x, -y)
+        if Vec2::new(x, -y).distance(here) <= stream.radius {
+            target.insert(entry);
+        }
+    }
+
+    let stale: Vec<usize> = stream
+        .loaded
+        .keys()
+        .copied()
+        .filter(|entry| !target.contains(entry))
+        .collect();
+    for entry in stale {
+        if let Some(entities) = stream.loaded.remove(&entry) {
+            for entity in entities {
+                commands.entity(entity).despawn();
+            }
+        }
+    }
+
+    let mut added = 0usize;
+    for entry in target {
+        if added >= 2 {
+            break;
+        }
+        if stream.loaded.contains_key(&entry) {
+            continue;
+        }
+        match stream.runtime.load_cells(&[entry]) {
+            Ok(instances) => {
+                while stream.handles.len() < stream.runtime.pieces().len() {
+                    let index = stream.handles.len();
+                    let piece = &stream.runtime.pieces()[index];
+                    let built: Vec<Handle<Mesh>> = piece
+                        .parts
+                        .iter()
+                        .map(|part| meshes.add(part_mesh(piece, part)))
+                        .collect();
+                    stream.handles.push(built);
+                }
+                let mut entities = Vec::with_capacity(instances.len());
+                for instance in &instances {
+                    let transform = Transform::from_matrix(Mat4::from_cols_array(&instance.matrix));
+                    for handle in &stream.handles[instance.piece] {
+                        entities.push(
+                            commands
+                                .spawn((
+                                    Mesh3d(handle.clone()),
+                                    MeshMaterial3d(grey.0.clone()),
+                                    transform,
+                                ))
+                                .id(),
+                        );
+                    }
+                }
+                commands.entity(stream.root).add_children(&entities);
+                stream.loaded.insert(entry, entities);
+                added += 1;
+            }
+            Err(error) => eprintln!("stream: cell {entry}: {error}"),
+        }
+    }
 }
 
 fn native_z_up_to_bevy_y_up() -> Quat {
@@ -180,6 +316,7 @@ fn main() {
             .run_if(resource_exists::<player::State>),
     );
     app.add_systems(Update, inspect_camera.after(player::follow));
+    app.add_systems(Update, stream_cells.after(player::follow));
     if !headless {
         println!(
             "Controller: left stick walk; hold RT/R2 sprint; RT+X (South/A) upward priority; RT+Circle (East/B) downward priority; right stick camera yaw/pitch. Keyboard: WASD walk; Shift sprint; Shift+Space up; Shift+C down; Space jump; R reset. Arrows camera; Q/E zoom; F2 bind; F3 freeze; Esc exit. Original navigation clips; synthetic arena traversal."
@@ -678,6 +815,49 @@ fn setup_world(
     if let Some(path) = &options.report {
         let report = serde_json::to_vec_pretty(&loaded.scene).expect("serialize scene report");
         std::fs::write(path, report).expect("write scene report");
+    }
+
+    if let Some(radius) = options.map_stream {
+        let path = options
+            .map_cell_centres
+            .clone()
+            .unwrap_or_else(|| PathBuf::from("local/paris-cell-centres.json"));
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        let rows: Vec<serde_json::Value> = serde_json::from_str(&text).unwrap_or_default();
+        if rows.is_empty() {
+            eprintln!(
+                "stream: {} missing or empty; generate it with --map-cells ... --map-dry-run --map-cell-centres",
+                path.display()
+            );
+        }
+        let centres: Vec<(usize, f32, f32)> = rows
+            .iter()
+            .filter_map(|row| {
+                Some((
+                    row.get("entry")?.as_u64()? as usize,
+                    row.get("x")?.as_f64()? as f32,
+                    row.get("y")?.as_f64()? as f32,
+                ))
+            })
+            .collect();
+        let runtime = load::MapRuntime::new(&options).expect("map runtime");
+        let root = commands
+            .spawn((
+                Transform::from_rotation(native_z_up_to_bevy_y_up()),
+                Visibility::default(),
+            ))
+            .id();
+        eprintln!("stream: {} cell centres, radius {radius} m", centres.len());
+        commands.insert_resource(Streaming {
+            runtime,
+            centres,
+            radius,
+            loaded: HashMap::new(),
+            anchor: Vec3::splat(-1.0e9),
+            root,
+            handles: Vec::new(),
+        });
+        commands.insert_resource(MapGrey(character_grey.clone()));
     }
 
     // Lighting: overcast sun plus a soft ambient fill so grey reads clearly.
