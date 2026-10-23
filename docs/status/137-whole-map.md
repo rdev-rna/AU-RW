@@ -173,3 +173,16 @@ Still not right: `Cell04814` (4 groups, 66 members) frames to about 988 m, so so
 absolute transforms and mixing the two rules scatters parts; the district render still shows the
 ground carpet without building shells. Next: validate one group against a known building position
 before trusting the rule.
+
+
+### Group base rule: validated on one group, not all
+
+FRV_House_Corner_F_0_03x13x2_01_002 has exactly one object with a large translation
+(474.8, -864.3, 0.5) and 27 objects within +-10 m, so base + local is correct there, and the
+cell's own entities sit at 458-468, -835..-864: the building belongs at that corner.
+
+Cell04814 still frames to ~980 m centred between the origin and (474, -864), i.e. some of its
+four groups are placed near the origin: their objects never yield a large-translation matrix, so
+the base falls back to identity. That is the remaining question - one group kind carries its
+world position outside the object records.
+

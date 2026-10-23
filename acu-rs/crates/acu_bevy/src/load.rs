@@ -1322,10 +1322,13 @@ impl MapContext<'_> {
         let mut best_reach: Option<(f32, [f32; 16])> = None;
         let mut base_index = 0usize;
         for (index, &object) in object_starts.iter().enumerate() {
+            // Clamp the object window: the payload continues past the object list with
+            // further sections, and an uncapped last object would absorb their matrices.
             let limit = object_starts
                 .get(index + 1)
-                .map(|&next| next)
-                .unwrap_or(group_bytes.len());
+                .copied()
+                .unwrap_or(group_bytes.len())
+                .min(object + 4096);
             let mut matrix = None;
             let mut offset = object + 12;
             while offset + 64 <= limit.min(group_bytes.len()) {
@@ -1388,13 +1391,15 @@ impl MapContext<'_> {
         // scatters parts of one building over a kilometre.
         let mut resolved: Vec<([f32; 16], u64)> = Vec::with_capacity(members.len());
         for (index, (local, selector_id)) in members.into_iter().enumerate() {
-            let world = if index == base_index {
+            // Records are mixed: some carry the world position, some a local offset.
+            let world = if local[12..15].iter().any(|v| v.abs() > 100.0) {
                 local
             } else {
                 let m = bevy::math::Mat4::from_cols_array(&base)
                     * bevy::math::Mat4::from_cols_array(&local);
                 m.to_cols_array()
             };
+            let _ = (index, base_index);
             resolved.push((world, selector_id));
         }
         let mut xs: Vec<f32> = resolved.iter().map(|(m, _)| m[12]).collect();

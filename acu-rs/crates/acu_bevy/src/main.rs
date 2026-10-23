@@ -358,7 +358,7 @@ fn setup_world(
                 .sum::<usize>(),
         );
     }
-    if map_mode && instances.len() > 1 {
+    if map_mode && instances.len() > 8 {
         // A multi-cell scene is framed by its placement origins, using the 2nd..98th
         // percentile per axis: river arms and distant chunks otherwise stretch the frame
         // and leave the city small in the middle.
