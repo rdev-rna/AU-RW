@@ -94,6 +94,10 @@ pub struct Options {
     pub map_stream_cell: Option<usize>,
     /// Walk forward automatically (streaming stress test).
     pub auto_walk: bool,
+    /// Read the resolved map from this cache instead of decoding the archives.
+    pub cache_read: Option<PathBuf>,
+    /// Write the resolved map to this cache after decoding.
+    pub cache_write: Option<PathBuf>,
     /// Fixed camera position (bevy metres) for deterministic stills.
     pub camera_at: Option<[f32; 3]>,
     /// Fixed camera target (bevy metres) for deterministic stills.
@@ -178,6 +182,8 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut map_camera_distance: Option<f32> = None;
     let mut map_stream_cell: Option<usize> = None;
     let mut auto_walk = false;
+    let mut cache_read: Option<PathBuf> = None;
+    let mut cache_write: Option<PathBuf> = None;
     let mut camera_at: Option<[f32; 3]> = None;
     let mut look_at: Option<[f32; 3]> = None;
     let mut map_piece_limit: Option<usize> = None;
@@ -230,6 +236,16 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
                 look_at = Some(parse_point(&value)?);
             }
             "--auto-walk" => auto_walk = true,
+            "--cache-read" => {
+                cache_read = Some(PathBuf::from(
+                    args.next().ok_or("--cache-read needs a path")?,
+                ))
+            }
+            "--cache-write" => {
+                cache_write = Some(PathBuf::from(
+                    args.next().ok_or("--cache-write needs a path")?,
+                ))
+            }
             "--map-stream-cell" => {
                 map_stream_cell = Some(
                     args.next()
@@ -479,6 +495,8 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
         map_camera_distance,
         map_stream_cell,
         auto_walk,
+        cache_read,
+        cache_write,
         camera_at,
         look_at,
         map_piece_limit,
@@ -522,6 +540,8 @@ OPTIONS:
     --map-camera-distance M  Third-person camera distance (default 12 m)
     --map-stream-cell E  Stream only cell entry E (diagnostic)
     --auto-walk        Walk forward automatically (streaming stress test)
+    --cache-write PATH Write the resolved map to PATH after decoding
+    --cache-read PATH  Load the resolved map from PATH instead of decoding
     --camera-at X,Y,Z  Fix the camera here (deterministic stills)
     --look-at X,Y,Z    Look at this point when --camera-at is set
     --map-piece-limit N  Cap placed pieces (400 one cell, 200000 for a list)

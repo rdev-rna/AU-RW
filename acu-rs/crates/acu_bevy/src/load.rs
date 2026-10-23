@@ -170,6 +170,9 @@ pub struct MapInstance {
 /// Loaded scene: render payload plus the reportable chain.
 pub struct Loaded {
     pub pieces: Vec<LoadedPiece>,
+    /// Trailing pieces that belong to the player rig, not to the map. Cached so a read does
+    /// not have to recompute them from the command line.
+    pub rig_pieces: usize,
     /// Fill-mode placements; `pieces` then holds one entry per unique mesh, in local space.
     pub instances: Vec<MapInstance>,
     pub scene: Scene,
@@ -2428,6 +2431,10 @@ pub fn load_map(
 
 /// Load every piece, reusing one open Forge per archive.
 pub fn load_all(options: &Options) -> Result<Loaded> {
+    // A cached map is pure data: reading it skips every archive, decode and selector step.
+    if let Some(path) = &options.cache_read {
+        return Ok(crate::cache::read(path)?);
+    }
     let limits = Limits::default();
     let mut forges: HashMap<PathBuf, Forge> = HashMap::new();
     let mut loader = Loader::new(options);
@@ -2494,9 +2501,23 @@ pub fn load_all(options: &Options) -> Result<Loaded> {
                 .collect(),
         })
         .collect();
-    Ok(Loaded {
+    let loaded = Loaded {
         pieces,
         instances,
         scene,
-    })
+        rig_pieces: options.pieces.len(),
+    };
+    if let Some(path) = &options.cache_write {
+        crate::cache::write(path, &loaded)
+            .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { e.into() })?;
+        eprintln!(
+            "cache: wrote {} pieces, {} instances, {} materials, {} textures to {}",
+            loaded.pieces.len(),
+            loaded.instances.len(),
+            loaded.scene.materials.len(),
+            loaded.scene.textures.len(),
+            path.display()
+        );
+    }
+    Ok(loaded)
 }

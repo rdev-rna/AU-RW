@@ -13,6 +13,7 @@
 //! surfaces misbehave.
 
 mod arena;
+mod cache;
 mod character_material;
 mod controls;
 mod io;
@@ -850,9 +851,10 @@ fn setup_world(
     let map_mode = !loaded.instances.is_empty();
     let instances = loaded.instances;
     let pieces = loaded.pieces;
+    let rig_pieces = loaded.rig_pieces;
     // In map mode the rig pieces are appended after the unique map meshes.
     let arno_start = if map_mode {
-        pieces.len().saturating_sub(options.pieces.len())
+        pieces.len().saturating_sub(rig_pieces)
     } else {
         0
     };
