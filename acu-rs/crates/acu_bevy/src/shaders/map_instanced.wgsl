@@ -75,6 +75,21 @@ fn fragment(in: MapVertexOutput) -> @location(0) vec4<f32> {
     // standard material instead of leaving them at the ambient floor.
     let n = normalize(in.normal_world);
     let light = normalize(vec3<f32>(0.35, 0.86, 0.37));
-    let shade = 0.35 + 0.65 * abs(dot(n, light));
-    return vec4<f32>(diffuse.rgb * shade, 1.0);
+    // Presentation lighting only (no shadow maps, no GI). Once the buildings are
+    // correctly placed, a street is a canyon: nearly every visible face points
+    // away from `light`, so a 0.35 floor left it unreadable. Split the term into
+    // an ambient floor, a cheap hemisphere (sky above / bounce below) and a
+    // weaker directional lobe, summed to stay in [0.45, 1.05] so lit faces do not
+    // blow out.
+    // The street diffuse samples are themselves very dark (the shaded modal texel
+    // is ~0.05 sRGB), so a pure multiplier cannot lift an enclosed street: 0.45
+    // only moved the modal from 13 to 16. Second pass therefore uses a taller
+    // multiplier (0.62..1.14) plus a small additive sky-bounce term in linear
+    // light, which raises the floor without washing out sun-facing stone.
+    let ambient = 0.62;
+    let hemi = 0.22 * (0.5 + 0.5 * n.y);
+    let direct = 0.30 * abs(dot(n, light));
+    let sky_bounce = vec3<f32>(0.018, 0.020, 0.024);
+    let shade = ambient + hemi + direct;
+    return vec4<f32>(diffuse.rgb * shade + sky_bounce, 1.0);
 }
