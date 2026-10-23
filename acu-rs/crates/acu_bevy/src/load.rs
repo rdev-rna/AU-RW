@@ -1121,6 +1121,24 @@ fn group_base(group_bytes: &[u8]) -> Option<[f32; 16]> {
     base
 }
 
+/// An object matrix is stored either column-major like the group header (translation in slots
+/// 12..14, homogeneous row 3/7/11 = 0) or row-major (translation in slots 3/7/11). Measured on
+/// the part that `instance_sane` kept rejecting (`6794cf21`, cell 15084): slots 3/7/11 held
+/// (464.13, 843.98, 5.85) while 12..14 were zero, so `base * local` mixed the translation into a
+/// basis row and the part was dropped as an implausible matrix. Transposing restores the affine.
+fn object_affine(raw: [f32; 16]) -> [f32; 16] {
+    let zero_row = raw[12].abs() < 1e-3 && raw[13].abs() < 1e-3 && raw[14].abs() < 1e-3;
+    let moved_row = raw[3] != 0.0 || raw[7] != 0.0 || raw[11] != 0.0;
+    if !(zero_row && moved_row) {
+        return raw;
+    }
+    let mut out = [0f32; 16];
+    for index in 0..16 {
+        out[(index % 4) * 4 + index / 4] = raw[index];
+    }
+    out
+}
+
 /// State shared by every cell of one invocation; owned so it can live in a Bevy resource
 /// and load cells at runtime (streaming).
 
@@ -1506,11 +1524,10 @@ impl MapRuntime {
                     }
                 }
                 if ok
-                    && candidate[12..15]
-                        .iter()
-                        .all(|v| v.is_finite() && v.abs() < 1e5)
+                    && candidate.iter().all(|v| v.is_finite())
+                    && candidate[12..15].iter().all(|v| v.abs() < 1e5)
                 {
-                    matrix = Some(candidate);
+                    matrix = Some(object_affine(candidate));
                     break;
                 }
                 offset += 1;
@@ -1533,15 +1550,28 @@ impl MapRuntime {
             return Ok(());
         }
         self.totals.groups += 1;
+        let base_fallback = base.is_none();
         let base = base.unwrap_or([
             1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
         ]);
-        // Resolve every member, then drop the ones that land far from the group's median:
-        // some records carry absolute transforms, and mixing the two rules otherwise
-        // scatters parts of one building over a kilometre.
+        // Resolve every member: header-relative objects are placed as base*local, while an
+        // object that already carries the part's world placement is kept as-is.
+        // Measured with ACU_GROUP_TRACE (966 objects over cells 4884/9566/15084): an object's
+        // matrix is either an offset from the header (|t| in 0..21.3 m, 946 of 966) or the part's
+        // own world placement (20 of 966, every one of them 0..1.35 m from the header base, so
+        // base*local would translate it twice - 834 m of scatter in one 9566 group). The two
+        // forms are separated by distance to the base, not by magnitude: Paris x/z sit in slots
+        // 12/13, so an absolute placement is ~800..1000 m from the origin while a local offset
+        // is ~0, and only distance-to-base stays valid when the header fallback is identity.
         let mut resolved: Vec<([f32; 16], u64)> = Vec::with_capacity(members.len());
-        for (index, (local, selector_id)) in members.into_iter().enumerate() {
-            let world = {
+        for (index, &(local, selector_id)) in members.iter().enumerate() {
+            let dx = local[12] - base[12];
+            let dy = local[13] - base[13];
+            let dz = local[14] - base[14];
+            let absolute = dx * dx + dy * dy + dz * dz < 50.0 * 50.0;
+            let world = if absolute {
+                local
+            } else {
                 let m = bevy::math::Mat4::from_cols_array(&base)
                     * bevy::math::Mat4::from_cols_array(&local);
                 m.to_cols_array()
@@ -1556,6 +1586,83 @@ impl MapRuntime {
         ys.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         zs.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         let (mx, my, mz) = (xs[xs.len() / 2], ys[ys.len() / 2], zs[zs.len() / 2]);
+        // TEMPORARY INSTRUMENTATION (ACU_GROUP_TRACE=1): prints the per-object placement data
+        // that decides the absolute/relative rule. Remove once the rule is settled.
+        if std::env::var("ACU_GROUP_TRACE").map(|value| value == "1").unwrap_or(false) {
+            let diag = |points: &[[f32; 3]]| -> f32 {
+                if points.is_empty() {
+                    return 0.0;
+                }
+                let mut low = points[0];
+                let mut high = points[0];
+                for point in points {
+                    for axis in 0..3 {
+                        low[axis] = low[axis].min(point[axis]);
+                        high[axis] = high[axis].max(point[axis]);
+                    }
+                }
+                let d = [high[0] - low[0], high[1] - low[1], high[2] - low[2]];
+                (d[0] * d[0] + d[1] * d[1] + d[2] * d[2]).sqrt()
+            };
+            let mut absolute: Vec<[f32; 3]> = Vec::new();
+            let mut relative: Vec<[f32; 3]> = Vec::new();
+            let mut mixed: Vec<[f32; 3]> = Vec::new();
+            let mut large = 0usize;
+            let mut near = 0usize;
+            eprintln!(
+                "gt: base=({:.2},{:.2},{:.2}) objects={} fallback={} bhrow=({:.4},{:.4},{:.4}) finite={}",
+                base[12],
+                base[13],
+                base[14],
+                members.len(),
+                if base_fallback { "yes" } else { "no" },
+                base[3],
+                base[7],
+                base[11],
+                base.iter().all(|v| v.is_finite())
+            );
+            for (index, &(local, _)) in members.iter().enumerate() {
+                let own = (local[12] * local[12] + local[13] * local[13]).sqrt();
+                let world = [resolved[index].0[12], resolved[index].0[13], resolved[index].0[14]];
+                let row_scale = |row: usize| -> f32 {
+                    let r = row * 4;
+                    (local[r] * local[r] + local[r + 1] * local[r + 1] + local[r + 2] * local[r + 2])
+                        .sqrt()
+                };
+                absolute.push([local[12], local[13], local[14]]);
+                relative.push(world);
+                mixed.push(if own > 50.0 {
+                    [local[12], local[13], local[14]]
+                } else {
+                    world
+                });
+                if own > 50.0 {
+                    large += 1;
+                }
+                if (world[0] - mx).abs() <= 10.0 && (world[2] - mz).abs() <= 10.0 {
+                    near += 1;
+                }
+                eprintln!(
+                    "gt: [{index}] local=({:.2},{:.2},{:.2}) base=({:.2},{:.2},{:.2}) bl=({:.2},{:.2},{:.2}) scale=({:.4},{:.4},{:.4}) own={:.2} hrow=({:.4},{:.4},{:.4}) sane={} absolute={}",
+                    local[12], local[13], local[14],
+                    base[12], base[13], base[14],
+                    world[0], world[1], world[2],
+                    row_scale(0), row_scale(1), row_scale(2), own,
+                    local[3], local[7], local[11],
+                    instance_sane(&resolved[index].0),
+                    (local[12] - base[12]).powi(2)
+                        + (local[13] - base[13]).powi(2)
+                        + (local[14] - base[14]).powi(2)
+                        < 2500.0
+                );
+            }
+            eprintln!(
+                "gt: spread all_local={:.1} all_base={:.1} mixed={:.1} large={large} near_median={near} median=({mx:.2},{my:.2},{mz:.2})",
+                diag(&absolute),
+                diag(&relative),
+                diag(&mixed)
+            );
+        }
         // Distance is tested on the resolved world position; object matrices are local to the
         // group header, so testing them directly placed every building at the origin.
         if let (Some(detail), Some(centre)) = (self.detail_radius, self.centre) {
@@ -1565,10 +1672,10 @@ impl MapRuntime {
                 return Ok(());
             }
         }
+        // No median-distance cull any more: with both placement forms resolved the widest group
+        // spread measured over cells 4884/9566/15084 is 30.7 m, so a 150 m cull would only drop
+        // legitimate parts of a building.
         for (world, selector_id) in resolved {
-            if (world[12] - mx).abs() > 150.0 || (world[14] - mz).abs() > 150.0 {
-                continue;
-            }
             let payload = match cache.get(&selector_id) {
                 Some(payload) => payload.clone(),
                 None => {
