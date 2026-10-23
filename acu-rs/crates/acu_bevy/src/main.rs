@@ -1,4 +1,4 @@
-//! Synthetic grey test world with Arno read directly from the install.
+∩╗┐//! Synthetic grey test world with Arno read directly from the install.
 //!
 //! Presentation only: the app reads mesh resources in memory through
 //! `acu_assets`, builds Bevy meshes in native units, and stages them in a
@@ -168,7 +168,7 @@ struct Streaming {
 }
 
 /// Build one Bevy mesh from a decoded part.
-fn part_mesh(piece: &load::LoadedPiece, part: &load::LoadedPart) -> Mesh {
+pub(crate) fn part_mesh(piece: &load::LoadedPiece, part: &load::LoadedPart) -> Mesh {
     let mut positions = Vec::with_capacity(piece.vertices.len());
     let mut normals = Vec::with_capacity(piece.vertices.len());
     let mut uvs = Vec::with_capacity(piece.vertices.len());
@@ -198,6 +198,124 @@ fn part_mesh(piece: &load::LoadedPiece, part: &load::LoadedPart) -> Mesh {
     .with_inserted_indices(bevy::mesh::Indices::U32(
         part.triangles.iter().flatten().copied().collect(),
     ))
+}
+
+/// What one [`spawn_map`] call produced, for the run summary.
+struct MapSpawned {
+    entities: usize,
+    placements: usize,
+    pieces_with_triangles: usize,
+    total_triangles: usize,
+}
+
+/// Build one map material: the loaded material's textures and alpha settings over the
+/// two-sided, normal-mapped character shader.
+fn map_material(
+    material: &load::LoadedMaterial,
+    textures: &[Option<Handle<Image>>],
+    materials: &mut Assets<character_material::CharacterMaterial>,
+) -> Handle<character_material::CharacterMaterial> {
+    let texture = material
+        .diffuse_texture
+        .and_then(|index| textures.get(index).cloned().flatten());
+    let has_normal = material
+        .normal_texture
+        .and_then(|index| textures.get(index).cloned().flatten())
+        .is_some();
+    materials.add(character_material::CharacterMaterial {
+        base: StandardMaterial {
+            base_color: Color::WHITE,
+            base_color_texture: texture,
+            double_sided: true,
+            alpha_mode: if material.alpha_test_enabled {
+                AlphaMode::Mask(f32::from(material.alpha_test_value) / 255.0)
+            } else {
+                AlphaMode::Opaque
+            },
+            perceptual_roughness: 0.85,
+            cull_mode: None,
+            ..default()
+        },
+        extension: character_material::CharacterSurface {
+            packed_normal: material
+                .normal_texture
+                .and_then(|index| textures.get(index).cloned().flatten()),
+            params: Vec4::new(if has_normal { 1.0 } else { 0.0 }, 1.0, 0.0, 0.0),
+        },
+    })
+}
+
+/// Turn a loaded map into meshes, materials and one entity per placement part.
+/// This is the only place map entities are created.
+fn spawn_map(
+    commands: &mut Commands,
+    pieces: &[load::LoadedPiece],
+    instances: &[load::MapInstance],
+    bound_materials: &[Handle<character_material::CharacterMaterial>],
+    grey: &Handle<character_material::CharacterMaterial>,
+    radius: Option<f32>,
+    origin: Option<Vec3>,
+    mesh_assets: &mut Assets<Mesh>,
+) -> MapSpawned {
+    // One mesh asset per unique piece part; every placement is an instance sharing it.
+    let part_meshes: Vec<Vec<Handle<Mesh>>> = pieces
+        .iter()
+        .map(|piece| {
+            piece
+                .parts
+                .iter()
+                .map(|part| mesh_assets.add(part_mesh(piece, part)))
+                .collect()
+        })
+        .collect();
+
+    let mut entities = 0usize;
+    let mut placements = 0usize;
+    commands
+        .spawn((
+            Transform::from_rotation(native_z_up_to_bevy_y_up()),
+            Visibility::default(),
+        ))
+        .with_children(|root| {
+            for instance in instances {
+                if let (Some(radius), Some(origin)) = (radius, origin) {
+                    // Native (x, y, z) -> Bevy (x, z, -y) for the distance test.
+                    let at = Vec3::new(
+                        instance.matrix[12],
+                        instance.matrix[14],
+                        -instance.matrix[13],
+                    );
+                    if at.distance(origin) > radius {
+                        continue;
+                    }
+                }
+                placements += 1;
+                let transform = Transform::from_matrix(Mat4::from_cols_array(&instance.matrix));
+                let piece = &pieces[instance.piece];
+                for (part, mesh) in piece.parts.iter().zip(&part_meshes[instance.piece]) {
+                    let material = part
+                        .material
+                        .and_then(|index| bound_materials.get(index).cloned())
+                        .unwrap_or_else(|| grey.clone());
+                    entities += 1;
+                    root.spawn((Mesh3d(mesh.clone()), MeshMaterial3d(material), transform));
+                }
+            }
+        });
+
+    MapSpawned {
+        entities,
+        placements,
+        pieces_with_triangles: pieces
+            .iter()
+            .filter(|piece| piece.parts.iter().any(|part| !part.triangles.is_empty()))
+            .count(),
+        total_triangles: pieces
+            .iter()
+            .flat_map(|piece| piece.parts.iter())
+            .map(|part| part.triangles.len())
+            .sum(),
+    }
 }
 
 /// Load and unload cells so the world follows the player. Each update adds at most two
@@ -806,46 +924,24 @@ fn setup_world(
             Some(images.add(image))
         })
         .collect();
-    let bound_materials: Vec<_> = loaded
         .scene
         .materials
         .iter()
         .map(|material| {
-            let texture = material
+            let base_color_texture = material
                 .diffuse_texture
-                .and_then(|i| texture_handles[i].clone());
-            println!(
-                "material {} diffuse={:?} notes={:?}",
-                material.file_id,
-                material
-                    .selector_diffuse
-                    .as_ref()
-                    .or(material.set_diffuse.as_ref()),
-                material.notes
-            );
+                .and_then(|index| texture_handles.get(index).cloned().flatten());
             let normal_texture = material
                 .normal_texture
-                .and_then(|i| texture_handles[i].clone());
-            let has_normal = normal_texture.is_some();
-            character_materials.add(character_material::CharacterMaterial {
-                base: StandardMaterial {
-                    base_color: Color::WHITE,
-                    base_color_texture: texture,
-                    double_sided: true,
-                    alpha_mode: if material.alpha_test_enabled {
-                        AlphaMode::Mask(f32::from(material.alpha_test_value) / 255.0)
                     } else {
-                        AlphaMode::Opaque
+                        0.0
                     },
-                    perceptual_roughness: 0.85,
-                    cull_mode: None,
-                    ..default()
-                },
-                extension: character_material::CharacterSurface {
-                    packed_normal: normal_texture,
-                    params: Vec4::new(if has_normal { 1.0 } else { 0.0 }, 1.0, 0.0, 0.0),
-                },
-            })
+                    if normal_texture.is_some() { 1.0 } else { 0.0 },
+                    0.0,
+                    0.0,
+                ),
+                normal_texture,
+            }
         })
         .collect();
     let map_mode = !loaded.instances.is_empty();
@@ -859,11 +955,89 @@ fn setup_world(
         0
     };
 
+    // Diagnostic: first 16 hex chars of a sha256 over the given bytes.
+    fn sha16(buffer: &[u8]) -> String {
+        let digest = acu_assets::sha256(buffer);
+        digest.get(..16).unwrap_or(&digest).to_string()
+    }
+    if map_mode {
+        // Diagnostic: which inputs differ between the decode and cache-read paths. Totals
+        // (pieces, instances, triangles, vertices, AABB, camera) already match, so this hashes
+        // the actual bytes rather than their counts.
+        let mut material_bytes: Vec<u8> = Vec::new();
+        for material in &loaded.scene.materials {
+            material_bytes.extend_from_slice(material.file_id.as_bytes());
+            let diffuse = material
+                .diffuse_texture
+                .map(|index| index as i32)
+                .unwrap_or(-1);
+            material_bytes.extend_from_slice(&diffuse.to_le_bytes());
+            material_bytes.push(u8::from(material.alpha_test_enabled));
+            material_bytes.push(material.alpha_test_value);
+        }
+        println!(
+            "h:materials n={} b={}",
+            loaded.scene.materials.len(),
+            sha16(&material_bytes)
+        );
+    }
+
     let mut bevy_min = Vec3::splat(f32::INFINITY);
     let mut bevy_max = Vec3::splat(f32::NEG_INFINITY);
     let mut native_min = [f32::INFINITY; 3];
     let mut native_max = [f32::NEG_INFINITY; 3];
     for piece in &pieces {
+        if map_mode {
+            let mut vertex_bytes: Vec<u8> = Vec::with_capacity(piece.vertices.len() * 56);
+            for vertex in &piece.vertices {
+                for value in &vertex.position {
+                    vertex_bytes.extend_from_slice(&value.to_le_bytes());
+                }
+                for value in &vertex.normal {
+                    vertex_bytes.extend_from_slice(&value.to_le_bytes());
+                }
+                match vertex.uv0 {
+                    Some(uv) => {
+                        vertex_bytes.push(1);
+                        for value in &uv {
+                            vertex_bytes.extend_from_slice(&value.to_le_bytes());
+                        }
+                    }
+                    None => vertex_bytes.push(0),
+                }
+                for channel in [vertex.tangent, vertex.binormal] {
+                    match channel {
+                        Some(values) => {
+                            vertex_bytes.push(1);
+                            for value in &values {
+                                vertex_bytes.extend_from_slice(&value.to_le_bytes());
+                            }
+                        }
+                        None => vertex_bytes.push(0),
+                    }
+                }
+            }
+            let mut index_bytes: Vec<u8> = Vec::new();
+            for part in &piece.parts {
+                for triangle in &part.triangles {
+                    for index in triangle {
+                        index_bytes.extend_from_slice(&index.to_le_bytes());
+                    }
+                }
+            }
+            println!(
+                "h:piece {} v={} i={} parts={} tris={}",
+                piece.label,
+                sha16(&vertex_bytes),
+                sha16(&index_bytes),
+                piece.parts.len(),
+                piece
+                    .parts
+                    .iter()
+                    .map(|part| part.triangles.len())
+                    .sum::<usize>(),
+            );
+        }
         println!(
             "piece {} archive={} entry={} resource={} file_id={} entry_sha256={} payload_sha256={} qf={} src={}/{} verts={} tris={}",
             piece.label,
@@ -882,6 +1056,20 @@ fn setup_world(
                 .iter()
                 .map(|part| part.triangles.len())
                 .sum::<usize>(),
+        );
+    }
+    if map_mode {
+        let mut instance_bytes: Vec<u8> = Vec::with_capacity(instances.len() * 68);
+        for instance in &instances {
+            for value in &instance.matrix {
+                instance_bytes.extend_from_slice(&value.to_le_bytes());
+            }
+            instance_bytes.extend_from_slice(&(instance.piece as u32).to_le_bytes());
+        }
+        println!(
+            "h:instances n={} m={}",
+            instances.len(),
+            sha16(&instance_bytes)
         );
     }
     if map_mode && instances.len() > 8 {
@@ -923,6 +1111,18 @@ fn setup_world(
             bevy_min = bevy_min.min(rotated);
             bevy_max = bevy_max.max(rotated);
         }
+        let extent = bevy_max - bevy_min;
+        println!(
+            "framing:percentile min=({:.1},{:.1},{:.1}) max=({:.1},{:.1},{:.1}) size={:.1} instances={} outliers=0",
+            bevy_min.x,
+            bevy_min.y,
+            bevy_min.z,
+            bevy_max.x,
+            bevy_max.y,
+            bevy_max.z,
+            extent.x.max(extent.y).max(extent.z),
+            instances.len(),
+        );
     } else if map_mode {
         // One cell: frame the meshes themselves. Outliers are reported.
         let mut outliers: Vec<(f32, String, [f32; 16])> = Vec::new();
@@ -955,6 +1155,22 @@ fn setup_world(
                 [matrix[12], matrix[13], matrix[14]],
                 [matrix[0], matrix[5], matrix[10]]
             );
+        }
+        let extent = bevy_max - bevy_min;
+        println!(
+            "framing:single min=({:.1},{:.1},{:.1}) max=({:.1},{:.1},{:.1}) size={:.1} instances={} outliers={}",
+            bevy_min.x,
+            bevy_min.y,
+            bevy_min.z,
+            bevy_max.x,
+            bevy_max.y,
+            bevy_max.z,
+            extent.x.max(extent.y).max(extent.z),
+            instances.len(),
+            outliers.len(),
+        );
+        for (extent, label, _matrix) in outliers.iter().take(5) {
+            println!("framing: outlier {extent:.0} {label}");
         }
     } else {
         for piece in &pieces {
@@ -1032,95 +1248,10 @@ fn setup_world(
     }
 
     if map_mode {
-        // One mesh asset per unique piece part; every placement is an instance sharing it.
-        let mut part_meshes: Vec<Vec<Handle<Mesh>>> = Vec::with_capacity(pieces.len());
         let mut part_materials: Vec<Vec<Handle<character_material::CharacterMaterial>>> =
-            Vec::with_capacity(pieces.len());
-        for piece in &pieces[..arno_start] {
-            let mut positions = Vec::with_capacity(piece.vertices.len());
-            let mut normals = Vec::with_capacity(piece.vertices.len());
-            let mut uvs = Vec::with_capacity(piece.vertices.len());
-            let mut tangents = Vec::with_capacity(piece.vertices.len());
-            for v in &piece.vertices {
-                positions.push(v.position);
-                normals.push(v.normal);
-                uvs.push(v.uv0.unwrap_or([0.0, 0.0]));
-                let n = Vec3::from_array(v.normal).normalize_or_zero();
-                let t = Vec3::from_array(v.tangent.unwrap_or([1.0, 0.0, 0.0])).normalize_or_zero();
-                let b = Vec3::from_array(v.binormal.unwrap_or([0.0, 1.0, 0.0]));
-                tangents.push([
-                    t.x,
-                    t.y,
-                    t.z,
-                    if n.cross(t).dot(b) < 0.0 { -1.0 } else { 1.0 },
-                ]);
-            }
-            let mut meshes_for_piece = Vec::with_capacity(piece.parts.len());
-            let mut materials_for_piece = Vec::with_capacity(piece.parts.len());
-            for part in &piece.parts {
-                let mesh = Mesh::new(
-                    bevy::render::render_resource::PrimitiveTopology::TriangleList,
-                    bevy::asset::RenderAssetUsages::MAIN_WORLD
-                        | bevy::asset::RenderAssetUsages::RENDER_WORLD,
-                )
-                .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions.clone())
-                .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals.clone())
-                .with_inserted_attribute(Mesh::ATTRIBUTE_UV_0, uvs.clone())
-                .with_inserted_attribute(Mesh::ATTRIBUTE_TANGENT, tangents.clone())
-                .with_inserted_indices(bevy::mesh::Indices::U32(
-                    part.triangles.iter().flatten().copied().collect(),
-                ));
-                meshes_for_piece.push(meshes.add(mesh));
-                materials_for_piece.push(
-                    part.material
-                        .and_then(|i| bound_materials.get(i).cloned())
-                        .unwrap_or_else(|| character_grey.clone()),
-                );
-            }
-            part_meshes.push(meshes_for_piece);
             part_materials.push(materials_for_piece);
         }
-        commands
-            .spawn((
-                Transform::from_rotation(native_z_up_to_bevy_y_up()),
-                Visibility::default(),
-            ))
-            .with_children(|root| {
-                let mut spawned = 0usize;
-                let mut drawn = 0usize;
-                let radius = options.map_radius;
-                let origin = options.spawn.map(Vec3::from_array);
-                for instance in &instances {
-                    if let (Some(radius), Some(origin)) = (radius, origin) {
-                        let at = Vec3::new(
-                            instance.matrix[12],
-                            instance.matrix[14],
-                            -instance.matrix[13],
-                        );
-                        if at.distance(origin) > radius {
-                            continue;
-                        }
-                    }
-                    drawn += 1;
-                    let transform = Transform::from_matrix(Mat4::from_cols_array(&instance.matrix));
-                    for (mesh, material) in part_meshes[instance.piece]
-                        .iter()
                         .zip(&part_materials[instance.piece])
-                    {
-                        spawned += 1;
-                        root.spawn((
-                            Mesh3d(mesh.clone()),
-                            MeshMaterial3d(material.clone()),
-                            transform,
-                        ));
-                    }
-                }
-                println!(
-                    "map: {spawned} entities for {drawn}/{} placements (radius {:?} m)",
-                    instances.len(),
-                    radius
-                );
-            });
     }
     if options.rigged {
         // Arno pieces as children of one native-space root.
@@ -1313,7 +1444,7 @@ fn setup_world(
     };
     let elevation = options.orbit_elevation;
     let eye = center + Vec3::new(azimuth.sin(), elevation, azimuth.cos()).normalize() * distance;
-    eprintln!(
+    println!(
         "camera: center {center:?} size {size:.1} distance {distance:.1} eye {eye:?} elevation {elevation}"
     );
     // A pinned camera makes orientation checks reproducible, independent of the follow rig.
@@ -1365,6 +1496,9 @@ fn setup_world(
         let handle = images.add(image);
         capture.image = Some(handle.clone());
         camera.insert(RenderTarget::Image(handle.into()));
+        println!(
+            "camera: capture eye {eye:?} look {look:?} distance {distance:.1} fov 40 target {width}x{height}"
+        );
         println!("capture target: offscreen {width}x{height} Rgba8UnormSrgb");
     }
 }
