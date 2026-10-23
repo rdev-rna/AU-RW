@@ -1033,6 +1033,7 @@ struct MapTotals {
     skipped_fake: usize,
     skipped_radius: usize,
     containers: usize,
+    container_children: usize,
 }
 
 /// State shared by every cell of one invocation.
@@ -1343,6 +1344,23 @@ impl MapContext<'_> {
             }
             if !children.is_empty() {
                 self.totals.containers += 1;
+                self.totals.container_children += children.len();
+                if std::env::var_os("ACU_MAP_TRACE").is_some() && {
+                    let (package, _) = self.cache.view()?;
+                    package.resources[position]
+                        .name
+                        .to_ascii_lowercase()
+                        .contains("cemetary")
+                } {
+                    eprintln!(
+                        "container: {} children {}",
+                        {
+                            let (package, _) = self.cache.view()?;
+                            package.resources[position].name.clone()
+                        },
+                        children.len()
+                    );
+                }
                 for child in children {
                     self.spawn_entity_by_id(child, matrix, depth + 1)?;
                 }
@@ -1683,7 +1701,7 @@ pub fn load_map(
          {} distinct selectors, LODs [{}]; skipped: {} without a matrix, {} without a \
          selector, {} without a LOD record, {} without a mesh, {} undecodable meshes, \
          {} out-of-range matrices, {} out-of-range meshes, {} direct-mesh entities, \
-         {} FAKE backdrops, {} outside the radius, {} containers expanded, \
+         {} FAKE backdrops, {} outside the radius, {} containers expanded ({} chunk entities), \
          {} cells without a cell block",
         totals.pieces,
         totals.cells_with_pieces,
@@ -1704,6 +1722,7 @@ pub fn load_map(
         totals.skipped_fake,
         totals.skipped_radius,
         totals.containers,
+        totals.container_children,
         totals.skipped_no_entity
     );
     Ok((context.pieces, context.instances))

@@ -113,3 +113,29 @@ Dry run over 8,330 cells: 208,472 resolvable placements in 265 s, 14,952 distinc
 - The `World` resource's payload is 1.6 MB of id blocks; the link table gives its targets but
   the streaming order and load radius are engine behaviour, not decoded.
 
+### The remaining gap: EntityGroup carries the building rows
+
+Measured, not guessed:
+
+- `DataPC_ACU_Paris.forge` holds **9,759** `FRV_House*` `415d9568` meshes, but the whole-map
+  load references only **241** distinct house meshes. The rest are never referenced by an
+  `Entity` we visit.
+- Those house meshes are referenced by `51dc6b80` selectors and by **`3f742d26` EntityGroup**
+  resources (e.g. `FRV_House_Row_B_13x13x3_02`), which live in entries such as 36/38/45 and are
+  listed as children of the cells (`Cell05073_DataBlock` has 64 children including two
+  `3f742d26`).
+- An EntityGroup payload is a 30-50 KB record table (version 1, self id, type `3f742d26`, then
+  ~1,020 id-like records with embedded floats), not a simple matrix + id. Its member records are
+  the building's parts and their transforms.
+- Consequence: monuments, quays, props, ground, streets and trees render; residential building
+  rows do not, because their placement lives in the group table we do not decode yet.
+
+### Index completeness fix
+
+`tools/build_indexes_from_db.py` rebuilds the ACUSEL01 indices from the SQLite asset index:
+`paris-world-meshes.bin` 24,717 -> **116,526** rows, `paris-selectors.bin` 13,823 -> **414,002**,
+`paris-entities.bin` 325,841 -> **340,346**. The earlier files were partial census exports.
+
+Next: decode the EntityGroup record table (member id + transform), then spawn group members as
+instances under the cell, which should lift the house-mesh count from 241 towards the 9,759 that
+exist in Paris.
