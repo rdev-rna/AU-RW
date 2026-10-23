@@ -332,6 +332,8 @@ fn stream_cells(
                     {
                         let piece = &stream.runtime.pieces()[instance.piece];
                         let (min, max) = piece.bounds();
+                        let mut instance_min = Vec3::splat(f32::INFINITY);
+                        let mut instance_max = Vec3::splat(f32::NEG_INFINITY);
                         for corner in 0..8 {
                             let local = Vec3::new(
                                 if corner & 1 == 0 { min[0] } else { max[0] },
@@ -339,8 +341,28 @@ fn stream_cells(
                                 if corner & 4 == 0 { min[2] } else { max[2] },
                             );
                             let at = world.transform_point3(local);
+                            instance_min = instance_min.min(at);
+                            instance_max = instance_max.max(at);
                             world_min = world_min.min(at);
                             world_max = world_max.max(at);
+                        }
+                        // Name the placement that spans kilometres: it is what encloses the
+                        // camera when a cell resolves one bad transform.
+                        let span = (instance_max - instance_min).abs().max_element();
+                        if span > 2_000.0 {
+                            eprintln!(
+                                "stream: oversized placement {} '{}' span {:.0} m local {:?}..{:?} translation {:?}",
+                                piece.file_id,
+                                piece.label,
+                                span,
+                                min,
+                                max,
+                                [
+                                    instance.matrix[12],
+                                    instance.matrix[13],
+                                    instance.matrix[14]
+                                ]
+                            );
                         }
                     }
                     let piece = &stream.runtime.pieces()[instance.piece];

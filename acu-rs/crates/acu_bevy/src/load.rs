@@ -1040,8 +1040,36 @@ struct MapTotals {
     group_members: usize,
     /// Piece indices whose extent has already been measured.
     big_checked: HashSet<usize>,
+    /// Measured local extent per piece index (metres, largest axis).
+    extents: HashMap<usize, f32>,
     /// Mesh ids already reported as oversized.
     big_reported: HashSet<String>,
+}
+
+/// A placement is kept only if it can plausibly belong to this map. A single uninitialised
+/// or mis-resolved matrix otherwise produces a mesh spanning hundreds of kilometres, which
+/// encloses the camera and turns every view into an interior.
+fn instance_sane(matrix: &[f32; 16]) -> bool {
+    if !matrix.iter().all(|value| value.is_finite()) {
+        return false;
+    }
+    if matrix[12].abs() >= 20_000.0 || matrix[13].abs() >= 20_000.0 || matrix[14].abs() >= 20_000.0
+    {
+        return false;
+    }
+    // Row lengths are the scale of each axis (matrices are stored row-major). Measured
+    // counterexample: a 6 cm book page placed with a ~8e5 scale spanned 47 km and engulfed the
+    // camera. Real props sit between 1e-3 and 1e3, so only absurd magnitudes are rejected.
+    for row in 0..3 {
+        let r = row * 4;
+        let scale =
+            (matrix[r] * matrix[r] + matrix[r + 1] * matrix[r + 1] + matrix[r + 2] * matrix[r + 2])
+                .sqrt();
+        if !(1.0e-3..=1.0e3).contains(&scale) {
+            return false;
+        }
+    }
+    true
 }
 
 /// The world transform stored in an EntityGroup header: the valid affine (unit rows,
@@ -1632,6 +1660,20 @@ impl MapRuntime {
                     index
                 }
             };
+            if !self.piece_is_map_sized(index) {
+                self.totals.skipped_bad_vertices += 1;
+                continue;
+            }
+            if !instance_sane(&world) {
+                self.totals.skipped_bad_matrix += 1;
+                if self.totals.bad_geometry.insert(selector_id) {
+                    eprintln!(
+                        "map: group part {selector_id:016x} rejected, implausible matrix translation {:?}",
+                        [world[12], world[13], world[14]]
+                    );
+                }
+                continue;
+            }
             self.instances.push(MapInstance {
                 piece: index,
                 matrix: world,
@@ -2004,6 +2046,20 @@ impl MapRuntime {
                 index
             }
         };
+        if !self.piece_is_map_sized(piece_index) {
+            self.totals.skipped_bad_vertices += 1;
+            return Ok(());
+        }
+        if !instance_sane(&matrix) {
+            self.totals.skipped_bad_matrix += 1;
+            if self.totals.bad_geometry.insert(mesh_id) {
+                eprintln!(
+                    "map: mesh {mesh_id:016x} rejected, implausible matrix translation {:?}",
+                    [matrix[12], matrix[13], matrix[14]]
+                );
+            }
+            return Ok(());
+        }
         self.instances.push(MapInstance {
             piece: piece_index,
             matrix,
@@ -2086,6 +2142,27 @@ impl MapRuntime {
             self.spawn_cell(cell)?;
         }
         Ok(std::mem::take(&mut self.instances))
+    }
+
+    /// A piece whose own vertices span more than a few kilometres cannot be part of this map:
+    /// it is a mis-decoded chunk (wrong quantization, wrong index table) and, once placed, it
+    /// encloses the camera. Measured example: a villa cell carried a ribbon 1,350 km long.
+    fn piece_is_map_sized(&mut self, index: usize) -> bool {
+        if let Some(extent) = self.totals.extents.get(&index) {
+            return *extent <= 4_000.0;
+        }
+        let piece = &self.pieces[index];
+        let (min, max) = piece.bounds();
+        let extent = (max[0] - min[0]).max(max[1] - min[1]).max(max[2] - min[2]);
+        self.totals.extents.insert(index, extent);
+        if extent > 4_000.0 {
+            eprintln!(
+                "map: piece {} '{}' rejected, own extent {:.0} m (entry {} resource {})",
+                piece.file_id, piece.label, extent, piece.entry, piece.resource
+            );
+            return false;
+        }
+        true
     }
 
     /// Report meshes whose local extent is larger than a city block. Oversized direct meshes
