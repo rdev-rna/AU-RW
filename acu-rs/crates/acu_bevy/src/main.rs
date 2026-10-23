@@ -468,6 +468,10 @@ struct InspectionCamera {
     initial: f32,
     /// Distance actually used after collision.
     actual: f32,
+    /// Last distance used, for the periodic status line.
+    report: f32,
+    /// Requested boom length before collision.
+    report_desired: f32,
 }
 
 fn inspect_camera(
@@ -497,16 +501,15 @@ fn inspect_camera(
             .clamp(-0.1, 1.4);
         orbit.distance = (orbit.distance * (axis(KeyCode::KeyE, KeyCode::KeyQ) * dt).exp())
             .clamp((orbit.initial * 0.02).max(0.05), orbit.initial * 4.0);
-        let direction = Vec3::new(
-            orbit.azimuth.sin() * orbit.elevation.cos(),
-            orbit.elevation.sin(),
-            orbit.azimuth.cos() * orbit.elevation.cos(),
-        );
+        let mut azimuth = orbit.azimuth;
+        let elevation = orbit.elevation;
+        let mut direction = boom_direction(azimuth, elevation);
         // Keep the eye out of walls: the nearest box along the boom pulls it in. Pulling in
         // snaps (never clip), releasing eases back so the view does not jitter.
-        let mut distance = orbit.distance;
+        let desired = orbit.distance;
+        let mut allowed = desired;
         if let Some(streaming) = streaming.as_ref() {
-            let mut nearest = distance;
+            let mut nearest = desired;
             for (min, max) in streaming.colliders.values().flatten() {
                 if let Some(hit) = ray_box(orbit.center, direction, *min, *max)
                     && hit < nearest
@@ -514,14 +517,49 @@ fn inspect_camera(
                     nearest = hit;
                 }
             }
-            if nearest < distance {
-                distance = (nearest - 0.35).max(3.0);
-                orbit.actual = distance;
+            if nearest < desired {
+                allowed = (nearest - 0.35).max(3.0);
+                // A blocked boom must not read as "zoom does nothing". Sweep the boom around
+                // the player and ease towards the clearest direction, so the camera finds the
+                // open side of a street instead of jamming into the nearest wall.
+                let mut best = nearest;
+                let mut best_azimuth = azimuth;
+                for step in 1..12 {
+                    let candidate = azimuth + step as f32 * std::f32::consts::TAU / 12.0;
+                    let dir = boom_direction(candidate, elevation);
+                    let mut hit = desired;
+                    for (min, max) in streaming.colliders.values().flatten() {
+                        if let Some(found) = ray_box(orbit.center, dir, *min, *max)
+                            && found < hit
+                        {
+                            hit = found;
+                        }
+                    }
+                    if hit > best {
+                        best = hit;
+                        best_azimuth = candidate;
+                    }
+                }
+                if best > nearest + 1.0 {
+                    let delta = (best_azimuth - azimuth + std::f32::consts::PI)
+                        .rem_euclid(std::f32::consts::TAU)
+                        - std::f32::consts::PI;
+                    let step = (dt * 3.0).max(0.02);
+                    azimuth += delta.clamp(-step, step);
+                }
             }
         }
-        orbit.actual = orbit.actual.min(distance);
-        orbit.actual += (distance - orbit.actual) * (dt * 8.0).min(1.0);
+        // Pull in immediately (never clip), ease back out when the way is clear. Zooming out
+        // used to be clamped away because `actual` was pinned to the smaller of the two.
+        if allowed < orbit.actual {
+            orbit.actual = allowed;
+        } else {
+            orbit.actual += (allowed - orbit.actual) * (dt * 8.0).min(1.0);
+        }
         let distance = orbit.actual;
+        orbit.azimuth = azimuth;
+        orbit.report = distance;
+        orbit.report_desired = orbit.distance;
         *transform = Transform::from_translation(orbit.center + direction * distance)
             .looking_at(orbit.center, Vec3::Y);
     }
@@ -602,6 +640,7 @@ fn main() {
     );
     app.add_systems(Update, inspect_camera.after(player::follow));
     app.add_systems(Update, stream_cells.after(player::follow));
+    app.add_systems(Update, report_fps);
     if !headless {
         println!(
             "Controller: left stick walk; hold RT/R2 sprint; RT+X (South/A) upward priority; RT+Circle (East/B) downward priority; right stick camera yaw/pitch. Keyboard: WASD walk; Shift sprint; Shift+Space up; Shift+C down; Space jump; R reset. Arrows camera; Q/E zoom; F2 bind; F3 freeze; Esc exit. Original navigation clips; synthetic arena traversal."
@@ -1241,6 +1280,8 @@ fn setup_world(
             distance,
             initial: distance,
             actual: distance,
+            report: distance,
+            report_desired: distance,
         },
     ));
     if let Some(mut capture) = capture {
@@ -1256,6 +1297,15 @@ fn setup_world(
         camera.insert(RenderTarget::Image(handle.into()));
         println!("capture target: offscreen {width}x{height} Rgba8UnormSrgb");
     }
+}
+
+/// Unit vector from the player towards the camera for a given orbit angle.
+fn boom_direction(azimuth: f32, elevation: f32) -> Vec3 {
+    Vec3::new(
+        azimuth.sin() * elevation.cos(),
+        elevation.sin(),
+        azimuth.cos() * elevation.cos(),
+    )
 }
 
 /// Distance along `dir` at which the ray from `origin` enters the box, if it does.
@@ -1283,7 +1333,12 @@ fn ray_box(origin: Vec3, dir: Vec3, min: Vec3, max: Vec3) -> Option<f32> {
             return None;
         }
     }
-    (far > 0.0).then_some(near.max(0.0))
+    // A coarse AABB can enclose the player even though no surface is there; only a real
+    // surface ahead blocks the boom.
+    if far <= 0.0 || near <= 0.5 {
+        return None;
+    }
+    Some(near)
 }
 
 /// Prints measured frame rate every two seconds while streaming is active, so performance
@@ -1291,6 +1346,7 @@ fn ray_box(origin: Vec3, dir: Vec3, min: Vec3, max: Vec3) -> Option<f32> {
 fn report_fps(
     time: Res<Time>,
     streams: Query<&Streaming>,
+    cameras: Query<&InspectionCamera>,
     mut since: Local<f32>,
     mut frames: Local<u32>,
 ) {
@@ -1303,7 +1359,17 @@ fn report_fps(
         return;
     }
     let span = now - *since;
-    println!("fps: {:.1} over {span:.1} s", *frames as f32 / span);
+    let boom = cameras
+        .iter()
+        .next()
+        .map(|camera| (camera.report, camera.report_desired))
+        .unwrap_or((0.0, 0.0));
+    eprintln!(
+        "fps: {:.1} over {span:.1} s, camera {:.1} m (target {:.1} m)",
+        *frames as f32 / span,
+        boom.0,
+        boom.1
+    );
     *frames = 0;
     *since = now;
 }
@@ -1372,6 +1438,8 @@ mod controller_camera_tests {
                     elevation: 0.5,
                     distance: 5.0,
                     actual: 5.0,
+                    report: 5.0,
+                    report_desired: 5.0,
                 },
             ))
             .id();
