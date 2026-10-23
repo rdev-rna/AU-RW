@@ -245,3 +245,28 @@ aerial.
   DataPC.forge and 528 materials stopped resolving. SharedGroup_01..03 are now part of
   DEFAULT_TEXTURE_ARCHIVES.
 - Untextured materials remaining: 7 (materials with no diffuse by design).
+
+
+## Streaming render fixed (measured)
+
+- **Root cause of the grey/blue fill: double rotation, then rogue placements.**
+  Streamed entities are children of a root that already applies the native Z-up to Bevy Y-up
+  rotation. An earlier fix added the same rotation per instance, which rotated the whole ring
+  90 degrees a second time. Reverted; the ring now renders upright (villa: roofs, chimneys,
+  trees, carts, paving; quay: cobbles, barrels, stairs, signage, all textured).
+- **Rogue placements rejected.** Measured with the new per-instance world-bounds report:
+  a 6 cm book page with ~8e5 scale spanned 47 km and GEN_ALL_BoxStreetDirt_02 spanned 1,355 km,
+  either of which encloses the camera. instance_sane now rejects non-finite matrices,
+  translations over 20 km and axis scales outside 1e-3..1e3; pieces spanning over 4 km in their
+  own space are dropped. 30 placements rejected in a 120 m ring at the villa.
+- **Camera collision.** inspect_camera casts the boom against per-instance world boxes
+  (built once per cell, dropped on unload) and pulls in on a hit; boxes smaller than 4 m are
+  ignored so props do not shove the view, and the floor is 3 m. Default boom 9 m.
+- **Playable view verified:** quay spawn (558.7, 5.2, 751.3), 40-65 fps, ring complete at
+  ~120-166 cells.
+
+## Open
+
+- Cell centroids cover 6,537 of 8,330 cells; cells without any entity or group matrix are never
+  streamed, which leaves small holes in the paving.
+- The villa spawn (793.6, 12.3, 74.6) is inside a room; a courtyard spawn is still needed.

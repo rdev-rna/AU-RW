@@ -90,6 +90,8 @@ pub struct Options {
     pub map_detail_radius: Option<f32>,
     /// Third-person camera distance in metres (default 12).
     pub map_camera_distance: Option<f32>,
+    /// Stream exactly this cell entry (diagnostic: isolates the streaming spawn path).
+    pub map_stream_cell: Option<usize>,
     /// Fixed camera position (bevy metres) for deterministic stills.
     pub camera_at: Option<[f32; 3]>,
     /// Fixed camera target (bevy metres) for deterministic stills.
@@ -172,6 +174,7 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut map_centres_only = false;
     let mut map_detail_radius: Option<f32> = None;
     let mut map_camera_distance: Option<f32> = None;
+    let mut map_stream_cell: Option<usize> = None;
     let mut camera_at: Option<[f32; 3]> = None;
     let mut look_at: Option<[f32; 3]> = None;
     let mut map_piece_limit: Option<usize> = None;
@@ -222,6 +225,14 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
             "--look-at" => {
                 let value = args.next().ok_or("--look-at needs X,Y,Z")?;
                 look_at = Some(parse_point(&value)?);
+            }
+            "--map-stream-cell" => {
+                map_stream_cell = Some(
+                    args.next()
+                        .ok_or("--map-stream-cell needs a cell entry")?
+                        .parse()
+                        .map_err(|e| format!("--map-stream-cell: {e}"))?,
+                )
             }
             "--map-camera-distance" => {
                 map_camera_distance = Some(
@@ -462,6 +473,7 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
         map_centres_only,
         map_detail_radius,
         map_camera_distance,
+        map_stream_cell,
         camera_at,
         look_at,
         map_piece_limit,
@@ -503,6 +515,7 @@ OPTIONS:
     --map-centres-only  Only write cell centroids (fast; no placement resolution)
     --map-detail-radius M  Spawn building groups only within M metres of the spawn
     --map-camera-distance M  Third-person camera distance (default 12 m)
+    --map-stream-cell E  Stream only cell entry E (diagnostic)
     --camera-at X,Y,Z  Fix the camera here (deterministic stills)
     --look-at X,Y,Z    Look at this point when --camera-at is set
     --map-piece-limit N  Cap placed pieces (400 one cell, 200000 for a list)

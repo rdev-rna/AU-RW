@@ -145,6 +145,8 @@ struct Streaming {
     untextured: std::collections::HashSet<String>,
     /// World bounds of everything streamed so far, reported once.
     bounds: Option<(Vec3, Vec3)>,
+    /// World-space boxes per cell, for camera collision.
+    colliders: std::collections::HashMap<usize, Vec<(Vec3, Vec3)>>,
 }
 
 /// Build one Bevy mesh from a decoded part.
@@ -220,6 +222,7 @@ fn stream_cells(
             .filter(|entry| !target.contains(entry))
             .collect();
         for entry in stale {
+            stream.colliders.remove(&entry);
             if let Some(entities) = stream.loaded.remove(&entry) {
                 dropped += 1;
                 for entity in entities {
@@ -320,14 +323,16 @@ fn stream_cells(
                 // against the cell centroids is what puts the camera inside a wall.
                 let mut world_min = Vec3::splat(f32::INFINITY);
                 let mut world_max = Vec3::splat(f32::NEG_INFINITY);
+                let mut cell_boxes: Vec<(Vec3, Vec3)> = Vec::new();
                 let mut entities = Vec::with_capacity(instances.len());
                 // Cell matrices are native (Z up). The non-streaming path gets the y-up
                 // correction from a parent root; streamed entities have no parent, so the
                 // same rotation is folded into each transform. Without it the streamed city
                 // is rotated 90 degrees against the player and every view is inside geometry.
-                let native_to_bevy = Mat4::from_quat(native_z_up_to_bevy_y_up());
                 for instance in &instances {
-                    let world = native_to_bevy * Mat4::from_cols_array(&instance.matrix);
+                    // The instances are children of stream.root, which already carries the
+                    // native Z-up to Bevy Y-up rotation; rotating here again would double it.
+                    let world = Mat4::from_cols_array(&instance.matrix);
                     let transform = Transform::from_matrix(world);
                     {
                         let piece = &stream.runtime.pieces()[instance.piece];
@@ -345,6 +350,26 @@ fn stream_cells(
                             instance_max = instance_max.max(at);
                             world_min = world_min.min(at);
                             world_max = world_max.max(at);
+                        }
+                        // Camera collision boxes are in world space: the instances sit under
+                        // the rotated root, so the same rotation is applied here.
+                        let rotated = Mat4::from_quat(native_z_up_to_bevy_y_up()) * world;
+                        let mut box_min = Vec3::splat(f32::INFINITY);
+                        let mut box_max = Vec3::splat(f32::NEG_INFINITY);
+                        for corner in 0..8 {
+                            let local = Vec3::new(
+                                if corner & 1 == 0 { min[0] } else { max[0] },
+                                if corner & 2 == 0 { min[1] } else { max[1] },
+                                if corner & 4 == 0 { min[2] } else { max[2] },
+                            );
+                            let at = rotated.transform_point3(local);
+                            box_min = box_min.min(at);
+                            box_max = box_max.max(at);
+                        }
+                        // Small props (chairs, carts, books) must not shove the camera; only
+                        // walls, floors and roofs are occluders.
+                        if (box_max - box_min).max_element() > 4.0 {
+                            cell_boxes.push((box_min, box_max));
                         }
                         // Name the placement that spans kilometres: it is what encloses the
                         // camera when a cell resolves one bad transform.
@@ -392,6 +417,7 @@ fn stream_cells(
                 if stream.loaded.len() <= 2 {
                     eprintln!("stream: world bounds min {world_min:?} max {world_max:?}");
                 }
+                stream.colliders.insert(entry, cell_boxes);
                 stream.loaded.insert(entry, entities);
                 added += 1;
             }
@@ -440,10 +466,13 @@ struct InspectionCamera {
     /// Framing distance chosen at spawn; the zoom clamp is relative to it so a city-scale
     /// camera is not yanked to 20 units on the first frame.
     initial: f32,
+    /// Distance actually used after collision.
+    actual: f32,
 }
 
 fn inspect_camera(
     fixed: Option<Res<FixedCamera>>,
+    streaming: Option<Res<Streaming>>,
     keys: Res<ButtonInput<KeyCode>>,
     controller: Res<controls::Controller>,
     time: Res<Time>,
@@ -473,7 +502,27 @@ fn inspect_camera(
             orbit.elevation.sin(),
             orbit.azimuth.cos() * orbit.elevation.cos(),
         );
-        *transform = Transform::from_translation(orbit.center + direction * orbit.distance)
+        // Keep the eye out of walls: the nearest box along the boom pulls it in. Pulling in
+        // snaps (never clip), releasing eases back so the view does not jitter.
+        let mut distance = orbit.distance;
+        if let Some(streaming) = streaming.as_ref() {
+            let mut nearest = distance;
+            for (min, max) in streaming.colliders.values().flatten() {
+                if let Some(hit) = ray_box(orbit.center, direction, *min, *max)
+                    && hit < nearest
+                {
+                    nearest = hit;
+                }
+            }
+            if nearest < distance {
+                distance = (nearest - 0.35).max(3.0);
+                orbit.actual = distance;
+            }
+        }
+        orbit.actual = orbit.actual.min(distance);
+        orbit.actual += (distance - orbit.actual) * (dt * 8.0).min(1.0);
+        let distance = orbit.actual;
+        *transform = Transform::from_translation(orbit.center + direction * distance)
             .looking_at(orbit.center, Vec3::Y);
     }
 }
@@ -1086,6 +1135,15 @@ fn setup_world(
                 Visibility::default(),
             ))
             .id();
+        let centres = match options.map_stream_cell {
+            Some(entry) => vec![(entry, 0.0f32, 0.0f32)],
+            None => centres,
+        };
+        let radius = if options.map_stream_cell.is_some() {
+            f32::MAX
+        } else {
+            radius
+        };
         eprintln!("stream: {} cell centres, radius {radius} m", centres.len());
         commands.insert_resource(Streaming {
             runtime,
@@ -1102,6 +1160,7 @@ fn setup_world(
             parts_textured: 0,
             untextured: std::collections::HashSet::new(),
             bounds: None,
+            colliders: std::collections::HashMap::new(),
         });
         commands.insert_resource(MapGrey(grey.clone()));
     }
@@ -1139,7 +1198,7 @@ fn setup_world(
     let distance = if options.map_player {
         // Six metres behind a walker puts the eye inside the nearest wall; the default keeps
         // the camera above head height and clear of most facades, and it is adjustable.
-        options.map_camera_distance.unwrap_or(12.0)
+        options.map_camera_distance.unwrap_or(9.0)
     } else if map_mode && instances.len() > 1 {
         size * 1.1
     } else {
@@ -1181,6 +1240,7 @@ fn setup_world(
             elevation: elevation.atan(),
             distance,
             initial: distance,
+            actual: distance,
         },
     ));
     if let Some(mut capture) = capture {
@@ -1196,6 +1256,34 @@ fn setup_world(
         camera.insert(RenderTarget::Image(handle.into()));
         println!("capture target: offscreen {width}x{height} Rgba8UnormSrgb");
     }
+}
+
+/// Distance along `dir` at which the ray from `origin` enters the box, if it does.
+fn ray_box(origin: Vec3, dir: Vec3, min: Vec3, max: Vec3) -> Option<f32> {
+    let mut near = 0.0f32;
+    let mut far = f32::INFINITY;
+    for axis in 0..3 {
+        let o = origin[axis];
+        let d = dir[axis];
+        if d.abs() < 1.0e-6 {
+            if o < min[axis] || o > max[axis] {
+                return None;
+            }
+            continue;
+        }
+        let inv = 1.0 / d;
+        let mut t0 = (min[axis] - o) * inv;
+        let mut t1 = (max[axis] - o) * inv;
+        if t0 > t1 {
+            std::mem::swap(&mut t0, &mut t1);
+        }
+        near = near.max(t0);
+        far = far.min(t1);
+        if near > far {
+            return None;
+        }
+    }
+    (far > 0.0).then_some(near.max(0.0))
 }
 
 /// Prints measured frame rate every two seconds while streaming is active, so performance
@@ -1283,6 +1371,7 @@ mod controller_camera_tests {
                     azimuth: 0.0,
                     elevation: 0.5,
                     distance: 5.0,
+                    actual: 5.0,
                 },
             ))
             .id();
