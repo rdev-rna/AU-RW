@@ -22,6 +22,7 @@ TARGETS = {
     "415d9568": ROOT / "local" / "paris-world-meshes.bin",
     "51dc6b80": ROOT / "local" / "paris-selectors.bin",
     "0984415e": ROOT / "local" / "paris-entities.bin",
+    "3f742d26": ROOT / "local" / "paris-groups.bin",
 }
 
 db = sqlite3.connect(DB)

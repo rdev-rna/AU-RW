@@ -139,3 +139,20 @@ Measured, not guessed:
 Next: decode the EntityGroup record table (member id + transform), then spawn group members as
 instances under the cell, which should lift the house-mesh count from 241 towards the 9,759 that
 exist in Paris.
+
+### EntityGroup decode: first pass (experimental)
+
+- `local/paris-groups.bin` (72,597 rows `3f742d26`) is now built alongside the other indices.
+- A group payload contains a sequence of 4x4 matrices; in
+  `FRV_House_Corner_F_0_03x13x2_01_002` (31,018 B) a scanner finds **73 matrix records**, each
+  followed within a few hundred bytes by a `51dc6b80` selector. The first matrix with a large
+  translation (474.8, -864.3, 0.5) is the building's world position; the rest are local offsets
+  (0-8.5 m), i.e. the parts of one row.
+- The loader now spawns group members this way (matrix + nearest following selector), both for
+  groups inside the cell package and for groups named in the cell's child list (resolved through
+  the group index). On `Cell05073_DataBlock` that yields 4 groups / 14 members, far below the 73
+  records of the sample group, so the scan is missing members - most likely because the
+  selector look-ahead is too short or the record boundary is different for other group kinds.
+
+Next: decode the group record boundary rather than the matrix/selector adjacency, then re-check
+`Cell05073` - the target is that a normal street cell references hundreds of house parts.
