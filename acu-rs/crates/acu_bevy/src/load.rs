@@ -2045,6 +2045,10 @@ impl MapRuntime {
         Ok(std::mem::take(&mut self.instances))
     }
 
+    pub fn scene(&self) -> &Scene {
+        &self.loader.scene
+    }
+
     pub fn pieces(&self) -> &[LoadedPiece] {
         &self.pieces
     }

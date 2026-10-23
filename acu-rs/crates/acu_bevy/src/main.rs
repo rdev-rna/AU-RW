@@ -45,9 +45,79 @@ fn apply_native_matrix(m: &[f32; 16], p: [f32; 3]) -> [f32; 3] {
     ]
 }
 
-/// Grey material used for streamed map cells (textures are a later pass).
+/// Fallback material for parts that resolved no material.
 #[derive(Resource)]
-struct MapGrey(Handle<character_material::CharacterMaterial>);
+struct MapGrey(Handle<StandardMaterial>);
+
+/// Upload one decoded texture, or skip it when the format is unknown.
+fn upload_texture(
+    texture: &load::LoadedTexture,
+    images: &mut Assets<Image>,
+) -> Option<Handle<Image>> {
+    if texture.pixels.is_empty() {
+        return None;
+    }
+    let mut format = match texture.dxgi_format {
+        71 | 72 => TextureFormat::Bc1RgbaUnormSrgb,
+        74 | 75 => TextureFormat::Bc2RgbaUnormSrgb,
+        77 | 78 => TextureFormat::Bc3RgbaUnormSrgb,
+        98 | 99 => TextureFormat::Bc7RgbaUnormSrgb,
+        28 | 29 => TextureFormat::Rgba8UnormSrgb,
+        87 | 91 => TextureFormat::Bgra8UnormSrgb,
+        83 => TextureFormat::Bc5RgUnorm,
+        other => {
+            eprintln!(
+                "note: texture {} uses unsupported DXGI format {other}; not uploaded",
+                texture.file_id
+            );
+            return None;
+        }
+    };
+    if !texture.srgb {
+        format = format.remove_srgb_suffix();
+    }
+    let mut image = Image::new_uninit(
+        Extent3d {
+            width: texture.width,
+            height: texture.height,
+            depth_or_array_layers: 1,
+        },
+        TextureDimension::D2,
+        format,
+        bevy::asset::RenderAssetUsages::default(),
+    );
+    image.data = Some(texture.pixels.clone());
+    image.texture_descriptor.mip_level_count = texture.mip_count;
+    image.sampler = bevy::image::ImageSampler::Descriptor(bevy::image::ImageSamplerDescriptor {
+        address_mode_u: bevy::image::ImageAddressMode::Repeat,
+        address_mode_v: bevy::image::ImageAddressMode::Repeat,
+        ..bevy::image::ImageSamplerDescriptor::linear()
+    });
+    Some(images.add(image))
+}
+
+/// Standard material for one decoded material (diffuse only).
+fn stream_material(
+    material: &load::LoadedMaterial,
+    textures: &[Option<Handle<Image>>],
+    materials: &mut Assets<StandardMaterial>,
+) -> Handle<StandardMaterial> {
+    let diffuse = material
+        .diffuse_texture
+        .and_then(|index| textures.get(index).cloned().flatten());
+    materials.add(StandardMaterial {
+        base_color: if diffuse.is_some() {
+            Color::WHITE
+        } else {
+            Color::srgb(0.72, 0.72, 0.72)
+        },
+        base_color_texture: diffuse,
+        perceptual_roughness: 0.85,
+        metallic: 0.0,
+        cull_mode: None,
+        ..default()
+    })
+}
 
 /// Cells loaded by distance around the player.
 #[derive(Resource)]
@@ -60,6 +130,8 @@ struct Streaming {
     anchor: Vec3,
     root: Entity,
     handles: Vec<Vec<Handle<Mesh>>>,
+    textures: Vec<Option<Handle<Image>>>,
+    materials: Vec<Handle<StandardMaterial>>,
 }
 
 /// Build one Bevy mesh from a decoded part.
@@ -100,6 +172,8 @@ fn part_mesh(piece: &load::LoadedPiece, part: &load::LoadedPart) -> Mesh {
 fn stream_cells(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
+    mut images: ResMut<Assets<Image>>,
+    mut standard_materials: ResMut<Assets<StandardMaterial>>,
     grey: Res<MapGrey>,
     state: Option<Res<player::State>>,
     mut streaming: Option<ResMut<Streaming>>,
@@ -161,15 +235,36 @@ fn stream_cells(
                         .collect();
                     stream.handles.push(built);
                 }
+                // Upload any textures/materials this cell introduced, then place it.
+                while stream.textures.len() < stream.runtime.scene().textures.len() {
+                    let index = stream.textures.len();
+                    let texture = &stream.runtime.scene().textures[index];
+                    let handle = upload_texture(texture, &mut images);
+                    stream.textures.push(handle);
+                }
+                while stream.materials.len() < stream.runtime.scene().materials.len() {
+                    let index = stream.materials.len();
+                    let material = &stream.runtime.scene().materials[index];
+                    let handle =
+                        stream_material(material, &stream.textures, &mut standard_materials);
+                    stream.materials.push(handle);
+                }
                 let mut entities = Vec::with_capacity(instances.len());
                 for instance in &instances {
                     let transform = Transform::from_matrix(Mat4::from_cols_array(&instance.matrix));
-                    for handle in &stream.handles[instance.piece] {
+                    let piece = &stream.runtime.pieces()[instance.piece];
+                    for (part_index, handle) in stream.handles[instance.piece].iter().enumerate() {
+                        let material = piece
+                            .parts
+                            .get(part_index)
+                            .and_then(|part| part.material)
+                            .and_then(|index| stream.materials.get(index).cloned())
+                            .unwrap_or_else(|| grey.0.clone());
                         entities.push(
                             commands
                                 .spawn((
                                     Mesh3d(handle.clone()),
-                                    MeshMaterial3d(grey.0.clone()),
+                                    MeshMaterial3d(material),
                                     transform,
                                 ))
                                 .id(),
@@ -869,8 +964,10 @@ fn setup_world(
             anchor: Vec3::splat(-1.0e9),
             root,
             handles: Vec::new(),
+            textures: Vec::new(),
+            materials: Vec::new(),
         });
-        commands.insert_resource(MapGrey(character_grey.clone()));
+        commands.insert_resource(MapGrey(grey.clone()));
     }
 
     // Lighting: overcast sun plus a soft ambient fill so grey reads clearly.
