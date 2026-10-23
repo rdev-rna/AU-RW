@@ -186,3 +186,22 @@ four groups are placed near the origin: their objects never yield a large-transl
 the base falls back to identity. That is the remaining question - one group kind carries its
 world position outside the object records.
 
+### Group base rule: solved
+
+The world transform lives in the **group header**, before the first object: in
+`FRV_House_Corner_F_0_03x13x2_01_002` the header holds identity at 26 and `(474.8, -864.3, 0.5)`
+at 115, and all 28 objects are within +-10 m. Objects are local offsets and are now always
+placed as `header * object`.
+
+Result: `Cell04814` frames to **45 m** at `(470, -3, 854)` instead of 980 m, and
+`local/cell-4884-final.png` shows a complete half-timbered house - walls, timber framing,
+windows, roof, textures. The same rule also fixes the roof group
+(`FRV_Roof_Corner_F_0_03x13_12_002`, header at (474.8, -864.3, 10.0)).
+
+### Scale consequence
+
+With buildings included, a 300 m radius already needs **~400,000 placements** (55,988 groups,
+397,417 members) versus 19,000 without them. A whole-map building render is therefore not a
+single scene: streaming cells around the player is required, which is what the game's `World`
+manifest does. The current whole-map capture (224,310 placements) remains the buildings-light
+aerial.

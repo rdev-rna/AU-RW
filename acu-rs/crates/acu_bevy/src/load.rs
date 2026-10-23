@@ -1317,10 +1317,46 @@ impl MapContext<'_> {
             cursor += 1;
         }
 
+        // The building's world transform is a matrix in the group header, before the first
+        // object (measured: FRV_House_Corner_F_0_03x13x2_01_002 has identity at 26 and
+        // (474.8, -864.3, 0.5) at 115; its 28 objects are all within +-10 m). Objects are
+        // therefore local offsets and are always placed relative to this header matrix.
+        let header_end = object_starts.first().copied().unwrap_or(group_bytes.len());
+        let mut base: Option<[f32; 16]> = None;
+        let mut best_reach = 0f32;
+        let mut header_offset = 0usize;
+        while header_offset + 64 <= header_end {
+            let mut candidate = [0f32; 16];
+            let mut ok = true;
+            for slot in 0..16 {
+                candidate[slot] = f32::from_le_bytes(
+                    group_bytes[header_offset + slot * 4..header_offset + slot * 4 + 4]
+                        .try_into()
+                        .unwrap(),
+                );
+            }
+            if (candidate[15] - 1.0).abs() > 1e-4 {
+                ok = false;
+            }
+            if ok {
+                for row in 0..3 {
+                    let r = &candidate[row * 4..row * 4 + 3];
+                    if (r[0] * r[0] + r[1] * r[1] + r[2] * r[2] - 1.0).abs() > 1e-3 {
+                        ok = false;
+                        break;
+                    }
+                }
+            }
+            if ok {
+                let reach = candidate[12] * candidate[12] + candidate[13] * candidate[13];
+                if reach > best_reach {
+                    best_reach = reach;
+                    base = Some(candidate);
+                }
+            }
+            header_offset += 1;
+        }
         let mut members: Vec<([f32; 16], u64)> = Vec::new();
-        // The base is the object furthest from the origin: the building's world position.
-        let mut best_reach: Option<(f32, [f32; 16])> = None;
-        let mut base_index = 0usize;
         for (index, &object) in object_starts.iter().enumerate() {
             // Clamp the object window: the payload continues past the object list with
             // further sections, and an uncapped last object would absorb their matrices.
@@ -1371,11 +1407,6 @@ impl MapContext<'_> {
                 probe += 1;
             }
             if let (Some(matrix), Some(selector)) = (matrix, selector) {
-                let reach = matrix[12] * matrix[12] + matrix[13] * matrix[13];
-                if best_reach.map(|(r, _)| reach > r).unwrap_or(true) {
-                    best_reach = Some((reach, matrix));
-                    base_index = members.len();
-                }
                 members.push((matrix, selector));
             }
         }
@@ -1383,7 +1414,7 @@ impl MapContext<'_> {
             return Ok(());
         }
         self.totals.groups += 1;
-        let base = best_reach.map(|(_, matrix)| matrix).unwrap_or([
+        let base = base.unwrap_or([
             1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0,
         ]);
         // Resolve every member, then drop the ones that land far from the group's median:
@@ -1391,15 +1422,12 @@ impl MapContext<'_> {
         // scatters parts of one building over a kilometre.
         let mut resolved: Vec<([f32; 16], u64)> = Vec::with_capacity(members.len());
         for (index, (local, selector_id)) in members.into_iter().enumerate() {
-            // Records are mixed: some carry the world position, some a local offset.
-            let world = if local[12..15].iter().any(|v| v.abs() > 100.0) {
-                local
-            } else {
+            let world = {
                 let m = bevy::math::Mat4::from_cols_array(&base)
                     * bevy::math::Mat4::from_cols_array(&local);
                 m.to_cols_array()
             };
-            let _ = (index, base_index);
+            let _ = index;
             resolved.push((world, selector_id));
         }
         let mut xs: Vec<f32> = resolved.iter().map(|(m, _)| m[12]).collect();
