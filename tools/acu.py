@@ -17,6 +17,8 @@ import subprocess
 import sys
 import tempfile
 
+import baseline
+
 
 ROOT = Path(__file__).resolve().parents[1]
 REQUIRED = (
@@ -282,6 +284,7 @@ def inventory(args):
         "archives": archives, "top_level_dlls": dlls,
         "extracted_top_level": sorted(p.name for p in extracted.iterdir())
                                if extracted.is_dir() else [],
+        "baseline": baseline.classify(game),
         "for_honor_reference_sources": sources,
         "for_honor_reference_configured": paths["for_honor_project"] is not None,
         "limitations": ["No archive decode, DLL load or game launch",
@@ -294,6 +297,9 @@ def inventory(args):
     print(f"Corpus: {report['corpus']['file_count']:,} files; "
           f"{report['corpus']['total_bytes']:,} bytes")
     print(f"Archives: {len(archives)}; top-level DLLs: {len(dlls)}")
+    base = report["baseline"]
+    print(f"Baseline carriers: {base['carrier_count']}; excluded: "
+          + ", ".join(f"{e['path']} ({e['rule']})" for e in base["excluded"]))
     return 0
 
 

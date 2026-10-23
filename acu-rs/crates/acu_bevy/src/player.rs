@@ -17,7 +17,13 @@ fn turn_facing(yaw: f32, heading: f32, moving: bool, run: bool) -> f32 {
     yaw + turn.clamp(-max_turn, max_turn)
 }
 
-fn advance(player: &mut Player, matcher: &mut acu_motion::unity::Matcher, input: Input) {
+fn advance(
+    player: &mut Player,
+    matcher: &mut acu_motion::unity::Matcher,
+    input: Input,
+    bounds: f32,
+) {
+    player.bounds = bounds;
     if input.reset {
         matcher.reset();
         *player = Player::default();
@@ -66,6 +72,9 @@ pub struct State {
     pub deform: bool,
     pub frozen: bool,
     pub capture: bool,
+    /// Walkable half-extent. The synthetic arena uses `acu_sim::ARENA_BOUNDS`; a world map
+    /// scene sets it large because there is no runtime collision yet.
+    pub bounds: f32,
     jump_requested: bool,
     frames: u32,
     skin_seconds: f64,
@@ -172,11 +181,17 @@ impl State {
         motion_report: serde_json::Value,
     ) -> Self {
         let mut player = Player::default();
+        player.bounds = if options.map_player {
+            100_000.0
+        } else {
+            acu_sim::ARENA_BOUNDS
+        };
         let mut motion_trace = Vec::new();
         for tick in 0..options.ticks {
             let input = replay(&options.scenario, tick);
             let selected = matcher.selected;
-            advance(&mut player, &mut matcher, input);
+            let bounds = player.bounds;
+            advance(&mut player, &mut matcher, input, bounds);
             if selected != matcher.selected
                 || tick == 0
                 || tick + 1 == options.ticks
@@ -199,6 +214,7 @@ impl State {
             deform: options.scenario == "deform",
             frozen: false,
             capture: options.capture.is_some(),
+            bounds: player.bounds,
             jump_requested: false,
             frames: 0,
             skin_seconds: 0.0,
@@ -218,6 +234,7 @@ pub fn step(
     if state.capture {
         return;
     }
+    let bounds = state.bounds;
     if state.reversal_review {
         if state.review_tick == 1080 {
             state.review_trace_done = true;
@@ -231,7 +248,7 @@ pub fn step(
         let State {
             player, matcher, ..
         } = &mut *state;
-        advance(player, matcher, input);
+        advance(player, matcher, input, bounds);
         if !state.review_trace_done
             && tick.is_multiple_of(6)
             && let Some(path) = std::env::var_os("ACU_REVERSAL_TRACE")
@@ -258,6 +275,12 @@ pub fn step(
         axis(KeyCode::KeyS, KeyCode::KeyW),
     ) + controller.movement)
         .clamp_length_max(1.0);
+    if std::env::var_os("ACU_PLAYER_TRACE").is_some() && stick != Vec2::ZERO {
+        eprintln!(
+            "player: stick {stick:?} position {:?} yaw {:.2}",
+            state.player.position, state.player.yaw
+        );
+    }
     let yaw = cameras.iter().next().map(|c| c.azimuth).unwrap_or(0.0);
     let (s, c) = yaw.sin_cos();
     let direction = Vec2::new(c * stick.x + s * stick.y, -s * stick.x + c * stick.y);
@@ -284,7 +307,7 @@ pub fn step(
     let State {
         player, matcher, ..
     } = &mut *state;
-    advance(player, matcher, input);
+    advance(player, matcher, input, bounds);
 }
 
 pub fn present(

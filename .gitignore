@@ -28,3 +28,4 @@ __pycache__/
 *.rar
 *.7z
 # Cargo.lock is intentionally NOT ignored.
+play-now.err

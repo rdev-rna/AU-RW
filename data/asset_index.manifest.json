@@ -1,0 +1,38 @@
+{
+ "schema_version": 1,
+ "index_version": "2026-10-22.1",
+ "built_utc": "2026-10-22T11:53:08+00:00",
+ "gz_file": "asset_index.sqlite.gz",
+ "release_tag": "asset-index-2026-10-22.1",
+ "url": "https://github.com/rdev-rna/AU-RW/releases/download/asset-index-2026-10-22.1/asset_index.sqlite.gz",
+ "gz_bytes": 559120359,
+ "gz_sha256": "254364665c087d268590fa08fe49e8b185a5a139a8cb6ea11df11cf5ad601da4",
+ "sqlite_bytes": 1910329344,
+ "sqlite_sha256": "6e51c2262cac8a07d8552277e67564a69b17d709ddcc176f2fc2aa531288593b",
+ "counts": {
+  "archives": 63,
+  "entries": 180245,
+  "resources": 3289299,
+  "textures": 65479,
+  "links": 12575691,
+  "types": 484,
+  "loose_files": 422
+ },
+ "audit": {
+  "result": "no holes found",
+  "checks_passed": 22,
+  "info": [
+   "resources / distinct types / textures: 3,289,299 / 484 / 65,479",
+   "link kinds: {'candidate': 12575226, 'weak': 465}",
+   "data entries with no resources: 0 (e.g. [])",
+   "resources without a name: 121,122",
+   "resources covered by a confident type label: 3,012,843 of 3,289,299 (91.6%); 484 types, 42 confidently labelled",
+   "archives with only control entries (no data): 1: ['DataPC_TitleScreenFPP_gi.forge']",
+   "archives with unknown baseline flag: 0"
+  ]
+ },
+ "meta_paths_scrubbed": [
+  "game_dir"
+ ],
+ "contents": "metadata only: archive/entry/resource/texture/link/type_label/loose_file tables; no game bytes"
+}
