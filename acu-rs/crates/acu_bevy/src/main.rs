@@ -148,6 +148,9 @@ struct Streaming {
     centres: Vec<(usize, f32, f32)>,
     radius: f32,
     loaded: HashMap<usize, Vec<Entity>>,
+    /// Cells the current position calls for, minus the ones already loaded. A capture
+    /// must wait for this to reach zero: a half-filled ring photographs as a torn city.
+    pending: usize,
     anchor: Vec3,
     root: Entity,
     handles: Vec<Vec<Handle<Mesh>>>,
@@ -532,6 +535,16 @@ fn stream_cells(
     if moved {
         stream.anchor = position;
     }
+    if std::env::var_os("ACU_STREAM_TRACE").is_some() {
+        eprintln!(
+            "stream-target: radius={:.0} centres={} target={} loaded={}",
+            stream.radius,
+            stream.centres.len(),
+            target.len(),
+            stream.loaded.len()
+        );
+    }
+    stream.pending = target.len().saturating_sub(stream.loaded.len());
     let mut dropped = 0usize;
     let mut unload_parts = 0usize;
     let mut unload_total = 0usize;
@@ -1877,6 +1890,7 @@ fn setup_world(
             centres,
             radius,
             loaded: HashMap::new(),
+            pending: 0,
             anchor: Vec3::splat(-1.0e9),
             root,
             handles: Vec::new(),
@@ -2119,6 +2133,11 @@ fn request_capture(
             capture.settled_for += 1;
         }
         if capture.settled_for < 45 {
+            return;
+        }
+        // Stable is not the same as complete: the ring is filled in batches, so the
+        // count can hold steady between batches. Only capture a finished ring.
+        if stream.pending > 0 {
             return;
         }
     }
