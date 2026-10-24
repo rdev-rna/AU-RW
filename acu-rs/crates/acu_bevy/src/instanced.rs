@@ -44,7 +44,8 @@ use bevy::{
             RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
         },
         render_resource::*,
-        renderer::RenderDevice,
+        extract_resource::ExtractResource,
+        renderer::{RenderDevice, RenderQueue},
         sync_component::SyncComponent,
         sync_world::MainEntity,
         view::ExtractedView,
@@ -59,6 +60,141 @@ use crate::texture_stream::TextureGeneration;
 
 /// Embedded shader for the instanced map path.
 const SHADER_ASSET_PATH: &str = "embedded://acu_bevy/shaders/map_instanced.wgsl";
+
+/// Illuminance the light uniform is normalised by. Every `colour * illuminance`
+/// and the ambient `colour * brightness` are divided by this, so the shader sees
+/// O(1) irradiances and keeps a single readable calibration constant. It is the
+/// key `DirectionalLight` irradiance from `main.rs` (18 000 lux) — a unit, not a
+/// tint or a clamp.
+const LIGHT_UNIT: f32 = 18_000.0;
+
+/// Directional lights the uniform carries. `main.rs` spawns two; the cap keeps
+/// the uniform a plain array instead of a storage buffer.
+const MAX_MAP_LIGHTS: usize = 4;
+
+/// Bind group holding [`MapLights`], next to the per-part group at
+/// `MATERIAL_BIND_GROUP_INDEX` (3), which the mesh pipeline fills 0..=2 and the
+/// material adds at 3.
+pub const MAP_LIGHT_BIND_GROUP_INDEX: usize = MATERIAL_BIND_GROUP_INDEX + 1;
+
+/// The scene's real lights, flattened for the instanced map shader.
+///
+/// Filled from `GlobalAmbientLight` and every `DirectionalLight` each frame in
+/// `Update`, then mirrored into the render world by `ExtractResourcePlugin`,
+/// exactly like [`TextureGeneration`]. Nothing here is hardcoded.
+#[derive(Resource, Clone, Copy, Debug, Default, PartialEq, ExtractResource)]
+pub struct MapLights {
+    /// `rgb` = ambient colour (linear) * brightness / [`LIGHT_UNIT`],
+    /// `a` = number of live entries in the two arrays below.
+    pub ambient: [f32; 4],
+    /// `xyz` = world-space unit vector pointing *towards* the light, the vector
+    /// the shader dots with the surface normal.
+    pub direction: [[f32; 4]; MAX_MAP_LIGHTS],
+    /// `rgb` = light colour (linear) * illuminance / [`LIGHT_UNIT`].
+    pub colour: [[f32; 4]; MAX_MAP_LIGHTS],
+}
+
+impl MapLights {
+    /// Bytes for the uniform buffer: 9 `vec4<f32>`, matching `MapLights` in
+    /// `map_instanced.wgsl`.
+    fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity((1 + 2 * MAX_MAP_LIGHTS) * 16);
+        for vector in std::iter::once(&self.ambient)
+            .chain(self.direction.iter())
+            .chain(self.colour.iter())
+        {
+            for value in *vector {
+                bytes.extend_from_slice(&value.to_ne_bytes());
+            }
+        }
+        bytes
+    }
+}
+
+/// Reads the scene's real lights into [`MapLights`] every frame, so a light that
+/// a capture script moves or recolours is picked up on the next frame.
+fn update_map_lights(
+    ambient: Option<Res<bevy::light::GlobalAmbientLight>>,
+    lights: Query<(
+        &bevy::prelude::DirectionalLight,
+        &bevy::prelude::GlobalTransform,
+    )>,
+    mut map_lights: ResMut<MapLights>,
+) {
+    let mut next = MapLights::default();
+    if let Some(ambient) = ambient {
+        let colour = ambient.color.to_linear();
+        next.ambient = [
+            colour.red * ambient.brightness / LIGHT_UNIT,
+            colour.green * ambient.brightness / LIGHT_UNIT,
+            colour.blue * ambient.brightness / LIGHT_UNIT,
+            0.0,
+        ];
+    }
+    let mut count = 0usize;
+    for (light, transform) in &lights {
+        if count == MAX_MAP_LIGHTS {
+            break;
+        }
+        // A `DirectionalLight` shines down its local -Z, so the vector towards
+        // it is the light's world +Z.
+        let towards = (transform.rotation() * Vec3::Z).normalize_or_zero();
+        let colour = light.color.to_linear();
+        next.direction[count] = [towards.x, towards.y, towards.z, 0.0];
+        next.colour[count] = [
+            colour.red * light.illuminance / LIGHT_UNIT,
+            colour.green * light.illuminance / LIGHT_UNIT,
+            colour.blue * light.illuminance / LIGHT_UNIT,
+            0.0,
+        ];
+        count += 1;
+    }
+    next.ambient[3] = count as f32;
+    if *map_lights != next {
+        *map_lights = next;
+    }
+}
+
+/// The uniform buffer and bind group carrying [`MapLights`] for every draw.
+#[derive(Resource)]
+struct MapLightBindings {
+    buffer: Buffer,
+    bind_group: BindGroup,
+    /// Last values written, so a static scene does not rewrite the buffer.
+    uploaded: Option<MapLights>,
+}
+
+fn map_light_bind_group_layout() -> BindGroupLayoutDescriptor {
+    BindGroupLayoutDescriptor::new(
+        "map lights bind group layout",
+        &[BindGroupLayoutEntry {
+            binding: 0,
+            visibility: ShaderStages::FRAGMENT,
+            ty: BindingType::Buffer {
+                ty: BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        }],
+    )
+}
+
+/// Uploads [`MapLights`] into the render-world uniform buffer.
+fn prepare_map_lights(
+    map_lights: Option<Res<MapLights>>,
+    bindings: Option<ResMut<MapLightBindings>>,
+    render_queue: Res<RenderQueue>,
+) {
+    let (Some(map_lights), Some(mut bindings)) = (map_lights, bindings) else {
+        return;
+    };
+    if bindings.uploaded.as_ref() == Some(&*map_lights) {
+        return;
+    }
+    render_queue.write_buffer(&bindings.buffer, 0, &map_lights.to_bytes());
+    bindings.uploaded = Some(*map_lights);
+}
 
 /// One placement: its world matrix, already baked into Bevy space.
 ///
@@ -153,6 +289,8 @@ pub struct MapInstancedMaterial {
     /// The per-part bind group layout descriptor, added to the pipeline layout
     /// exactly like `MaterialPipelineSpecializer` adds a material's.
     part_layout: BindGroupLayoutDescriptor,
+    /// The scene lights layout, appended at [`MAP_LIGHT_BIND_GROUP_INDEX`].
+    light_layout: BindGroupLayoutDescriptor,
 }
 
 /// What one [`spawn_map_instanced`] call produced, for the run summary.
@@ -282,6 +420,11 @@ impl Plugin for MapInstancedPlugin {
         // `prepare_map_part_bind_groups` can see that a placeholder went stale.
         app.init_resource::<crate::texture_stream::TextureGeneration>();
         app.add_plugins(ExtractResourcePlugin::<crate::texture_stream::TextureGeneration>::default());
+        // The scene's real lights: read from the ECS each frame, then mirrored
+        // into the render world exactly like the texture generation counter.
+        app.init_resource::<MapLights>();
+        app.add_systems(bevy::app::Update, update_map_lights);
+        app.add_plugins(ExtractResourcePlugin::<MapLights>::default());
         app.sub_app_mut(RenderApp)
             .add_render_command::<Transparent3d, DrawMapInstanced>()
             .init_resource::<SpecializedMeshPipelines<MapInstancedMaterial>>()
@@ -295,6 +438,7 @@ impl Plugin for MapInstancedPlugin {
                     queue_map_instanced.in_set(RenderSystems::QueueMeshes),
                     prepare_instance_buffers.in_set(RenderSystems::PrepareResources),
                     prepare_map_part_bind_groups.in_set(RenderSystems::PrepareResources),
+                    prepare_map_lights.in_set(RenderSystems::PrepareResources),
                 ),
             );
     }
@@ -310,10 +454,31 @@ fn init_map_instanced_pipeline(
     // takes layout *descriptors*; the pipeline cache resolves them to the same
     // layout `as_bind_group` uses, which is what wgpu requires for a match.
     let part_layout = MapPartMaterial::bind_group_layout_descriptor(&render_device);
+    // Scene lights: one uniform, one bind group, shared by every draw.
+    let light_layout = map_light_bind_group_layout();
+    let light_buffer = render_device.create_buffer_with_data(&BufferInitDescriptor {
+        label: Some("map lights uniform"),
+        contents: &MapLights::default().to_bytes(),
+        usage: BufferUsages::UNIFORM | BufferUsages::COPY_DST,
+    });
+    let light_bind_group = render_device.create_bind_group(
+        Some("map lights bind group"),
+        &render_device.create_bind_group_layout(Some("map lights layout"), &light_layout.entries),
+        &[BindGroupEntry {
+            binding: 0,
+            resource: light_buffer.as_entire_binding(),
+        }],
+    );
+    commands.insert_resource(MapLightBindings {
+        buffer: light_buffer,
+        bind_group: light_bind_group,
+        uploaded: None,
+    });
     commands.insert_resource(MapInstancedMaterial {
         shader: asset_server.load(SHADER_ASSET_PATH),
         mesh_pipeline: mesh_pipeline.clone(),
         part_layout,
+        light_layout,
     });
 }
 
@@ -333,13 +498,20 @@ impl SpecializedMeshPipeline for MapInstancedMaterial {
         descriptor
             .layout
             .insert(MATERIAL_BIND_GROUP_INDEX, self.part_layout.clone());
+        descriptor.layout.push(self.light_layout.clone());
         let bind_group_def = ShaderDefVal::UInt(
             "MATERIAL_BIND_GROUP".into(),
             MATERIAL_BIND_GROUP_INDEX as u32,
         );
+        let light_group_def = ShaderDefVal::UInt(
+            "MAP_LIGHT_BIND_GROUP".into(),
+            MAP_LIGHT_BIND_GROUP_INDEX as u32,
+        );
         descriptor.vertex.shader_defs.push(bind_group_def.clone());
+        descriptor.vertex.shader_defs.push(light_group_def.clone());
         if let Some(fragment) = descriptor.fragment.as_mut() {
             fragment.shader_defs.push(bind_group_def);
+            fragment.shader_defs.push(light_group_def);
         }
 
         descriptor.vertex.shader = self.shader.clone();
@@ -533,8 +705,35 @@ type DrawMapInstanced = (
     SetMeshViewBindingArrayBindGroup<1>,
     SetMeshBindGroup<2>,
     SetMapPartBindGroup<{ MATERIAL_BIND_GROUP_INDEX }>,
+    SetMapLightBindGroup,
     DrawMeshInstanced,
 );
+
+/// Binds the scene-light uniform at [`MAP_LIGHT_BIND_GROUP_INDEX`]. The bind
+/// group is a single render-world resource, so nothing per-entity is needed.
+struct SetMapLightBindGroup;
+
+impl<P: PhaseItem> RenderCommand<P> for SetMapLightBindGroup {
+    type Param = SRes<MapLightBindings>;
+    type ViewQuery = ();
+    type ItemQuery = ();
+
+    #[inline]
+    fn render<'w>(
+        _item: &P,
+        _view: (),
+        _item_query: Option<()>,
+        bindings: SystemParamItem<'w, '_, Self::Param>,
+        pass: &mut TrackedRenderPass<'w>,
+    ) -> RenderCommandResult {
+        pass.set_bind_group(
+            MAP_LIGHT_BIND_GROUP_INDEX,
+            &bindings.into_inner().bind_group,
+            &[],
+        );
+        RenderCommandResult::Success
+    }
+}
 
 /// Binds the entity's per-part material bind group at `I`.
 struct SetMapPartBindGroup<const I: usize>;
