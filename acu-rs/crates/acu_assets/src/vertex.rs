@@ -26,6 +26,9 @@ pub const FORMAT_TAN_COLOR: u8 = 5;
 /// Unity vertex format index 6:
 /// `Pos3s_Col1s_Norm3ub_Col1ub_Tex2s`.
 pub const FORMAT_PLAIN: u8 = 6;
+/// Unity vertex format index 2: same attribute order as [`FORMAT_TAN_JOINT8`] (stride 40),
+/// recovered from a dumped buffer — see the layout table.
+pub const FORMAT_TAN_JOINT8_ALT: u8 = 2;
 
 /// Attribute layout recovered from the reference decoder's `ReadFromFile`
 /// switch. `joints` is the number of packed joint slots (0, 4 or 8); the
@@ -59,6 +62,20 @@ pub const LAYOUTS: &[Layout] = &[
     Layout {
         format: FORMAT_TAN_JOINT8,
         name: "Pos3s_Col1s_Norm3ub_Col1ub_Tan4ub_Binorm4ub_Tex2s_Joint8",
+        stride: 40,
+        tangent: true,
+        binormal: true,
+        joints: 8,
+        color: false,
+    },
+    // Recovered from a dumped buffer (local/vertex-fmt2-stride40.bin, 1,234 vertices) rather
+    // than from a reference table: positions at +0 with `w` always 32767, unit vectors at
+    // +8/+12/+16 (normal, tangent, binormal), a UV pair at +20, and 16 bytes at +24 that read
+    // as joint indices/weights (56% zero, 255 and 128 dominant). That is format 1's attribute
+    // order exactly, so the id differs but the layout does not.
+    Layout {
+        format: FORMAT_TAN_JOINT8_ALT,
+        name: "Pos3s_Col1s_Norm3ub_Col1ub_Tan4ub_Binorm4ub_Tex2s_Joint8 (format 2)",
         stride: 40,
         tangent: true,
         binormal: true,
@@ -166,6 +183,14 @@ pub fn decode(
     limits: Limits,
 ) -> Result<Vec<Vertex>> {
     let layout = layout(format, stride).ok_or_else(|| {
+        // Diagnostic: dump the raw buffer of an unknown layout so it can be recovered
+        // from the data (offset scan for the packed normal, position and UV ranges)
+        // instead of guessed.
+        if std::env::var_os("ACU_DUMP_VERTEX").is_some() {
+            let path = format!("local/vertex-fmt{format}-stride{stride}.bin");
+            let _ = std::fs::write(&path, bytes);
+            eprintln!("vertex: dumped {} bytes to {path}", bytes.len());
+        }
         std::io::Error::new(
             std::io::ErrorKind::InvalidData,
             format!(

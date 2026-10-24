@@ -109,8 +109,12 @@ fn layouts_are_looked_up_by_format_and_stride() {
     assert!(vertex::layout(5, 28).unwrap().color);
     assert!(!vertex::layout(6, 16).unwrap().tangent);
     assert_eq!(vertex::layout(1, 32), None);
-    assert_eq!(vertex::layout(2, 40), None);
-    assert_eq!(vertex::stride_candidates(2), Vec::<u8>::new());
+    // Format 2 stride 40 was recovered from a dumped buffer (see ACU-RE-0039): same
+    // attribute order as format 1's stride-40 layout, different enum id.
+    assert_eq!(vertex::layout(2, 40).unwrap().joints, 8);
+    assert!(vertex::layout(2, 40).unwrap().binormal);
+    assert_eq!(vertex::stride_candidates(2), [40]);
+    assert_eq!(vertex::layout(2, 24), None);
 }
 
 #[test]
