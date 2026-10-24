@@ -178,8 +178,8 @@ struct Streaming {
     root_matrix: Mat4,
     /// Instanced path: per-scene-material bindings, grown as cells load.
     part_materials: Vec<instanced::MapPartMaterial>,
-    /// Instanced path: the draw entity for each (piece, part), if one exists.
-    instance_entities: Vec<Vec<Option<Entity>>>,
+    /// Instanced path: the draw entity for each (piece, part, cluster), if one exists.
+    instance_entities: Vec<Vec<HashMap<instanced::ClusterKey, Entity>>>,
     /// Instanced path: instance count per (piece, part), so the reported total
     /// is a sum of real buffer lengths rather than an incrementing guess.
     instance_counts: Vec<Vec<usize>>,
@@ -381,61 +381,74 @@ fn rebuild_instanced_parts(
         .collect();
     while stream.instance_entities.len() < piece_parts.len() {
         let index = stream.instance_entities.len();
-        stream.instance_entities.push(vec![None; piece_parts[index]]);
+        stream.instance_entities.push(vec![HashMap::new(); piece_parts[index]]);
         stream.instance_counts.push(vec![0; piece_parts[index]]);
     }
     // A piece can gain parts as later cells introduce them; keep the rows aligned.
     for (piece, &parts) in piece_parts.iter().enumerate() {
         while stream.instance_entities[piece].len() < parts {
-            stream.instance_entities[piece].push(None);
+            stream.instance_entities[piece].push(HashMap::new());
             stream.instance_counts[piece].push(0);
         }
     }
 
-    let mut buckets: HashMap<usize, Vec<Vec<instanced::InstanceData>>> = HashMap::new();
+    // (piece, part) -> cluster -> placements, for the affected pieces only.
+    let mut buckets: HashMap<
+        (usize, usize),
+        HashMap<instanced::ClusterKey, Vec<instanced::InstanceData>>,
+    > = HashMap::new();
     for &piece in affected {
         if piece < piece_parts.len() {
-            buckets.insert(piece, vec![Vec::new(); piece_parts[piece]]);
+            for part in 0..piece_parts[piece] {
+                buckets.insert((piece, part), HashMap::new());
+            }
         }
     }
     for placements in stream.cell_instances.values() {
         for instance in placements {
-            let Some(parts) = buckets.get_mut(&instance.piece) else {
+            let Some(&parts) = piece_parts.get(instance.piece) else {
                 continue;
             };
             let model = root * Mat4::from_cols_array(&instance.matrix);
             let data = instanced::InstanceData {
                 model: model.to_cols_array(),
             };
+            let key = instanced::cluster_key(&instance.matrix);
             // A placement covers every part of its piece, as `spawn_map_instanced` does.
-            for bucket in parts.iter_mut() {
-                bucket.push(data);
+            for part in 0..parts {
+                if let Some(clusters) = buckets.get_mut(&(instance.piece, part)) {
+                    clusters.entry(key).or_default().push(data);
+                }
             }
         }
     }
 
     let mut updated = 0usize;
-    for (piece, parts) in buckets {
-        for (part, data) in parts.into_iter().enumerate() {
-            let count = data.len();
-            stream.instance_counts[piece][part] = count;
-            match (stream.instance_entities[piece][part], count) {
-                (Some(entity), 0) => {
-                    commands.entity(entity).despawn();
-                    stream.instance_entities[piece][part] = None;
-                    updated += 1;
-                }
-                (Some(entity), _) => {
-                    // The render path only re-uploads a marked buffer; a part can
-                    // belong to several cells, so its list changes without a respawn.
+    for ((piece, part), clusters) in buckets {
+        let (min, max) = stream.runtime.pieces()[piece].bounds();
+        let (local_min, local_max) = (Vec3::from_array(min), Vec3::from_array(max));
+        stream.instance_counts[piece][part] = clusters.values().map(Vec::len).sum();
+        let existing = &mut stream.instance_entities[piece][part];
+        // Sorted keys: a rebuild must spawn in the same order as the preload
+        // path, so the transparent phase's tie-break does not flip frame to frame.
+        let mut keys: Vec<instanced::ClusterKey> = clusters.keys().copied().collect();
+        keys.sort_unstable();
+        for key in &keys {
+            let data = &clusters[key];
+            let aabb = instanced::cluster_aabb(local_min, local_max, data);
+            match existing.get(key).copied() {
+                Some(entity) => {
+                    // The render path only re-uploads a marked buffer; a cluster
+                    // can belong to several cells, so its list changes without a
+                    // respawn. The `Aabb` moves with it.
                     commands.entity(entity).insert((
-                        instanced::InstanceMaterialData(data),
+                        instanced::InstanceMaterialData(data.clone(), aabb),
+                        aabb,
                         instanced::InstancesDirty,
                     ));
                     updated += 1;
                 }
-                (None, 0) => {}
-                (None, _) => {
+                None => {
                     let mesh = stream.handles[piece][part].clone();
                     let material = stream.runtime.pieces()[piece].parts[part]
                         .material
@@ -445,20 +458,39 @@ fn rebuild_instanced_parts(
                         .spawn((
                             Mesh3d(mesh),
                             material,
-                            instanced::InstanceMaterialData(data),
-                            // The instance matrices are not the entity's `Aabb`, so
-                            // culling would drop the whole part at once.
-                            bevy::camera::visibility::NoFrustumCulling,
+                            instanced::InstanceMaterialData(data.clone(), aabb),
+                            aabb,
                             Transform::default(),
                             Visibility::default(),
                         ))
                         .id();
-                    stream.instance_entities[piece][part] = Some(entity);
+                    existing.insert(*key, entity);
                     updated += 1;
                 }
             }
         }
+        // Clusters that lost every placement are despawned, as whole parts were.
+        let stale: Vec<instanced::ClusterKey> = existing
+            .keys()
+            .filter(|key| !clusters.contains_key(*key))
+            .copied()
+            .collect();
+        for key in stale {
+            if let Some(entity) = existing.remove(&key) {
+                commands.entity(entity).despawn();
+                updated += 1;
+            }
+        }
     }
+    let mut parts = 0usize;
+    let mut clusters = 0usize;
+    for part_clusters in stream.instance_entities.iter().flatten() {
+        if !part_clusters.is_empty() {
+            parts += 1;
+        }
+        clusters += part_clusters.len();
+    }
+    commands.insert_resource(instanced::MapClusterStats { parts, clusters });
     let total = stream
         .instance_counts
         .iter()
@@ -1665,9 +1697,17 @@ fn setup_world(
                 options.spawn.map(Vec3::from_array),
             );
             println!(
-                "instanced: entities={} placements={} parts={} instances={}",
-                spawned.entities, spawned.placements, spawned.parts, spawned.instances
+                "instanced: entities={} placements={} parts={} clusters={} instances={}",
+                spawned.entities,
+                spawned.placements,
+                spawned.parts,
+                spawned.clusters,
+                spawned.instances
             );
+            commands.insert_resource(instanced::MapClusterStats {
+                parts: spawned.parts,
+                clusters: spawned.clusters,
+            });
         } else {
             let spawned = spawn_map(
             &mut commands,

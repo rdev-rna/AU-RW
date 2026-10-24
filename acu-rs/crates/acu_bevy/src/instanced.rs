@@ -11,13 +11,21 @@
 //! slot 1, `draw_indexed`, `NoIndirectDrawing` on the camera).
 //!
 //! Each (piece, part) entity carries the same material inputs the per-placement
-//! path gives `map_material` — diffuse map, normal map and alpha cut-out — bound
+//! path gives `map_material` - diffuse map, normal map and alpha cut-out - bound
 //! through an `AsBindGroup` material at Bevy's material bind group index.
+//!
+//! Like the native `ClusterCullingNoOcclusion` pass, the placements of a part
+//! are split into spatial clusters of [`CLUSTER_SIZE`] metres and each cluster
+//! is one draw entity with an explicit [`Aabb`]. The phase test in
+//! [`queue_map_instanced`] then rejects whole clusters against the view frustum
+//! instead of submitting every instance in the city for every view.
 
+use std::collections::HashMap;
 use std::mem::size_of;
+use std::time::{Duration, Instant};
 
 use bevy::{
-    camera::visibility::NoFrustumCulling,
+    camera::primitives::Aabb,
     core_pipeline::core_3d::{Transparent3d, TransparentSortingInfo3d},
     ecs::{
         query::QueryItem,
@@ -36,7 +44,7 @@ use bevy::{
     render::{
         batching::gpu_preprocessing::BatchedInstanceBuffers,
         extract_component::{ExtractComponent, ExtractComponentPlugin},
-        extract_resource::ExtractResourcePlugin,
+        extract_resource::{ExtractResource, ExtractResourcePlugin},
         mesh::{allocator::MeshAllocator, RenderMesh, RenderMeshBufferInfo},
         render_asset::RenderAssets,
         render_phase::{
@@ -44,7 +52,6 @@ use bevy::{
             RenderCommandResult, SetItemPipeline, TrackedRenderPass, ViewSortedRenderPhases,
         },
         render_resource::*,
-        extract_resource::ExtractResource,
         renderer::{RenderDevice, RenderQueue},
         sync_component::SyncComponent,
         sync_world::MainEntity,
@@ -207,9 +214,15 @@ pub struct InstanceData {
     pub model: [f32; 16],
 }
 
-/// Every placement of one (piece, part), for the renderer to draw instanced.
+/// Every placement of one (piece, part) cluster, for the renderer to draw
+/// instanced.
+///
+/// The [`Aabb`] is the world-space union of the instance bounds in this
+/// cluster. It travels with the instance list rather than as a separate
+/// component because the streaming path replaces the list wholesale; one
+/// extracted value can then never describe the previous frame's placements.
 #[derive(Component, Deref)]
-pub struct InstanceMaterialData(pub Vec<InstanceData>);
+pub struct InstanceMaterialData(#[deref] pub Vec<InstanceData>, pub Aabb);
 
 impl SyncComponent for InstanceMaterialData {
     type Target = Self;
@@ -221,8 +234,72 @@ impl ExtractComponent for InstanceMaterialData {
     type Out = Self;
 
     fn extract_component(item: QueryItem<'_, '_, Self::QueryData>) -> Option<Self> {
-        Some(InstanceMaterialData(item.0.clone()))
+        Some(InstanceMaterialData(item.0.clone(), item.1))
     }
+}
+
+/// Edge of one culling cluster, in native metres of the horizontal plane.
+///
+/// Native space is Z-up, so `x`/`y` are the ground plane and clusters are
+/// columns of this width. The native renderer culls clusters rather than
+/// individual instances (`ClusterCullingNoOcclusion`); a few hundred metres
+/// keeps the per-cluster [`Aabb`] tight enough for frustum rejection to bite
+/// while leaving few enough clusters that the per-frame cost stays linear in
+/// clusters, not placements.
+pub const CLUSTER_SIZE: f32 = 200.0;
+
+/// Grid cell of one cluster: native `(x, y)` divided by [`CLUSTER_SIZE`].
+pub type ClusterKey = (i32, i32);
+
+/// The cluster a placement belongs to, from its native instance matrix.
+pub fn cluster_key(native: &[f32; 16]) -> ClusterKey {
+    (
+        (native[12] / CLUSTER_SIZE).floor() as i32,
+        (native[13] / CLUSTER_SIZE).floor() as i32,
+    )
+}
+
+/// World-space [`Aabb`] covering every instance of a cluster.
+///
+/// The piece's eight local bounds corners are transformed by each instance
+/// matrix and unioned; the mesh's own AABB describes a single instance at the
+/// origin, which would cull a whole street block from its first placement.
+/// Empty local bounds (a piece with no vertices) give a box that can never be
+/// culled - it draws nothing, so that costs nothing either.
+pub fn cluster_aabb(local_min: Vec3, local_max: Vec3, instances: &[InstanceData]) -> Aabb {
+    if instances.is_empty() || !local_min.is_finite() || !local_max.is_finite() {
+        return Aabb::from_min_max(Vec3::splat(-1.0e7), Vec3::splat(1.0e7));
+    }
+    let mut min = Vec3::splat(f32::INFINITY);
+    let mut max = Vec3::splat(f32::NEG_INFINITY);
+    for instance in instances {
+        let model = Mat4::from_cols_array(&instance.model);
+        for corner in 0..8 {
+            let local = Vec3::new(
+                if corner & 1 == 0 { local_min.x } else { local_max.x },
+                if corner & 2 == 0 { local_min.y } else { local_max.y },
+                if corner & 4 == 0 { local_min.z } else { local_max.z },
+            );
+            let world = model.transform_point3(local);
+            min = min.min(world);
+            max = max.max(world);
+        }
+    }
+    if !min.is_finite() || !max.is_finite() {
+        return Aabb::from_min_max(Vec3::splat(-1.0e7), Vec3::splat(1.0e7));
+    }
+    Aabb::from_min_max(min, max)
+}
+
+/// How many cluster draw entities the instanced map currently has, mirrored to
+/// the render world so the `cull:` line can report `submitted` against the
+/// whole set rather than guessing from the view.
+#[derive(Resource, Clone, Copy, Debug, Default, ExtractResource)]
+pub struct MapClusterStats {
+    /// Unique (piece, part) pairs that have at least one placement.
+    pub parts: usize,
+    /// Draw entities, i.e. one per (piece, part, cluster).
+    pub clusters: usize,
 }
 
 /// Material inputs for one (piece, part), matching what `map_material` feeds
@@ -296,17 +373,19 @@ pub struct MapInstancedMaterial {
 /// What one [`spawn_map_instanced`] call produced, for the run summary.
 #[derive(Debug, Clone, Copy)]
 pub struct InstancedSpawned {
-    /// Draw entities: one per (piece, part) that has at least one placement.
+    /// Draw entities: one per (piece, part, cluster) with at least one placement.
     pub entities: usize,
     /// Placements accepted (after the radius test).
     pub placements: usize,
-    /// Unique (piece, part) entries in the scene.
+    /// Unique (piece, part) entries in the scene that have placements.
     pub parts: usize,
     /// Placement x part pairs, i.e. the number of rendered instances.
     pub instances: usize,
+    /// Spatial clusters, one draw entity each. Equal to `entities`.
+    pub clusters: usize,
 }
 
-/// Spawn the map as one entity per unique part carrying all of its placements.
+/// Spawn the map as one entity per (unique part, spatial cluster).
 ///
 /// `root` is the Z-up -> Y-up presentation rotation; it is baked into each
 /// instance matrix, so these entities are spawned at the scene root rather than
@@ -333,9 +412,19 @@ pub fn spawn_map_instanced(
         })
         .collect();
 
-    let mut buckets: Vec<Vec<Vec<InstanceData>>> = pieces
+    // Local bounds per piece, transformed by every instance matrix in a cluster
+    // to give that cluster's world `Aabb`.
+    let piece_bounds: Vec<(Vec3, Vec3)> = pieces
         .iter()
-        .map(|piece| piece.parts.iter().map(|_| Vec::new()).collect())
+        .map(|piece| {
+            let (min, max) = piece.bounds();
+            (Vec3::from_array(min), Vec3::from_array(max))
+        })
+        .collect();
+
+    let mut buckets: Vec<Vec<HashMap<ClusterKey, Vec<InstanceData>>>> = pieces
+        .iter()
+        .map(|piece| piece.parts.iter().map(|_| HashMap::new()).collect())
         .collect();
 
     let mut placements = 0usize;
@@ -353,20 +442,22 @@ pub fn spawn_map_instanced(
         let data = InstanceData {
             model: model.to_cols_array(),
         };
+        let key = cluster_key(&instance.matrix);
         for bucket in &mut buckets[instance.piece] {
-            bucket.push(data);
+            bucket.entry(key).or_default().push(data);
         }
     }
 
     let mut entities = 0usize;
+    let mut parts = 0usize;
     let mut rendered_instances = 0usize;
-    for (piece, parts) in buckets.iter().enumerate() {
-        for (part, data) in parts.iter().enumerate() {
-            if data.is_empty() {
+    for (piece, part_buckets) in buckets.iter().enumerate() {
+        let (local_min, local_max) = piece_bounds[piece];
+        for (part, clusters) in part_buckets.iter().enumerate() {
+            if clusters.is_empty() {
                 continue;
             }
-            entities += 1;
-            rendered_instances += data.len();
+            parts += 1;
             // `part.material` indexes the scene material table, the same table
             // `bound_materials` is built from; a part with none keeps the
             // white-fallback default, like an untextured `map_material`.
@@ -374,24 +465,36 @@ pub fn spawn_map_instanced(
                 .material
                 .and_then(|index| part_materials.get(index).cloned())
                 .unwrap_or_default();
-            commands.spawn((
-                Mesh3d(part_meshes[piece][part].clone()),
-                material,
-                InstanceMaterialData(data.clone()),
-                // The instance matrices are not part of the entity's `Aabb`, so
-                // built-in frustum culling would drop the whole part at once.
-                NoFrustumCulling,
-                Transform::default(),
-                Visibility::default(),
-            ));
+            // Sorted keys keep the spawn order (and so the transparent phase's
+            // tie-break) deterministic between runs.
+            let mut keys: Vec<ClusterKey> = clusters.keys().copied().collect();
+            keys.sort_unstable();
+            for key in keys {
+                let data = &clusters[&key];
+                let aabb = cluster_aabb(local_min, local_max, data);
+                entities += 1;
+                rendered_instances += data.len();
+                commands.spawn((
+                    Mesh3d(part_meshes[piece][part].clone()),
+                    material.clone(),
+                    InstanceMaterialData(data.clone(), aabb),
+                    // The instance matrices are not part of the mesh's `Aabb`,
+                    // which describes one instance at the origin, so the cluster
+                    // carries its own; the phase test below reads the same box.
+                    aabb,
+                    Transform::default(),
+                    Visibility::default(),
+                ));
+            }
         }
     }
 
     InstancedSpawned {
         entities,
         placements,
-        parts: buckets.iter().map(Vec::len).sum(),
+        parts,
         instances: rendered_instances,
+        clusters: entities,
     }
 }
 
@@ -420,6 +523,9 @@ impl Plugin for MapInstancedPlugin {
         // `prepare_map_part_bind_groups` can see that a placeholder went stale.
         app.init_resource::<crate::texture_stream::TextureGeneration>();
         app.add_plugins(ExtractResourcePlugin::<crate::texture_stream::TextureGeneration>::default());
+        // Cluster counts, so the render world can report submitted vs clusters.
+        app.init_resource::<MapClusterStats>();
+        app.add_plugins(ExtractResourcePlugin::<MapClusterStats>::default());
         // The scene's real lights: read from the ECS each frame, then mirrored
         // into the render world exactly like the texture generation counter.
         app.init_resource::<MapLights>();
@@ -428,6 +534,7 @@ impl Plugin for MapInstancedPlugin {
         app.sub_app_mut(RenderApp)
             .add_render_command::<Transparent3d, DrawMapInstanced>()
             .init_resource::<SpecializedMeshPipelines<MapInstancedMaterial>>()
+            .init_resource::<CullReport>()
             .add_systems(
                 RenderStartup,
                 init_map_instanced_pipeline.after(MeshPipelineSystems),
@@ -551,6 +658,59 @@ impl SpecializedMeshPipeline for MapInstancedMaterial {
     }
 }
 
+/// Per-frame culling counters, printed once a second so a run's log shows how
+/// much of the city the view actually submitted.
+#[derive(Resource, Default)]
+struct CullReport {
+    last: Option<Instant>,
+    submitted: usize,
+    culled: usize,
+}
+
+/// True when all eight corners of `aabb` fall outside one clip plane, i.e. the
+/// box cannot contribute a pixel to this view.
+///
+/// Six plane tests from `clip_from_world`, eight transforms, no allocation, and
+/// conservative in the two directions that matter: corners behind the eye
+/// (`w <= 0`) never count as outside a plane (their sign flips the comparison),
+/// and a box that straddles the eye plane is kept.
+fn aabb_outside_view(clip_from_world: &Mat4, aabb: &Aabb) -> bool {
+    let center = Vec3::new(aabb.center.x, aabb.center.y, aabb.center.z);
+    let half = Vec3::new(
+        aabb.half_extents.x,
+        aabb.half_extents.y,
+        aabb.half_extents.z,
+    );
+    // x < -w, x > w, y < -w, y > w, z < 0, z > w.
+    let mut outside = [true; 6];
+    let mut any_front = false;
+    for corner in 0..8 {
+        let local = center
+            + Vec3::new(
+                if corner & 1 == 0 { -half.x } else { half.x },
+                if corner & 2 == 0 { -half.y } else { half.y },
+                if corner & 4 == 0 { -half.z } else { half.z },
+            );
+        let clip = *clip_from_world * local.extend(1.0);
+        let front = clip.w > 0.0;
+        any_front |= front;
+        let hits = [
+            clip.x < -clip.w,
+            clip.x > clip.w,
+            clip.y < -clip.w,
+            clip.y > clip.w,
+            clip.z < 0.0,
+            clip.z > clip.w,
+        ];
+        for (slot, hit) in outside.iter_mut().zip(hits) {
+            if !front || !hit {
+                *slot = false;
+            }
+        }
+    }
+    any_front && outside.iter().any(|&out| out)
+}
+
 fn queue_map_instanced(
     transparent_3d_draw_functions: Res<DrawFunctions<Transparent3d>>,
     custom_pipeline: Res<MapInstancedMaterial>,
@@ -561,12 +721,17 @@ fn queue_map_instanced(
     maybe_batched_instance_buffers: Option<
         Res<BatchedInstanceBuffers<MeshUniform, MeshInputUniform>>,
     >,
-    material_meshes: Query<(Entity, &MainEntity), With<InstanceMaterialData>>,
+    material_meshes: Query<(Entity, &MainEntity, &InstanceMaterialData)>,
     mut transparent_render_phases: ResMut<ViewSortedRenderPhases<Transparent3d>>,
     views: Query<&ExtractedView>,
     view_key_cache: Res<ViewKeyCache>,
+    cluster_stats: Option<Res<MapClusterStats>>,
+    mut report: ResMut<CullReport>,
 ) {
     let draw_custom = transparent_3d_draw_functions.read().id::<DrawMapInstanced>();
+
+    let mut submitted = 0usize;
+    let mut culled = 0usize;
 
     for view in &views {
         let Some(transparent_phase) = transparent_render_phases.get_mut(&view.retained_view_entity)
@@ -578,7 +743,17 @@ fn queue_map_instanced(
             continue;
         };
 
-        for (entity, main_entity) in &material_meshes {
+        let clip_from_world = view.clip_from_world.unwrap_or_else(|| {
+            view.clip_from_view * Mat4::from(view.world_from_view.affine().inverse())
+        });
+
+        for (entity, main_entity, instance_data) in &material_meshes {
+            // Cluster culling: skip the whole draw entity when its instance
+            // bounds fall outside the view.
+            if aabb_outside_view(&clip_from_world, &instance_data.1) {
+                culled += 1;
+                continue;
+            }
             let Some(mesh_instance) = render_mesh_instances.render_mesh_queue_data(*main_entity)
             else {
                 continue;
@@ -613,7 +788,20 @@ fn queue_map_instanced(
                 extra_index: PhaseItemExtraIndex::None,
                 indexed: true,
             });
+            submitted += 1;
         }
+    }
+
+    report.submitted = submitted;
+    report.culled = culled;
+    let last = *report.last.get_or_insert_with(Instant::now);
+    if last.elapsed() >= Duration::from_secs(1) {
+        let stats = cluster_stats.as_deref().copied().unwrap_or_default();
+        println!(
+            "cull: parts={} clusters={} submitted={} culled={}",
+            stats.parts, stats.clusters, report.submitted, report.culled
+        );
+        report.last = Some(Instant::now());
     }
 }
 
