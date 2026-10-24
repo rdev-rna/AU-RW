@@ -190,6 +190,27 @@ struct Streaming {
 
 /// Build one Bevy mesh from a decoded part.
 pub(crate) fn part_mesh(piece: &load::LoadedPiece, part: &load::LoadedPart) -> Mesh {
+    // Diagnostic: the mesh is built from the whole piece vertex array, which is only
+    // correct when the part's triangle indices are absolute. Measure that instead of
+    // assuming it: a part-local index range would render the wrong vertices and
+    // scatter the building.
+    if std::env::var_os("ACU_INDEX_TRACE").is_some() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static N: AtomicUsize = AtomicUsize::new(0);
+        if N.fetch_add(1, Ordering::Relaxed) < 24 {
+            let max = part.triangles.iter().flatten().copied().max().unwrap_or(0);
+            let min = part.triangles.iter().flatten().copied().min().unwrap_or(0);
+            eprintln!(
+                "idx: piece={} verts={} part_base={} part_count={} tri_min={} tri_max={}",
+                piece.label,
+                piece.vertices.len(),
+                part.vertex_base,
+                part.vertex_count,
+                min,
+                max
+            );
+        }
+    }
     let mut positions = Vec::with_capacity(piece.vertices.len());
     let mut normals = Vec::with_capacity(piece.vertices.len());
     let mut uvs = Vec::with_capacity(piece.vertices.len());

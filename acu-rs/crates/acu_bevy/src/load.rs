@@ -204,8 +204,14 @@ impl Loader {
                 catalog_paths.push(path.clone());
             }
         }
-        // Map mode resolves materials from the assets archive itself.
-        if options.map_cell.is_some() || options.map_cells.is_some() {
+        // Map mode — preload *and* streaming — resolves materials and textures from the
+        // assets archive itself. Gating this on `--map-cell(s)` alone left the streamed
+        // ring without the archive in its catalog, so every diffuse that lives in
+        // DataPC_ACU_Paris_assets.forge failed to resolve and its parts rendered white.
+        let map_mode = options.map_cell.is_some()
+            || options.map_cells.is_some()
+            || options.map_stream.is_some();
+        if map_mode {
             let assets = options
                 .map_assets
                 .clone()
@@ -2067,12 +2073,23 @@ impl MapRuntime {
             }
             GeometryLink::None => {
                 self.totals.skipped_no_selector += 1;
-                if std::env::var_os("ACU_MAP_MISSING").is_some() {
+                let (file_id, name) = {
                     let (package, _) = self.cache.view()?;
-                    eprintln!(
-                        "map-missing: {} {}",
-                        package.resources[position].file_id, package.resources[position].name
-                    );
+                    (
+                        package.resources[position].file_id.clone(),
+                        package.resources[position].name.clone(),
+                    )
+                };
+                // Diagnostic: keep the payload of entities with no geometry link so their
+                // references can be resolved against the asset index instead of guessed.
+                if let Some(dir) = std::env::var_os("ACU_DUMP_MISSING") {
+                    let path = std::path::Path::new(&dir).join(format!("{file_id}.bin"));
+                    if !path.exists() {
+                        let _ = std::fs::write(&path, entity_bytes);
+                    }
+                }
+                if std::env::var_os("ACU_MAP_MISSING").is_some() {
+                    eprintln!("map-missing: {file_id} {name}");
                 }
                 return Ok(());
             }
