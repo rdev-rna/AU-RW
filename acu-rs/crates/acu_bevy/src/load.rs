@@ -1690,10 +1690,21 @@ impl MapRuntime {
                 Ok(records) => records,
                 Err(_) => continue,
             };
-            let chosen = records
-                .iter()
-                .find(|record| record.level >= self.wanted_lod)
-                .or_else(|| records.last());
+            let chosen = if let Some(centre) = self.centre {
+                let dx = world[12] - centre[0];
+                let dy = world[13] - centre[1];
+                let dz = world[14] - centre[2];
+                let distance = (dx * dx + dy * dy + dz * dz).sqrt();
+                records
+                    .iter()
+                    .find(|record| record.distance >= distance)
+                    .or_else(|| records.last())
+            } else {
+                records
+                    .iter()
+                    .find(|record| record.level >= self.wanted_lod)
+                    .or_else(|| records.last())
+            };
             let Some(record) = chosen else {
                 continue;
             };
@@ -1901,15 +1912,11 @@ impl MapRuntime {
         // (816, -240, 0). The chunk matrix is therefore used as-is; composing would move
         // the chunk twice for any container that is not identity.
         let _ = parent;
-        if let (Some(centre), Some(radius)) = (self.centre, self.radius) {
-            let dx = matrix[12] - centre[0];
-            let dy = matrix[13] - centre[1];
-            let dz = matrix[14] - centre[2];
-            if dx * dx + dy * dy + dz * dz > radius * radius {
-                self.totals.skipped_radius += 1;
-                return Ok(());
-            }
-        }
+        // Containers must be expanded before the radius test: a Largemesh container is an
+        // identity grouping node at the world origin (see the note below), so testing its
+        // own matrix measured the origin and dropped the terrain whenever the player was
+        // anywhere else. The chunks carry absolute translations and are radius-tested
+        // individually in the recursive call.
         if matches!(link, GeometryLink::None) && depth == 0 {
             // Largemesh buildings are containers: the payload lists one Entity per chunk,
             // and each chunk carries the mesh. Expand one level.
@@ -1953,6 +1960,15 @@ impl MapRuntime {
                 for child in children {
                     self.spawn_entity_by_id(child, matrix, depth + 1)?;
                 }
+                return Ok(());
+            }
+        }
+        if let (Some(centre), Some(radius)) = (self.centre, self.radius) {
+            let dx = matrix[12] - centre[0];
+            let dy = matrix[13] - centre[1];
+            let dz = matrix[14] - centre[2];
+            if dx * dx + dy * dy + dz * dz > radius * radius {
+                self.totals.skipped_radius += 1;
                 return Ok(());
             }
         }
@@ -2008,12 +2024,25 @@ impl MapRuntime {
                         return Ok(());
                     }
                 };
-                // Prefer the requested LOD; fall back to the finest available, never to a
-                // wrong level.
-                let chosen = records
-                    .iter()
-                    .find(|record| record.level >= self.wanted_lod)
-                    .or_else(|| records.last());
+                // The engine selects a level per placement by switch distance: record order
+                // is the level and `+22` is the distance it covers (ACU-RE-0037). Pick the
+                // first record whose distance covers this placement; fall back to the last,
+                // never to a wrong level. Without a viewer, --map-lod is the fallback.
+                let chosen = if let Some(centre) = self.centre {
+                    let dx = matrix[12] - centre[0];
+                    let dy = matrix[13] - centre[1];
+                    let dz = matrix[14] - centre[2];
+                    let distance = (dx * dx + dy * dy + dz * dz).sqrt();
+                    records
+                        .iter()
+                        .find(|record| record.distance >= distance)
+                        .or_else(|| records.last())
+                } else {
+                    records
+                        .iter()
+                        .find(|record| record.level >= self.wanted_lod)
+                        .or_else(|| records.last())
+                };
                 let Some(record) = chosen else {
                     self.totals.skipped_no_lod += 1;
                     return Ok(());
