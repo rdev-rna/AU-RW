@@ -511,6 +511,7 @@ fn stream_cells(
     state: Option<Res<player::State>>,
     controller: Res<controls::Controller>,
     mut streaming: Option<ResMut<Streaming>>,
+    capture: Option<Res<Capture>>,
 ) {
     let (Some(state), Some(mut stream)) = (state, streaming.as_mut()) else {
         return;
@@ -590,13 +591,20 @@ fn stream_cells(
     let mut added = 0usize;
     // One decode per 0.3 s: each costs ~250 ms on the main thread, so back-to-back loads read
     // as a freeze. Spacing them keeps the fill visible as a stutter instead.
+    //
+    // A capture is the exception: it must photograph a settled ring, and the play-mode
+    // throttle needs ~3,600 frames to fill 200 cells, so a still would always catch the
+    // ring mid-fill (two identical runs differed by half the frame before this).
+    let capturing = capture.is_some();
     let now = time.elapsed_secs_f64();
-    if stream.still_for < 0.25 || time.delta_secs() > 0.05 || now - stream.last_load < 0.3 {
+    if !capturing && (stream.still_for < 0.25 || time.delta_secs() > 0.05 || now - stream.last_load < 0.3)
+    {
         return;
     }
     stream.last_load = now;
+    let budget = if capturing { 64 } else { 1 };
     for entry in target {
-        if added >= 1 {
+        if added >= budget {
             break;
         }
         if stream.loaded.contains_key(&entry) {
@@ -868,6 +876,11 @@ struct Capture {
     waited: u32,
     /// Offscreen render target written by the screenshot.
     image: Option<Handle<Image>>,
+    /// Streaming: loaded-cell count seen last frame, and how long it has been stable.
+    /// A capture fires at a fixed frame count, which used to catch the ring half-filled
+    /// and make two identical runs differ by half the frame.
+    last_cells: usize,
+    settled_for: u32,
 }
 
 /// Frames to wait for the screenshot save before giving up.
@@ -1101,6 +1114,8 @@ fn main() {
             requested: false,
             waited: 0,
             image: None,
+            last_cells: 0,
+            settled_for: 0,
         })
         .add_systems(Update, (request_capture, capture_timeout, report_fps));
     }
@@ -2079,12 +2094,39 @@ fn report_fps(
     *since = now;
 }
 
-fn request_capture(mut commands: Commands, mut capture: ResMut<Capture>) {
+fn request_capture(
+    mut commands: Commands,
+    mut capture: ResMut<Capture>,
+    streaming: Option<Res<Streaming>>,
+    residency: Option<Res<texture_stream::TextureResidency>>,
+) {
     if capture.requested {
         return;
     }
     capture.rendered += 1;
     if capture.rendered < capture.frames {
+        return;
+    }
+    // A streamed ring is loaded on a time throttle, so a fixed frame count catches a
+    // different set of cells every run (two identical street runs differed by half the
+    // frame). Wait until the loaded-cell count has stopped changing before capturing.
+    if let Some(stream) = streaming {
+        let cells = stream.loaded.len();
+        if cells != capture.last_cells {
+            capture.last_cells = cells;
+            capture.settled_for = 0;
+        } else {
+            capture.settled_for += 1;
+        }
+        if capture.settled_for < 45 {
+            return;
+        }
+    }
+    // Textures are a second, independent queue: the cell count can be stable while
+    // residency is still draining, and a still taken then shows placeholder-white parts.
+    if let Some(textures) = residency.as_deref()
+        && textures.resident < textures.total
+    {
         return;
     }
     let Some(image) = capture.image.clone() else {
