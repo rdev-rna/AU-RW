@@ -36,6 +36,7 @@ use bevy::{
     render::{
         batching::gpu_preprocessing::BatchedInstanceBuffers,
         extract_component::{ExtractComponent, ExtractComponentPlugin},
+        extract_resource::ExtractResourcePlugin,
         mesh::{allocator::MeshAllocator, RenderMesh, RenderMeshBufferInfo},
         render_asset::RenderAssets,
         render_phase::{
@@ -54,6 +55,7 @@ use bevy::{
 use bevy::shader::ShaderDefVal;
 
 use crate::load;
+use crate::texture_stream::TextureGeneration;
 
 /// Embedded shader for the instanced map path.
 const SHADER_ASSET_PATH: &str = "embedded://acu_bevy/shaders/map_instanced.wgsl";
@@ -129,6 +131,10 @@ impl ExtractComponent for MapPartMaterial {
 #[derive(Component)]
 struct PreparedMapPart {
     bind_group: BindGroup,
+    /// [`TextureGeneration`] this bind group was built against. A later upload
+    /// bumps the counter and forces this part to be rebuilt against the real
+    /// `Image`; the placeholder view must not be kept.
+    generation: u32,
     /// Keeps the views, sampler and uniform buffer alive with the bind group.
     _bindings: BindingResources,
 }
@@ -272,6 +278,10 @@ impl Plugin for MapInstancedPlugin {
     fn build(&self, app: &mut App) {
         app.add_plugins(ExtractComponentPlugin::<InstanceMaterialData>::default());
         app.add_plugins(ExtractComponentPlugin::<MapPartMaterial>::default());
+        // The streamer's upload counter, mirrored into the render world so
+        // `prepare_map_part_bind_groups` can see that a placeholder went stale.
+        app.init_resource::<crate::texture_stream::TextureGeneration>();
+        app.add_plugins(ExtractResourcePlugin::<crate::texture_stream::TextureGeneration>::default());
         app.sub_app_mut(RenderApp)
             .add_render_command::<Transparent3d, DrawMapInstanced>()
             .init_resource::<SpecializedMeshPipelines<MapInstancedMaterial>>()
@@ -476,18 +486,23 @@ fn prepare_instance_buffers(
 /// One bind group per draw entity, built from its [`MapPartMaterial`].
 ///
 /// Like the instance buffers, the inputs are immutable for the life of the
-/// map, so entities that already carry a bind group are skipped instead of
-/// rebuilding thousands of bind groups every frame.
+/// map, so entities whose bind group was built against the current
+/// [`TextureGeneration`] are skipped instead of rebuilding thousands of bind
+/// groups every frame. When the streamer uploads a texture it bumps that
+/// generation, and every part whose bind group still points at the 1x1
+/// placeholder view is rebuilt against the real `Image` on that frame.
 fn prepare_map_part_bind_groups(
     mut commands: Commands,
     query: Query<(Entity, &MapPartMaterial, Option<&PreparedMapPart>)>,
     render_device: Res<RenderDevice>,
     pipeline_cache: Res<PipelineCache>,
+    generation: Option<Res<TextureGeneration>>,
     mut param: StaticSystemParam<<MapPartMaterial as AsBindGroup>::Param>,
 ) {
     let descriptor = MapPartMaterial::bind_group_layout_descriptor(&render_device);
+    let current = generation.as_deref().copied().unwrap_or_default().0;
     for (entity, material, prepared) in &query {
-        if prepared.is_some() {
+        if prepared.is_some_and(|prepared| prepared.generation == current) {
             continue;
         }
         match material.as_bind_group(
@@ -499,6 +514,7 @@ fn prepare_map_part_bind_groups(
             Ok(prepared) => {
                 commands.entity(entity).insert(PreparedMapPart {
                     bind_group: prepared.bind_group,
+                    generation: current,
                     _bindings: prepared.bindings,
                 });
             }

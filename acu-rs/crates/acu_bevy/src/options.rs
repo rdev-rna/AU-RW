@@ -125,6 +125,14 @@ pub struct Options {
     pub texture_archives: Vec<PathBuf>,
     /// Skip material/texture resolution and render the grey fallback.
     pub no_textures: bool,
+    /// Texture residency pool in MiB (default 100, the engine's 104857600-byte budget).
+    pub texture_pool_mb: u32,
+    /// Per-frame streaming time slice in milliseconds (default 4.0).
+    pub texture_slice_ms: f32,
+    /// Per-frame upload cap (default 5, the engine's per-pass item cap).
+    pub texture_per_frame: usize,
+    /// Upload every texture up front; restores the pre-streaming path for A/B.
+    pub no_texture_streaming: bool,
     /// Optional JSON report of the resolution chain and its provenance.
     pub report: Option<PathBuf>,
 }
@@ -200,6 +208,10 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut size: (u32, u32) = (1280, 720);
     let mut texture_archives: Vec<String> = Vec::new();
     let mut no_textures = false;
+    let mut texture_pool_mb: u32 = crate::texture_stream::DEFAULT_POOL_MB;
+    let mut texture_slice_ms: f32 = crate::texture_stream::DEFAULT_SLICE_MS;
+    let mut texture_per_frame: usize = crate::texture_stream::DEFAULT_PER_FRAME;
+    let mut no_texture_streaming = false;
     let mut static_scene = false;
     let mut scenario = "idle".to_string();
     let mut ticks = 0u32;
@@ -340,6 +352,31 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
                 texture_archives.push(args.next().ok_or("--texture-archive needs a value")?)
             }
             "--no-textures" => no_textures = true,
+            "--texture-pool-mb" => {
+                texture_pool_mb = args
+                    .next()
+                    .ok_or("--texture-pool-mb needs MiB")?
+                    .parse()
+                    .map_err(|e| format!("--texture-pool-mb: {e}"))?;
+            }
+            "--texture-slice-ms" => {
+                texture_slice_ms = args
+                    .next()
+                    .ok_or("--texture-slice-ms needs milliseconds")?
+                    .parse()
+                    .map_err(|e| format!("--texture-slice-ms: {e}"))?;
+                if texture_slice_ms < 0.0 {
+                    return Err("--texture-slice-ms must be >= 0".into());
+                }
+            }
+            "--texture-per-frame" => {
+                texture_per_frame = args
+                    .next()
+                    .ok_or("--texture-per-frame needs a count")?
+                    .parse()
+                    .map_err(|e| format!("--texture-per-frame: {e}"))?;
+            }
+            "--no-texture-streaming" => no_texture_streaming = true,
             "--static" => static_scene = true,
             "--scenario" => {
                 scenario = args.next().ok_or("--scenario needs a value")?;
@@ -515,6 +552,10 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
         size,
         texture_archives,
         no_textures,
+        texture_pool_mb,
+        texture_slice_ms,
+        texture_per_frame,
+        no_texture_streaming,
         report,
     })
 }
@@ -564,6 +605,11 @@ OPTIONS:
                        (repeatable; default: DataPC_SharedGroup_00.forge,
                        DataPC.forge)
     --no-textures      Render the grey fallback without touching materials
+    --texture-pool-mb N  Texture residency pool in MiB (default 100 = the engine's
+                       104857600-byte budget)
+    --texture-slice-ms F  Per-frame streaming time slice in ms (default 4.0)
+    --texture-per-frame N  Texture uploads per frame (default 5, the engine's cap)
+    --no-texture-streaming  Upload all textures up front (pre-streaming path, A/B)
     --static           Disable rig and test movement (old inspection mode)
     --scenario NAME    idle/bind/deform/walk/run/turn/jump/contact/profile-up/profile-down; walk/run-left/right/back/circle
                        reversals: visible loop, four right/left pairs (2 s each)

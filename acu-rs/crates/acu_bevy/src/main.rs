@@ -49,6 +49,8 @@ fn apply_native_matrix(m: &[f32; 16], p: [f32; 3]) -> [f32; 3] {
 }
 
 /// Fallback material for parts that resolved no material.
+mod texture_stream;
+
 #[derive(Resource)]
 struct MapGrey(Handle<StandardMaterial>);
 
@@ -1049,6 +1051,7 @@ fn main() {
         })
         .add_systems(Update, (request_capture, capture_timeout, report_fps));
     }
+    app.add_systems(Update, texture_stream::stream_textures);
     bevy::asset::embedded_asset!(app, "shaders/arena.wgsl");
     bevy::asset::embedded_asset!(app, "shaders/character.wgsl");
     bevy::asset::embedded_asset!(app, "shaders/map_instanced.wgsl");
@@ -1083,11 +1086,24 @@ fn setup_world(
         state.player.position = Vec3::from_array(spawn);
         state.player.floor = spawn[1];
     }
+    // Texture residency: the original streams through a bounded per-frame queue (see
+    // `texture_stream`). Every texture keeps its own handle bound to a flat 1x1 placeholder
+    // so materials resolve and render immediately; the real pixels are swapped in behind
+    // that same handle under the pool/slice/cap budget.
+    let streaming = !options.no_texture_streaming;
+    let mut residency = streaming.then(|| {
+        texture_stream::TextureResidency::new(
+            options.texture_pool_mb,
+            options.texture_slice_ms,
+            options.texture_per_frame,
+        )
+    });
     let texture_handles: Vec<_> = loaded
         .scene
         .textures
         .iter()
-        .map(|texture| {
+        .enumerate()
+        .map(|(index, texture)| {
             if texture.pixels.is_empty() {
                 return None;
             }
@@ -1132,7 +1148,27 @@ fn setup_world(
                     address_mode_v: bevy::image::ImageAddressMode::Repeat,
                     ..bevy::image::ImageSamplerDescriptor::linear()
                 });
-            Some(images.add(image))
+            if let Some(residency) = residency.as_mut() {
+                // Cheap placeholder at 1x1 RGBA; it is replaced wholesale on upload, so its
+                // format does not have to match the real block-compressed one.
+                let mut placeholder = Image::new_uninit(
+                    Extent3d {
+                        width: 1,
+                        height: 1,
+                        depth_or_array_layers: 1,
+                    },
+                    TextureDimension::D2,
+                    TextureFormat::Rgba8UnormSrgb,
+                    bevy::asset::RenderAssetUsages::default(),
+                );
+                placeholder.data = Some(vec![128, 128, 128, 255]);
+                let handle = images.add(placeholder);
+                let bytes = texture.pixels.len();
+                residency.push(index, handle.clone(), image, bytes);
+                Some(handle)
+            } else {
+                Some(images.add(image))
+            }
         })
         .collect();
     {
@@ -1163,6 +1199,63 @@ fn setup_world(
                 .map(|texture| texture.pixels.len())
                 .sum::<usize>()
         );
+    }
+    if let Some(residency) = residency.as_mut() {
+        // Priority: nearest texture first. A texture's distance is the minimum over the
+        // placements (entity matrices) of the meshes whose parts name its material, i.e.
+        // material -> part -> instance. Falls back to upload order when a part names no
+        // material or the piece report is shorter than the placement table.
+        let material_index: std::collections::HashMap<&str, usize> = loaded
+            .scene
+            .materials
+            .iter()
+            .enumerate()
+            .map(|(index, material)| (material.file_id.as_str(), index))
+            .collect();
+        let piece_textures: Vec<Vec<usize>> = loaded
+            .scene
+            .pieces
+            .iter()
+            .map(|piece| {
+                let mut textures: Vec<usize> = Vec::new();
+                for part in &piece.parts {
+                    let Some(file_id) = part.material.as_deref() else {
+                        continue;
+                    };
+                    let Some(&index) = material_index.get(file_id) else {
+                        continue;
+                    };
+                    let Some(material) = loaded.scene.materials.get(index) else {
+                        continue;
+                    };
+                    for texture in [material.diffuse_texture, material.normal_texture]
+                        .into_iter()
+                        .flatten()
+                    {
+                        if !textures.contains(&texture) {
+                            textures.push(texture);
+                        }
+                    }
+                }
+                textures
+            })
+            .collect();
+        for instance in &loaded.instances {
+            let Some(textures) = piece_textures.get(instance.piece) else {
+                continue;
+            };
+            let position = [
+                instance.matrix[12],
+                instance.matrix[13],
+                instance.matrix[14],
+            ];
+            for &texture in textures {
+                residency.site(texture, position);
+            }
+        }
+    }
+    if let Some(residency) = residency {
+        commands.insert_resource(residency);
     }
     let mut with_handle = 0usize;
     let mut with_normal = 0usize;
