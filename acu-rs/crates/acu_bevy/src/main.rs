@@ -1,4 +1,4 @@
-﻿//! Synthetic grey test world with Arno read directly from the install.
+//! Synthetic grey test world with Arno read directly from the install.
 //!
 //! Presentation only: the app reads mesh resources in memory through
 //! `acu_assets`, builds Bevy meshes in native units, and stages them in a
@@ -151,6 +151,10 @@ struct Streaming {
     /// Cells the current position calls for, minus the ones already loaded. A capture
     /// must wait for this to reach zero: a half-filled ring photographs as a torn city.
     pending: usize,
+    /// Wanted cells whose centre is within `HOLD_RADIUS` of the player and which are not
+    /// loaded yet. Mirrors the engine's rule (`GridStreamer__Update` 0x55D810 in the AC1
+    /// reference): the player is held while the ground around him is still loading.
+    pending_near: usize,
     anchor: Vec3,
     root: Entity,
     handles: Vec<Vec<Handle<Mesh>>>,
@@ -526,11 +530,20 @@ fn stream_cells(
     // which made two identical runs load different cells and differ by a quarter of the
     // frame.
     let mut target: BTreeSet<usize> = BTreeSet::new();
+    let mut near_missing = 0usize;
     for &(entry, x, y) in &stream.centres {
         // native (x, y) -> Bevy (x, -y). Verified the other sign is worse (347 m to the
         // nearest streamed box against 145 m), so the mapping is not the defect.
-        if Vec2::new(x, -y).distance(here) <= stream.radius {
+        let at = Vec2::new(x, -y);
+        let distance = at.distance(here);
+        if distance <= stream.radius {
             target.insert(entry);
+            // The engine holds the player while the cells around him are still loading.
+            // `HOLD_RADIUS` stands in for the half-cell box of the AC1 rule, because ACU's
+            // cells carry no grid coordinates (M1).
+            if distance <= HOLD_RADIUS && !stream.loaded.contains_key(&entry) {
+                near_missing += 1;
+            }
         }
     }
 
@@ -866,6 +879,16 @@ fn stream_cells(
     // Written AFTER the load loop: a value computed before it lags by one batch, and the
     // capture gate then fires with a half-filled ring (64 of 186 cells).
     stream.pending = target_len.saturating_sub(stream.loaded.len());
+    // The hold: cells the player is standing among that are still loading. Recomputed after
+    // the load loop, like `pending`, so it reflects what is loaded now.
+    stream.pending_near = stream
+        .centres
+        .iter()
+        .filter(|&&(entry, x, y)| {
+            Vec2::new(x, -y).distance(here) <= HOLD_RADIUS
+                && !stream.loaded.contains_key(&entry)
+        })
+        .count();
     if added > 0 || dropped > 0 {
         let (pieces, groups, members) = stream.runtime.stats();
         if added > 0 {
@@ -907,6 +930,11 @@ struct Capture {
 /// Frames to wait for the screenshot save before giving up.
 const CAPTURE_DEADLINE_FRAMES: u32 = 600;
 
+/// Radius around the player inside which an unloaded wanted cell holds him still. Stands in
+/// for the AC1 rule's half-cell box (its cells are 32 m at the finest level, so half a cell
+/// is 16 m; 40 m covers ACU's larger content blocks).
+const HOLD_RADIUS: f32 = 40.0;
+
 /// Last position where the player had ground under it. Walking is refused when the next
 /// position has no collider beneath, so Arno cannot walk off the loaded ring into the void
 /// (measured before this: 152 m of walking left the player floating in empty sky).
@@ -921,6 +949,15 @@ fn ground_player(
     let Some(stream) = streaming.as_deref() else {
         return;
     };
+    // The engine's hold: while the cells around the player are still loading, he does not
+    // move at all (`GridStreamer__Update` 0x55D810 in the AC1 reference). This is what stops
+    // a walk from outrunning the streamer into empty space.
+    if stream.pending_near > 0 {
+        if let Some(last) = grounded.0 {
+            state.player.position = last;
+        }
+        return;
+    }
     // Highest collider top under a point, within `reach` of the player's height.
     let surface = |p: Vec3| -> Option<f32> {
         let mut best: Option<f32> = None;
@@ -1979,6 +2016,7 @@ fn setup_world(
             radius,
             loaded: HashMap::new(),
             pending: 0,
+            pending_near: 0,
             anchor: Vec3::splat(-1.0e9),
             root,
             handles: Vec::new(),
