@@ -104,7 +104,75 @@ compute distance, fps and `y` relative to the ground; assert D3.
 - Long runs (whole map) go to the background; nothing else builds meanwhile.
 - Each result lands in this file's status table, not in chat only.
 
-## 6. Order of work
+## 6. The map system, corrected against AC1's verified implementation
+
+Reference: `Banned445/AC1-Movement-Rewritten` (clean-room AC1 in Bevy, streams all of Damascus from the
+install). Its `src/city/grid.rs` and `src/city/stream.rs` carry exe addresses and archive observations,
+so these are engine rules, not preferences.
+
+### The real model
+
+1. **The world is a hierarchical grid, not a list of centroids.**
+   `GridLayout` (class `0x7DB083ED`): cell size, origin, and the finest level's width in cells.
+   `GridPartition` (`0x0E2F4444`): `levels`, `cells`, each `GridCell { col, row, level, datablock, dependencies }`.
+   Cell `k` of level `L` covers `origin + size·2^L·(col,row)` .. `+ size·2^L`, with
+   `col,row = k % (width>>L), k / (width>>L)`. Each level halves the width and doubles the cell size, so
+   large objects live in coarse cells.
+2. **The loading radius comes from the data, per cell.**
+   `GridPartition__LoadingRadiusAt` (`0x68AE10`) reads a byte map indexed by the finest cell under the
+   player; the `GridLayout` byte at `+20` is the radius outside the grid. In Damascus it is **64 m**.
+3. **Wanted = the box, plus parents.**
+   `GridPartition__IterCellsInBox` (`0x68C3E0`) + `GridStreamer__RequestCellAndParents` (`0x55CC70`):
+   every cell of any level overlapping the square box `p ± r`, and all their parents.
+4. **Priority is view-weighted, not pure distance.**
+   `GridStreamer__RequestCellsInBox` (`0x55D210`):
+   `score = 0.6·(1 − cos(view angle)) + 0.4·d²/cell²`, sorted ascending (`VIEW_WEIGHT` = `dword_18D6780`).
+5. **Everything not wanted unloads, every plan, no hysteresis** (`GridStreamer__Update` `0x55D810`).
+6. **The player is held while the ground under him is still loading** — the single most important rule we
+   were missing. While any wanted cell overlapping the half-cell box around the player is not loaded,
+   `hold` keeps the player at the last position (`stream.rs:375-379`).
+7. **Distance is covered by fake meshes, not by drawing the city.** A loaded finest cell hides its fake
+   spans, unloading shows them (`GridPartition__OnCellLoaded` `0x68B620`,
+   `FakeEntities__SetCellLoaded` `0x5E4AB0`) — that is what fills the horizon.
+8. **Budgets per frame, not per load**: texture bytes (`6 MB`), LOD mesh vertices (`15 000`), physics
+   triangles (`40 000`), and shadow/cull distances by object size (`SMALL_CULL` 12.5 m,
+   `MEDIUM_CULL` 35 m).
+
+### What our implementation does instead
+
+| Rule | Ours |
+|---|---|
+| hierarchical grid with parents | flat list of cell centroids from `paris-cell-centres.json` |
+| per-cell loading radius from data | one CLI `--map-stream` radius for everything |
+| wanted = box + parents | distance from centroid ≤ radius |
+| view-weighted priority | none (set iteration order, now `BTreeSet`) |
+| hold while the ground loads | **absent** — the player walks off into unloaded space |
+| fake spans for the distance | absent — the horizon is empty |
+| per-frame budgets | texture only; geometry/LOD unbudgeted |
+
+### Consequence
+
+Point 6 explains the walk test exactly: Arno walked 152 m into a region whose cells were still loading and
+there was nothing under him, because nothing holds him and no fake spans cover the gap. Points 1–2 explain
+why spawn points looked empty: I was picking a coordinate and hoping geometry existed at it, instead of
+asking the grid which cell contains the point and what its radius is.
+
+### Next steps, in order
+
+1. **RE ACU's grid.** In the ACU dump, find the equivalent of `GridLayout`/`GridPartition`: a payload with
+   cell size, origin, width, level count, and a per-finest-cell radius byte map. Our cells already carry
+   spatial ids (`Cell04814`), so the grid exists in the data; we have simply never decoded it. Search the
+   type registry for a class whose payload is `{i32 size, i32 origin_x, i32 origin_y, i32, i32 width, u8 radius}`
+   and for a partition `{u32 levels, u32 cells, cells × {col,row,level,datablock}}`.
+2. **Replace centroid-radius streaming with grid streaming**: cells from the box ± their own radius, plus
+   parents, ordered by the 0.6/0.4 priority.
+3. **Implement the hold.** While any wanted cell under the player's half-cell box is unloaded, keep the
+   player at the last position. This alone removes the walk-into-the-void failure.
+4. **Fake spans** for the horizon (ACU equivalent of `FakeEntities__SetCellLoaded`).
+5. Only then re-test determinism, the walk, and the visuals.
+
+## 7. Order of work (superseded by section 6)
+
 
 1. U1 measurement (one command, two runs, compare `capture-state`). **Blocks everything.**
 2. U2 fix, then re-verify determinism to the byte.
@@ -113,10 +181,11 @@ compute distance, fps and `y` relative to the ground; assert D3.
 5. U4 occlusion, if 3/4 demand it.
 6. D5 city-scale still, last, at a fitting setting.
 
-## 7. Stop conditions
+## 8. Stop conditions
 
 - If U1 shows the target set is genuinely unstable across identical runs, stop feature
   work and fix the streaming scheduler first; every visual judgement depends on it.
 - If U3 turns out to be missing cells rather than bad transforms, the fix is load policy
   (ring margin), not placement — say so and change the policy.
 - If D3 fails on fps only, the next step is U4, not more geometry work.
+
