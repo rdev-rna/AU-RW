@@ -1738,6 +1738,13 @@ fn setup_world(
         }
     }
     if pieces.is_empty() {
+        // A census pass (`--map-centres-only`, or the grid-bounds dump) loads no meshes by
+        // design; exiting here used to throw away the work it had just done.
+        let census = std::env::var_os("ACU_CELL_BOUNDS").is_some() || options.map_centres_only;
+        if census {
+            eprintln!("no pieces loaded (census pass); done");
+            std::process::exit(0);
+        }
         eprintln!("no pieces loaded");
         std::process::exit(3);
     }

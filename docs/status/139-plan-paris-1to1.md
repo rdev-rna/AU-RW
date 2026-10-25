@@ -82,13 +82,32 @@ streaming catalog (untextured 71 → 8); deterministic ring.
 
 ## 4. Work, in dependency order
 
-### M1 — Decode ACU's grid (blocks everything)
-Find the ACU equivalent of `GridLayout`/`GridPartition` in the type registry we located
-(`0x4e9c800`, typed reader `sub_270FF90`). Signature to look for: a payload beginning
-`{i32 cell size, i32 origin x, i32 origin y, ..., i32 width, u8 radius}`, and a partition of
-`{u32 levels, u32 cells, cells × {col,row,level,datablock}}`.
-Acceptance: for every cell in `paris-world-cells.json`, the grid computes a rect that contains the
-cell's placements (checked against a sample of decoded instances); report the worst deviation.
+### M1 — Decode ACU's grid: RESULT — not present in the data
+
+Searched and rejected:
+
+| Candidate | Result |
+|---|---|
+| `GridLayout` (`0x7DB083ED`), `GridPartition` (`0x0E2F4444`), `GridCellDataBlock` (`0x3435AD40`) | **zero** resources with those type ids in `asset_index.sqlite` (53,152 types indexed) |
+| lattice fit on 6,537 cell extents | no lattice: cell centres are content centroids, and nearest-neighbour distances between them are continuous 0–12 m |
+| `ACU_Worlds` (`651b5aa3`, file `000000067323548f`) | 638 B = 62 `{u16 flag, u64 world resource id}` entries, all guard/HQ/interior components (`ACU_Guards_Bastille`, `ACU_GIBlockers`, …) — no grid |
+| `GameWorld_Tree` (`6caecc37`, file `00000023f3d3c794`) | 111 B tree of two nodes — no grid |
+
+So ACU does not expose an AC1-style hierarchy of `col/row/level` cells in the resources we can
+address. Its "cells" are content blocks with no published spatial origin; a cell's extent is the
+bounding box of its own placements (now dumped to `local/cell-bounds.txt`, 6,537 cells).
+
+**Consequence for the plan:** the grid-derived parts of M2 (parents, per-cell radius byte) cannot be
+implemented as such. What transfers from AC1 regardless, and matters for the milestone:
+
+- the **hold** (M3) — keep the player still while the cells around him are loading;
+- **view-weighted priority** (0.6·(1−cos) + 0.4·d²/cell²) — works with any cell set;
+- **fake/distant spans** (M4) — the horizon problem is engine-agnostic;
+- the **per-frame budgets** (M7).
+
+The radius for a content cell is taken from its own extent plus a margin, which is a labelled
+approximation until ACU's own rule is found.
+
 
 ### M2 — Replace streaming with the grid rule
 Wanted = box ± **per-cell radius**, plus parents; priority 0.6/0.4; unload the unwanted each plan;

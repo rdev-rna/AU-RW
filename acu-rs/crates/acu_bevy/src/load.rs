@@ -1174,6 +1174,11 @@ pub struct MapRuntime {
     budget: usize,
     pieces: Vec<LoadedPiece>,
     centres: Vec<(usize, f32, f32, usize)>,
+    /// Per cell, the x/z extent of its placements (native axes). The centroid pass used to
+    /// record only a mean, which is not a grid: nearest-neighbour distances between cell
+    /// centroids run continuously from 0 to 12 m, so no lattice can be fitted from them.
+    /// The extent is what lets the real grid be solved for.
+    cell_bounds: Vec<(usize, f32, f32, f32, f32)>,
     centre_sum: (f64, f64, usize),
     mesh_cache: HashMap<u64, usize>,
     instances: Vec<MapInstance>,
@@ -1207,18 +1212,31 @@ impl MapRuntime {
         if self.centres_only {
             // Centroid pass: entity matrices only, no selectors, groups or meshes.
             self.cache.ensure(&mut self.paris, cell_entry)?;
-            let (sx, sy, count) = {
+            let (sx, sy, count, min_x, min_y, max_x, max_y) = {
                 let (package, _) = self.cache.view()?;
                 let (mut sx, mut sy, mut count) = (0f64, 0f64, 0usize);
+                let (mut min_x, mut min_y) = (f32::INFINITY, f32::INFINITY);
+                let (mut max_x, mut max_y) = (f32::NEG_INFINITY, f32::NEG_INFINITY);
+                let mut take = |x: f32, y: f32,
+                                sx: &mut f64, sy: &mut f64, count: &mut usize,
+                                min_x: &mut f32, min_y: &mut f32,
+                                max_x: &mut f32, max_y: &mut f32| {
+                    *sx += x as f64;
+                    *sy += y as f64;
+                    *count += 1;
+                    *min_x = min_x.min(x);
+                    *min_y = min_y.min(y);
+                    *max_x = max_x.max(x);
+                    *max_y = max_y.max(y);
+                };
                 for resource in &package.resources {
                     if resource.type_id != TYPE_ENTITY {
                         continue;
                     }
                     let bytes = &package.bytes[resource.payload.clone()];
                     if let Some(matrix) = entity_matrix(bytes) {
-                        sx += matrix[12] as f64;
-                        sy += matrix[13] as f64;
-                        count += 1;
+                        take(matrix[12], matrix[13], &mut sx, &mut sy, &mut count,
+                             &mut min_x, &mut min_y, &mut max_x, &mut max_y);
                     }
                 }
                 // A cell whose content is only building groups has no loose entity matrix;
@@ -1230,13 +1248,12 @@ impl MapRuntime {
                         }
                         let bytes = &package.bytes[resource.payload.clone()];
                         if let Some(base) = group_base(bytes) {
-                            sx += base[12] as f64;
-                            sy += base[13] as f64;
-                            count += 1;
+                            take(base[12], base[13], &mut sx, &mut sy, &mut count,
+                                 &mut min_x, &mut min_y, &mut max_x, &mut max_y);
                         }
                     }
                 }
-                (sx, sy, count)
+                (sx, sy, count, min_x, min_y, max_x, max_y)
             };
             if count > 0 {
                 self.centres.push((
@@ -1245,6 +1262,8 @@ impl MapRuntime {
                     (sy / count as f64) as f32,
                     count,
                 ));
+                self.cell_bounds
+                    .push((cell_entry, min_x, min_y, max_x, max_y));
             } else if self.totals.zero_cells < 12 {
                 self.totals.zero_cells += 1;
                 // Diagnostic: what does a cell with no locatable matrix actually contain?
@@ -2289,10 +2308,11 @@ impl MapRuntime {
             radius: options.map_radius,
             detail_radius: options.map_detail_radius,
             dry_run: false,
-            centres_only: false,
+            centres_only: options.map_centres_only,
             budget: options.map_piece_limit.unwrap_or(2_000_000),
             pieces: Vec::new(),
             centres: Vec::new(),
+            cell_bounds: Vec::new(),
             centre_sum: (0.0, 0.0, 0),
             mesh_cache: HashMap::new(),
             instances: Vec::new(),
@@ -2511,6 +2531,7 @@ pub fn load_map(
         budget,
         pieces: Vec::new(),
         centres: Vec::new(),
+            cell_bounds: Vec::new(),
         centre_sum: (0.0, 0.0, 0),
         mesh_cache: HashMap::new(),
         instances: Vec::new(),
@@ -2581,6 +2602,17 @@ pub fn load_map(
         totals.group_members,
         totals.skipped_no_entity
     );
+    // Cell extents, for solving the streaming grid: one line per cell,
+    // "entry min_x min_y max_x max_y". Written only when asked, because it is a
+    // whole-map pass (the same cost as the centroid pass).
+    if let Some(path) = std::env::var_os("ACU_CELL_BOUNDS") {
+        let mut text = String::new();
+        for &(entry, min_x, min_y, max_x, max_y) in &context.cell_bounds {
+            text.push_str(&format!("{entry} {min_x:.3} {min_y:.3} {max_x:.3} {max_y:.3}\n"));
+        }
+        std::fs::write(path, text)?;
+        eprintln!("map: {} cell extents written", context.cell_bounds.len());
+    }
     if let Some(path) = &options.map_cell_centres {
         let rows: Vec<serde_json::Value> = context
             .centres
@@ -2636,6 +2668,27 @@ pub fn cell_entries_for(options: &Options) -> Result<Vec<usize>> {
 
 /// Load every piece, reusing one open Forge per archive.
 pub fn load_all(options: &Options) -> Result<Loaded> {
+    // Diagnostic: `ACU_DUMP_RESOURCE="<file id>;<path>"` resolves one resource through the
+    // catalog and writes its payload, so a structure like the World resource can be read
+    // from the data instead of guessed at.
+    if let Ok(spec) = std::env::var("ACU_DUMP_RESOURCE")
+        && let Some((id, path)) = spec.split_once(';')
+    {
+        let mut loader = Loader::new(options);
+        let found = loader.resolve(id, None, 0)?;
+        match found {
+            Some(resolved) => {
+                std::fs::write(path, &resolved.payload)?;
+                eprintln!(
+                    "dump: {} bytes of {id} ({}) -> {path}",
+                    resolved.payload.len(),
+                    resolved.name
+                );
+            }
+            None => eprintln!("dump: {id} not found in the selected archives"),
+        }
+        std::process::exit(0);
+    }
     // A cached map is pure data: reading it skips every archive, decode and selector step.
     if let Some(path) = &options.cache_read {
         return Ok(crate::cache::read(path)?);
@@ -2653,6 +2706,35 @@ pub fn load_all(options: &Options) -> Result<Loaded> {
         let cells = cell_entries_for(options)?;
         let mut runtime = MapRuntime::new(options)?;
         let instances = runtime.load_cells(&cells)?;
+        // Grid fitting needs per-cell extents, and this (the MapRuntime preload) is the path
+        // that actually runs for `--map-cells`; the dump used to sit in the older `load_map`,
+        // which the preload no longer calls.
+        if let Some(path) = std::env::var_os("ACU_CELL_BOUNDS") {
+            let mut text = String::new();
+            for &(entry, min_x, min_y, max_x, max_y) in &runtime.cell_bounds {
+                text.push_str(&format!(
+                    "{entry} {min_x:.3} {min_y:.3} {max_x:.3} {max_y:.3}\n"
+                ));
+            }
+            std::fs::write(path, text)?;
+            eprintln!("map: {} cell extents written", runtime.cell_bounds.len());
+        }
+        if let Some(path) = &options.map_cell_centres {
+            let rows: Vec<serde_json::Value> = runtime
+                .centres
+                .iter()
+                .map(|&(entry, x, z, placements)| {
+                    serde_json::json!({
+                        "entry": entry,
+                        "x": x,
+                        "y": z,
+                        "placements": placements
+                    })
+                })
+                .collect();
+            std::fs::write(path, serde_json::to_vec_pretty(&rows)?)?;
+            eprintln!("map: {} cell centres -> {}", rows.len(), path.display());
+        }
         let loaded = Loaded {
             pieces: runtime.pieces,
             instances,
