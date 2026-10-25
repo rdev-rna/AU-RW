@@ -8,6 +8,19 @@ The Rust workspace is in `acu-rs/`; the current scene is static asset inspection
 Read `MASTER_PROMPT.md`, `docs/STATUS.md`, and the current task before work.
 Use `docs/ROADMAP.md` for sequencing and `docs/WORKFLOW.md` for the work loop.
 
+## Asset index (use first)
+
+A local SQLite index lists every resource in all 63 Forge archives (ID, name, type, archive,
+entry, hashes) plus candidate links between resources. Query it instead of scanning archives.
+
+- At the start of a session run `python tools/index_status.py`. If it is not READY, run
+  `python tools/index_status.py --fetch` (downloads from a GitHub Release with a progress bar).
+- Ask with `python tools/asset_query.py where <id> | find <name> | types | archive <name> |
+  walk <name> | sql "SELECT ..."`. Details: `docs/ASSET_INDEX_QUICKSTART.md`.
+- Evidence: a link is a **candidate** (equal bytes), never a decoded reference; a type label has a
+  `confidence` (`observed-decode`, `crc-name`, `unknown`). Cite which you used in findings.
+- Which duplicate ID the game loads is not established (#35). Do not assume latest archive wins.
+
 The user authorizes writes throughout this project and reads elsewhere on this
 machine. The user also explicitly authorizes executing original ACU game code
 at the agent's discretion, including launching/restarting the game, attaching

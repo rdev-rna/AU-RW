@@ -14,10 +14,12 @@ OUT = ROOT / "local/paris-world-cells.json"
 
 def main(limit):
     cells = json.loads(CELLS.read_text(encoding="utf-8"))
-    world = [c for c in cells if c.get("record_length", 0) > 1000]
+    # 71-byte cells hold one minimap texture child (`ACU_Paris_<x>_<y>_Map`); every larger
+    # cell is a real package whose entities carry world geometry.
+    world = [c for c in cells if c.get("record_length", 0) > 80]
     world.sort(key=lambda c: c["record_length"], reverse=True)
     OUT.write_text(json.dumps(world, indent=1), encoding="utf-8")
-    print(f"{len(cells)} cells, {len(world)} with record_length > 1000 -> {OUT}")
+    print(f"{len(cells)} cells, {len(world)} world cells (record_length > 80) -> {OUT}")
     print(f"{'entry':>6} {'length':>9}  name")
     for cell in world[:limit]:
         print(f"{cell['entry_index']:6} {cell['record_length']:9}  {cell['name']}")

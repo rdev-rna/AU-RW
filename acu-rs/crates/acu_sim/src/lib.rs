@@ -42,7 +42,7 @@ impl Traversal {
     }
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy)]
 pub struct Player {
     pub position: Vec3,
     pub velocity: Vec3,
@@ -50,10 +50,33 @@ pub struct Player {
     pub distance: f32,
     pub grounded: bool,
     pub tick: u64,
+    /// Half-extent of the walkable square. The synthetic arena is 11.5 m; a world map
+    /// scene sets it large because there is no runtime collision yet.
+    pub bounds: f32,
+    /// Height of the walkable floor; a map scene sets it to the spawn height.
+    pub floor: f32,
 }
 
-fn blocked(p: Vec3) -> bool {
-    if p.x.abs() > 11.5 || p.z.abs() > 11.5 {
+impl Default for Player {
+    fn default() -> Self {
+        Self {
+            position: Vec3::ZERO,
+            velocity: Vec3::ZERO,
+            yaw: 0.0,
+            distance: 0.0,
+            grounded: false,
+            tick: 0,
+            bounds: ARENA_BOUNDS,
+            floor: 0.0,
+        }
+    }
+}
+
+/// Synthetic arena half-extent; a world map scene passes a larger bound instead.
+pub const ARENA_BOUNDS: f32 = 11.5;
+
+fn blocked(p: Vec3, bounds: f32) -> bool {
+    if p.x.abs() > bounds || p.z.abs() > bounds {
         return true;
     }
     BLOCKS.iter().any(|&(x, z, size)| {
@@ -70,20 +93,34 @@ fn blocked(p: Vec3) -> bool {
 
 impl Player {
     pub fn step(&mut self, input: Input) {
-        self.step_internal(input, if input.run { 4.5 } else { 1.8 }, false, None);
+        self.step_internal(
+            input,
+            if input.run { 4.5 } else { 1.8 },
+            false,
+            None,
+            ARENA_BOUNDS,
+        );
     }
 
     /// Clip-derived root speed in the presentation arena; collision remains authored.
     pub fn step_with_speed(&mut self, input: Input, speed: f32) {
-        self.step_internal(input, speed, true, None);
+        self.step_internal(input, speed, true, None, ARENA_BOUNDS);
     }
     /// World X/Z displacement from selected animation, with independently steered facing.
     pub fn step_with_root(&mut self, input: Input, displacement: Vec2, yaw: f32) {
         assert!(displacement.is_finite() && yaw.is_finite());
-        self.step_internal(input, 0.0, true, Some(displacement / DT));
+        let bounds = self.bounds;
+        self.step_internal(input, 0.0, true, Some(displacement / DT), bounds);
         self.yaw = yaw;
     }
-    fn step_internal(&mut self, input: Input, speed: f32, clip_root: bool, root: Option<Vec2>) {
+    fn step_internal(
+        &mut self,
+        input: Input,
+        speed: f32,
+        clip_root: bool,
+        root: Option<Vec2>,
+        bounds: f32,
+    ) {
         if input.reset {
             *self = Self::default();
         }
@@ -108,7 +145,7 @@ impl Player {
         let upward_route = input.run
             && input.traversal == Traversal::Up
             && d.length_squared() > 0.01
-            && blocked(ahead);
+            && blocked(ahead, bounds);
         if (input.jump || upward_route) && input.traversal != Traversal::Down && self.grounded {
             self.velocity.y = 5.5;
             self.grounded = false;
@@ -117,20 +154,20 @@ impl Player {
         let before = self.position;
         let mut p = self.position;
         p.x += self.velocity.x * DT;
-        if blocked(p) {
+        if blocked(p, bounds) {
             self.velocity.x = 0.0;
         } else {
             self.position.x = p.x;
         }
         p = self.position;
         p.z += self.velocity.z * DT;
-        if blocked(p) {
+        if blocked(p, bounds) {
             self.velocity.z = 0.0;
         } else {
             self.position.z = p.z;
         }
         let next_y = self.position.y + self.velocity.y * DT;
-        let mut floor = 0.0f32;
+        let mut floor = self.floor;
         if self.velocity.y <= 0.0 {
             for &(x, z, size) in &BLOCKS {
                 let closest = Vec2::new(
