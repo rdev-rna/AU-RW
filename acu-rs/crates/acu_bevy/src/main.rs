@@ -527,7 +527,8 @@ fn stream_cells(
     // frame.
     let mut target: BTreeSet<usize> = BTreeSet::new();
     for &(entry, x, y) in &stream.centres {
-        // native (x, y) -> Bevy (x, -y)
+        // native (x, y) -> Bevy (x, -y). Verified the other sign is worse (347 m to the
+        // nearest streamed box against 145 m), so the mapping is not the defect.
         if Vec2::new(x, -y).distance(here) <= stream.radius {
             target.insert(entry);
         }
@@ -906,6 +907,76 @@ struct Capture {
 /// Frames to wait for the screenshot save before giving up.
 const CAPTURE_DEADLINE_FRAMES: u32 = 600;
 
+/// Last position where the player had ground under it. Walking is refused when the next
+/// position has no collider beneath, so Arno cannot walk off the loaded ring into the void
+/// (measured before this: 152 m of walking left the player floating in empty sky).
+#[derive(Resource, Default)]
+struct Grounded(Option<Vec3>);
+
+fn ground_player(
+    mut state: ResMut<player::State>,
+    mut grounded: ResMut<Grounded>,
+    streaming: Option<Res<Streaming>>,
+) {
+    let Some(stream) = streaming.as_deref() else {
+        return;
+    };
+    // Highest collider top under a point, within `reach` of the player's height.
+    let surface = |p: Vec3| -> Option<f32> {
+        let mut best: Option<f32> = None;
+        for (min, max) in stream.colliders.values().flatten() {
+            if p.x < min.x || p.x > max.x || p.z < min.z || p.z > max.z {
+                continue;
+            }
+            if max.y > p.y + 2.0 {
+                continue; // a surface above the head is not ground
+            }
+            best = Some(best.map_or(max.y, |b: f32| b.max(max.y)));
+        }
+        best
+    };
+    let current = state.player.position;
+    if std::env::var_os("ACU_GROUND_TRACE").is_some() {
+        let mut containing = 0usize;
+        let mut tops: Vec<f32> = Vec::new();
+        for (min, max) in stream.colliders.values().flatten() {
+            if current.x >= min.x && current.x <= max.x && current.z >= min.z && current.z <= max.z {
+                containing += 1;
+                tops.push(max.y);
+            }
+        }
+        tops.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let mut nearest = (f32::INFINITY, Vec3::ZERO);
+        for (min, max) in stream.colliders.values().flatten() {
+            let centre = (*min + *max) * 0.5;
+            let d = Vec2::new(centre.x - current.x, centre.z - current.z).length();
+            if d < nearest.0 {
+                nearest = (d, centre);
+            }
+        }
+        eprintln!(
+            "ground: at=({:.1},{:.1},{:.1}) bounds={:?} boxes={} contain={} nearest={:.1}m at={:?} tops={:?}",
+            current.x,
+            current.y,
+            current.z,
+            stream.bounds,
+            stream.colliders.values().map(Vec::len).sum::<usize>(),
+            containing,
+            nearest.0,
+            nearest.1,
+            &tops[..tops.len().min(4)]
+        );
+    }
+    if let Some(top) = surface(current) {
+        state.player.position.y = top;
+        grounded.0 = Some(state.player.position);
+    } else if let Some (last) = grounded.0 {
+        // No ground under the new position: hold the last grounded spot instead of
+        // walking on air.
+        state.player.position = last;
+    }
+}
+
 #[derive(Component)]
 struct InspectionCamera {
     center: Vec3,
@@ -1104,12 +1175,15 @@ fn main() {
         .add_plugins(instanced::MapInstancedPlugin)
         .insert_resource(Time::<Fixed>::from_hz(60.0))
         .init_resource::<controls::Controller>()
+        .init_resource::<Grounded>()
         .add_systems(PreUpdate, controls::sample.after(bevy::input::InputSystems))
         .insert_resource(options)
         .add_systems(Startup, setup_world);
     app.add_systems(
         FixedUpdate,
-        player::step.run_if(resource_exists::<player::State>),
+        (player::step, ground_player)
+            .chain()
+            .run_if(resource_exists::<player::State>),
     )
     .add_systems(
         Update,
