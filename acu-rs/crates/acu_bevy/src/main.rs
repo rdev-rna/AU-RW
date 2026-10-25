@@ -23,7 +23,7 @@ mod options;
 mod player;
 mod rig;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -521,7 +521,11 @@ fn stream_cells(
     };
     let position = state.player.position;
     let here = Vec2::new(position.x, position.z);
-    let mut target: HashSet<usize> = HashSet::new();
+    // BTreeSet, not HashSet: the ring is filled in bounded batches, so iteration order
+    // decides which cells land in a batch. `HashSet` order is randomised per process,
+    // which made two identical runs load different cells and differ by a quarter of the
+    // frame.
+    let mut target: BTreeSet<usize> = BTreeSet::new();
     for &(entry, x, y) in &stream.centres {
         // native (x, y) -> Bevy (x, -y)
         if Vec2::new(x, -y).distance(here) <= stream.radius {
@@ -544,7 +548,6 @@ fn stream_cells(
             stream.loaded.len()
         );
     }
-    stream.pending = target.len().saturating_sub(stream.loaded.len());
     let mut dropped = 0usize;
     let mut unload_parts = 0usize;
     let mut unload_total = 0usize;
@@ -616,6 +619,7 @@ fn stream_cells(
     }
     stream.last_load = now;
     let budget = if capturing { 64 } else { 1 };
+    let target_len = target.len();
     for entry in target {
         if added >= budget {
             break;
@@ -858,6 +862,9 @@ fn stream_cells(
             Err(error) => eprintln!("stream: cell {entry}: {error}"),
         }
     }
+    // Written AFTER the load loop: a value computed before it lags by one batch, and the
+    // capture gate then fires with a half-filled ring (64 of 186 cells).
+    stream.pending = target_len.saturating_sub(stream.loaded.len());
     if added > 0 || dropped > 0 {
         let (pieces, groups, members) = stream.runtime.stats();
         if added > 0 {
@@ -2113,6 +2120,7 @@ fn request_capture(
     mut capture: ResMut<Capture>,
     streaming: Option<Res<Streaming>>,
     residency: Option<Res<texture_stream::TextureResidency>>,
+    player: Option<Res<player::State>>,
 ) {
     if capture.requested {
         return;
@@ -2124,7 +2132,7 @@ fn request_capture(
     // A streamed ring is loaded on a time throttle, so a fixed frame count catches a
     // different set of cells every run (two identical street runs differed by half the
     // frame). Wait until the loaded-cell count has stopped changing before capturing.
-    if let Some(stream) = streaming {
+    if let Some(stream) = streaming.as_deref() {
         let cells = stream.loaded.len();
         if cells != capture.last_cells {
             capture.last_cells = cells;
@@ -2136,8 +2144,10 @@ fn request_capture(
             return;
         }
         // Stable is not the same as complete: the ring is filled in batches, so the
-        // count can hold steady between batches. Only capture a finished ring.
+        // count can hold steady between batches. `pending` is written after each load
+        // loop, so it is the truth as of the last update.
         if stream.pending > 0 {
+            capture.settled_for = 0;
             return;
         }
     }
@@ -2153,6 +2163,22 @@ fn request_capture(
         std::process::exit(4);
     };
     capture.requested = true;
+    if let Some(stream) = streaming.as_deref() {
+        let mut keys: Vec<usize> = stream.loaded.keys().copied().collect();
+        keys.sort_unstable();
+        let checksum = keys.iter().fold(0u64, |acc, k| acc.wrapping_mul(31).wrapping_add(*k as u64));
+        let at = player
+            .as_deref()
+            .map(|s| s.player.position.to_array())
+            .unwrap_or([f32::NAN; 3]);
+        eprintln!(
+            "capture-state: cells={} checksum={checksum:016x} player=({:.3},{:.3},{:.3})",
+            keys.len(),
+            at[0],
+            at[1],
+            at[2]
+        );
+    }
     println!(
         "capture: saving {} after {} frames",
         capture.path.display(),
