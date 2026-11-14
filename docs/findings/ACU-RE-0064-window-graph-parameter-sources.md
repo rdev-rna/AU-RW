@@ -3,7 +3,8 @@
 Date: 2026-11-14. Related: [ACU-RE-0063](ACU-RE-0063-newdemo-window-selection.md) (the graph
 rules that read these parameters), [ACU-RE-0058](ACU-RE-0058-root-delta-extraction.md) (mirror bit),
 [ACU-RE-0062](ACU-RE-0062-automated-window-entries.md) (replay).
-State: **observed in the binary** (static), except where marked. No live run.
+State: **observed in the binary** (static), and **observed live** at the hooked setter during the
+replayed side entry (section "Live check").
 
 ## Provenance
 
@@ -67,9 +68,47 @@ State: **observed in the binary** (static), except where marked. No live run.
      mirrored;
    - Direction 0 (mode 2) plays them as authored.
 
+## Live check (2026-11-14, run `local/native-probe/runs/window-hook-1`)
+
+- Setup:
+  - launched with `capture_run.py --until world --keep-game --save-pin capture-start-1
+    --fps-cap 60`, PID 124052;
+  - closed with `capture_run.py --close` (graceful); saves put back with `save_pin.py putback`.
+- Hooks: hardware execute probes (probe DLL `HOOK`). Prologue bytes were checked against the
+  hash-bound mapped image.
+  - `0x1401B0A50` `488bc448895810488968205657415648`, sampling RCX+0x30;
+  - `+3` `4889581048896820`, sampling RCX+0x180;
+  - `+7` `4889682056574156`, sampling RCX+0x210;
+  - 256 bytes each. A fourth probe on `0x1401B1770` never fired.
+- Rate: 0 hits/s idle, climbing and on beams; exactly one hit per window entry.
+- Replay (`window_replay.py position --no-adjust`, then `push --profile lpf`):
+  - two entries from the recorded spot, both `xx_WindowGratingEntry_Climb_Lt-High_tr_IdleHigh`;
+  - both landed at (803.3639, −168.6581, 5.9965), identical to ACU-RE-0062.
+  - The call-time snapshot was identical in both (P, n, TH); the second also has Q and the mode.
+  - A read after the entry differed (the object had been reused). Only the in-handler snapshots
+    are used.
+
+| Field | Value | Meaning |
+|---|---|---|
+| P `+0x30` | (804.4631, −169.3172, 7.0) | window placement position + 0.208 m along row 0 (lateral 0.001, same z) |
+| n `+0x40` | (0.866, −0.5, 0) | = placement row 0 = **outward** normal |
+| `+0x50` / `+0x60` | P ± 0.816 m along row 1 | entry span ends; `+0x290` = 0.8183 (half span) |
+| `+0xC0` TargetHeight = SyncB_TargetHeight | −1.373 | in the High band [−2.0, −1.25) → `Lt-High` |
+| `+0xC4` / `+0xC8` | 1.042 / 1.724 | horizontal / 3D distance |
+| Q `+0x190` | z 6.58 | = this window's sill (placement data, 6.5806) → HeightDifferential = 0.42 ≥ 0.2 → Grating |
+| `+0x1A0` | z 6.0 | the interior floor (landing z 5.9965) |
+| `+0x180` | z 8.0255 | unidentified |
+| mode `+0x300` | 2 | → Direction 0 → `Lt` clips unmirrored (Arno moved to his left) |
+
+Notes:
+- Q, `+0x1A0` and `+0x180` have x,y in an unidentified local frame; only their z values are
+  world heights.
+- The character reference height is P.z − TH = 8.373. The sampled root was 7.064, so the game
+  measures from about 1.31 m above the root.
+
 ## Inferences and alternatives
 
-- **Which side.** Which physical side mode 3 is depends on whether n (descriptor `+32`) points
+- **Which side (now settled live: n is outward, and this entry was mode 2).** Which physical side mode 3 is depends on whether n (descriptor `+32`) points
   out of or into the building; that is not established.
   - Replay check (ACU-RE-0062 obs. 3): Arno was on the window's +row 1 side and moved to his
     left (−row 1) into it, playing an `Lt` clip.

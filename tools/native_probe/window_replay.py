@@ -40,6 +40,8 @@ def main() -> int:
     ap.add_argument("--seconds", type=float, default=4.0)
     ap.add_argument("--no-climb", action="store_true", help="position: start from the current hang")
     ap.add_argument("--short-of", type=float, default=0.0, help="position: stop this many metres before the spot (u)")
+    ap.add_argument("--no-adjust", action="store_true",
+                    help="position: hang where the climb stops (the high-profile adjust can trigger a climb pass)")
     a = ap.parse_args()
     a.out.mkdir(parents=True, exist_ok=True)
     w = next(x for x in json.loads(a.targets.read_text())["windows"] if x["file_id"] == a.window)
@@ -92,9 +94,12 @@ def main() -> int:
             out["after_climb"] = here
             # adjust along the wall (high profile, no entry allowed to stop it)
             u, v = drv.wall_uv(w, here)
-            out["adjust"] = drv.wall_goto(w, (spot_u, v), {"right_trigger": 255}, lambda s: None, timeout=6.0,
-                                          tolerance=0.25, until_hit=False)
-            drv.release(0.8)
+            if a.no_adjust:
+                out["adjust"] = "skipped"
+            else:
+                out["adjust"] = drv.wall_goto(w, (spot_u, v), {"right_trigger": 255}, lambda s: None, timeout=6.0,
+                                              tolerance=0.25, until_hit=False)
+                drv.release(0.8)
             here = drv.position()
             out["position"] = here
             out["distance_to_spot_m"] = round(math.dist(here, a.spot), 3)
