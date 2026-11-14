@@ -1,7 +1,8 @@
 """Travel to another world (Paris, Versailles, ...) through the game's own world-portal path (ACU-RE-0049).
 
     python tools/native_probe/world_travel.py <pid> find  [--world ACU_Paris]
-    python tools/native_probe/world_travel.py <pid> go    [--world ACU_Paris] [--entry 0x...]
+    python tools/native_probe/world_travel.py <pid> load  [--world ACU_Paris] [--destination <file id>]
+    python tools/native_probe/world_travel.py <pid> go    ...   # mode 3: crashed the game, do not use
 
 Static route (corpus, ACU.exe SHA-256 748abdc6...7e40):
   0x141E42C00(entry)  portal / fast-travel entry; ends with
@@ -38,7 +39,7 @@ import world_entities  # noqa: E402
 WORLDS = {"ACU_Paris": 0x0000000F18B7E1CF, "ACU_Versailles": 0x0000000E84B48064,
           "ACU_Prologue": 0x00000010A04D134D, "ACU_RebirthRitual": 0x0000000FC9A64E04,
           "ACU-DLC_Saint-Denis": 0x000000135DCE49F2}
-MODE_TRAVEL = 3
+MODE_TRAVEL, MODE_LOAD, MODE_START = 3, 4, 5  # mode 3 crashed the game (ACU-RE-0049); use load
 
 
 def scan_qword(mem: live_state.Memory, value: int, limit: int = 4096) -> list[int]:
@@ -94,12 +95,33 @@ def go(pid: int, world: str, entry: int) -> dict:
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("pid", type=int)
-    ap.add_argument("mode", choices=["find", "go"])
+    ap.add_argument("mode", choices=["find", "go", "load", "start"])
+    ap.add_argument("--destination", type=lambda s: int(s, 16), default=0,
+                    help="destination file ID for load (e.g. a PlayerPortal in that world); 0 = none")
     ap.add_argument("--world", default="ACU_Paris", choices=sorted(WORLDS))
     ap.add_argument("--entry", type=lambda s: int(s, 16))
     a = ap.parse_args()
     if a.mode == "find":
         print(json.dumps(find(a.pid, a.world), indent=1))
+        return
+    if a.mode == "start":
+        mem = live_state.Memory(a.pid)
+        world = mem.u64(mem.u64(live_state.WORLD_HOLDER_GLOBAL) + live_state.HOLDER_WORLD)
+        mem.close()
+        shared = teleport.Shared(a.pid)
+        try:
+            r = shared.call(0, world, [0.0] * 16, mode=MODE_START, timeout=10)
+        finally:
+            shared.close()
+        print(json.dumps({"world": f"0x{world:X}", **r}))
+        return
+    if a.mode == "load":
+        shared = teleport.Shared(a.pid)
+        try:
+            r = shared.call(a.destination, WORLDS[a.world], [0.0] * 16, mode=MODE_LOAD, timeout=10)
+        finally:
+            shared.close()
+        print(json.dumps({"world": a.world, "destination": f"{a.destination:016x}", **r}))
         return
     entry = a.entry
     if entry is None:

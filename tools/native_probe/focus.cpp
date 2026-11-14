@@ -102,6 +102,15 @@ static int(WINAPI* realShowCursor)(BOOL) = nullptr;
 // mode 3 (world travel, ACU-RE-0049): the portal/fast-travel entry's last step 0x141E42C00 ends with
 // 0x141D60C90([0x145219860], &entry->worldHandle (+72), &entry->destinationHandle (+80)). human = the
 // entry; entity = the world file ID its world handle must carry at handle+16 (checked first).
+// mode 4 (load world, ACU-RE-0049): the same call the travel manager makes after the world switch,
+// 0x141CD8A00(worldFileId, 1, 0, 6, destinationFileId, 1) -> 0x141CD8A40 queues command 8 in the
+// World holder (handles built from the file IDs by 0x1426EB640 / 0x1426EAF00; the push takes the
+// holder's lock; the queue drains on the game's own thread). entity = world ID, human = destination.
+// mode 5 (start world, ACU-RE-0049): 0x141D5E520(world, &startHandle) picks the start (a portal in
+// the world's list at +312/+322, else its default +304), stores it at +328 and calls 0x141D68080,
+// which hands the start's transform to the world's spawner (+1976). The travel manager's update
+// 0x141D57AD0 makes this call after a world load. entity = world (must be the current World
+// [[0x145217368]+0x98]); the start handle is the engine's null handle (RVA 0x525BB58) = default.
 struct TeleportShared { uint32_t magic, request, done; int32_t status; uint64_t human, entity; float matrix[16];
                         uint32_t exception, mode; };
 static_assert(sizeof(TeleportShared) == 104, "teleport layout");  // '<IIIiQQ16fII'
@@ -110,7 +119,8 @@ constexpr UINT kTeleportMessage = WM_APP + 0x42;
 constexpr uintptr_t kHumanVtableRva = 0x2FB2010, kHumanResetRva = 0x131A530, kEntityMatrix = 0x20, kEntityWorld = 0x60;
 constexpr uintptr_t kBehaviourVtableRva = 0x2F08230, kSetInvisibleRva = 0x1EC93F0, kEntityDataRva = 0x1CCFAC0,
                     kSetGodModeRva = 0x1212680, kGodModeStateRva = 0x0CFBDA0,
-                    kTravelManagerRva = 0x5219860, kTravelRva = 0x1D60C90;
+                    kTravelManagerRva = 0x5219860, kTravelRva = 0x1D60C90, kLoadWorldRva = 0x1CD8A00,
+                    kStartWorldRva = 0x1D5E520, kWorldHolderRva = 0x5217368, kNullHandleRva = 0x525BB58;
 static volatile TeleportShared* teleport = nullptr;
 static volatile LONG teleports = 0;
 static uintptr_t imageLow = 0, imageHigh = 0;
@@ -167,6 +177,28 @@ static int runTravel(uintptr_t entry, uint64_t worldId, uint32_t* exception) {
         return -3;
     }
 }
+static int runLoadWorld(uint64_t worldId, uint64_t destinationId, uint32_t* exception) {
+    if (!worldId || worldId >> 48) return -1;
+    __try {
+        ((double(__fastcall*)(uint64_t, uint8_t, uint64_t, int, uint64_t, uint8_t))(imageLow + kLoadWorldRva))(
+            worldId, 1, 0, 6, destinationId, 1);
+        return 1;
+    } __except (*exception = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
+        return -3;
+    }
+}
+static int runStartWorld(uintptr_t world, uint32_t* exception) {
+    uintptr_t holder = *(uintptr_t*)(imageLow + kWorldHolderRva);
+    if (!readable(holder + 0x98, 8) || *(uintptr_t*)(holder + 0x98) != world || !readable(world + 2656, 1)) return -1;
+    if (*(uint8_t*)(world + 2656)) return -2;  // the routine itself does nothing then
+    __try {
+        uintptr_t start = imageLow + kNullHandleRva;
+        ((uintptr_t(__fastcall*)(uintptr_t, uintptr_t*))(imageLow + kStartWorldRva))(world, &start);
+        return 1;
+    } __except (*exception = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
+        return -3;
+    }
+}
 static void serviceTeleport() {
     volatile TeleportShared* t = teleport;
     if (!t || t->magic != kTeleportMagic || t->request == t->done) return;
@@ -176,6 +208,8 @@ static void serviceTeleport() {
     float readback = -1;
     int status = t->mode == 0 ? runTeleport((uintptr_t)t->human, (uintptr_t)t->entity, matrix, &exception)
                : t->mode == 3 ? runTravel((uintptr_t)t->human, t->entity, &exception)
+               : t->mode == 4 ? runLoadWorld(t->entity, t->human, &exception)
+               : t->mode == 5 ? runStartWorld((uintptr_t)t->entity, &exception)
                : t->mode <= 2 ? runFlag(t->mode, (uintptr_t)t->human, (uintptr_t)t->entity, matrix[0] > 0.5f, &readback, &exception)
                : -4;
     t->matrix[1] = readback;

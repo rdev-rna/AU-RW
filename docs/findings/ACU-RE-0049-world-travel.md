@@ -2,8 +2,9 @@
 
 Date: 2026-11-14. Related: [ACU-RE-0044](ACU-RE-0044-player-state-and-repeatable-start.md),
 [ACU-RE-0046](ACU-RE-0046-player-teleport-and-vault-scan.md).
-State: partially established. The world-change pipeline is traced; calling its last step alone
-crashed the game.
+State: partially established. The Paris World loads on request through the game's own
+load-world command (observation 10); the player is not yet brought into it. Calling the travel
+manager's last step alone crashed the game (observation 7).
 
 ## Provenance
 
@@ -56,9 +57,34 @@ crashed the game.
 Inference: a real fast travel first puts the game in a state where gameplay systems such as
 `0x140F94AD0` stop (the preparation in observation 5) before the world handle is swapped.
 
+8. `0x141C5D3C0` (the only caller of `0x141E42C00`) handles messages on the channel registered by
+   `0x142DF1330` as `"NetMissionChannel.MissionHistory"` (`dword_145213530`): `0x141E42C00`
+   applies mission history (co-op/resume), it is not the fast-travel button.
+   `0x140007C70` and `0x141CCF930` have no call, jump or pointer reference in the mapped image.
+9. **Load world by ID.** `0x141CD8A00(worldId u64, flag u8, u64, delay int, destinationId u64,
+   chain u8)` (disassembly: `mov rdx, rcx` passes the full ID) → `0x141CD8A40(holder, …)` builds a
+   world handle `0x1426EB640(&unk_14525BB70, id, 0)` and a destination handle
+   `0x1426EAF00(&unk_14525BB70, id, 0)` and queues command 8 (push under the holder's lock);
+   `chain` (byte +49) makes command 9 queue command 5 (switch). The travel manager calls it as
+   `(world id, 1, 0, 6, destination id, 1)`.
+10. Live (focus shim mode 4, run `travel-2-launch`, pid 116176): `0x141CD8A00(0000000f18b7e1cf, 1,
+    0, 6, 0000000fc7f96295 PlayerPortal_SQ02_M01, 1)` → 2.2 s later holder `+0x90` names
+    `ACU_Paris` and `+0x98` is a new World (`0x15F4E3C50`); the game kept running (60 fps, 5+ min)
+    and rendered Paris geometry at low detail from a fixed camera. **No player:** World `+0xD8`
+    stayed 0, the ACU-RE-0044 chain fails.
+11. `0x141D5E520(world, &start)` selects the start (a handle in the World's list `+312`, u16 count
+    `+322` — 765 in Paris — else default `+304`), stores it at `+328` and calls `0x141D68080`,
+    which passes the start's transform (vtable `+136`) to the World's spawner `[+1976]`
+    (`0x141DFA910`, `0x141DFB080`); guard byte `+2656`. Called live (shim mode 5, null handle →
+    default start `0000000f18b7e1d4`): returned, no crash, still no player. The manager update
+    `0x141D57AD0` also calls the destination's vtable `+152` first; for the default start object
+    (vtable `0x143024080`) that slot is the shared stub `0x141E6D4E0`.
+12. Saves were restored from the run snapshot after closing the game.
+
 ## Next
 
-Find where the local fast-travel UI builds and dispatches the request message that
-`0x141C5D3C0`/`0x141E42C00` consume (the producer side), and call that on the game thread; or
-call `0x141E42C00` with a request object built to its layout once every field is known. Do not
-repeat the bare `0x141D60C90` call.
+Find how the player entity is handed to the new World (who writes World `+0xD8`, and what the
+travel manager's state machine `+644` does between the transition world and the target). The
+debug manager wiring (ACU-RE-0046, `0x140ED6770` via vtable `+192`) shows the player component is
+re-bound per world, so a world-level "player created/attached" event is the likely missing step.
+Do not repeat the bare `0x141D60C90` call (observation 7).
