@@ -40,7 +40,7 @@ Legend: ✅ ready · 🟡 partial · ❌ missing · — not needed.
 | Materials, shading | 0013, `LIGHTING_RESEARCH.md` | 🟡 | 🟡 | ❌ | material templates/shaders | `acu_assets`, `acu_bevy` |
 | Skeleton, rig, skinning, bone modifiers | 0010, 0014–0017, 0028 | 🟡 | ✅ | ✅ modifiers gated live (0028) | runtime solver order beyond the gated set | `acu_assets`, `acu_motion` |
 | Animation clips and tracks | 0018, 0026, 0027 | 🟡 | 🟡 codec 7 open | 🟡 | codec 7, events | `acu_assets`, `acu_motion` |
-| Locomotion selection, root motion | 0019, 0022, 0025, 0029, 0032, 0056 | 🟡 transform = physics body pose (0056) | 🟡 | 🟡 `data/oracles/locomotion.json` | native graph selection; what drives the physics body (velocity vs clip root) | `acu_motion`, `acu_sim` |
+| Locomotion selection, root motion | 0019, 0022, 0025, 0029, 0032, 0056, 0057 | 🟡 transform = physics body pose (0056); body velocity = root delta / dt (0057) | 🟡 | 🟡 `data/oracles/locomotion.json` | native graph selection; root-delta extraction `0x1400FA080`; position-target mode `0x141A51F70` | `acu_motion`, `acu_sim` |
 | Input | 0021, 0023, 0044, 0052 | ✅ heading = camera yaw + stick angle (0052) | — | ✅ `data/oracles/camera.json` move phases | action bindings; stick response curve | `acu_sim` |
 | Player entity and transform | 0044 | 🟡 Z up (one sample) | — | ✅ live chain | units (metres per 0047, unconfirmed in 0044); authoritative transform owner | `acu_sim` (axis conversion) |
 | Parkour candidates, ranking, actions | 0030, 0041–0043, 0045, 0046, 0055 | 🟡 candidates = collision ledge lips (0055) | ✅ collision (0050) | ✅ `parkour.json`, `parkour_geometry.json` | edge generator routine; per-type inclusion rules; action semantics | `acu_sim`, `acu_motion` |
@@ -87,7 +87,7 @@ oracle, so it ends in a fixture, not only a write-up.
 | 1 | Ground and collision | MeshShape triangles from ShadowRigidBody / ReferenceListShape / RigidBody decoded; ground = highest surface at or below z + 0.5 m (ACU-RE-0050) | `ground_versailles.json`, `ground_paris.json` | primitive shapes, navmesh, DataLayer |
 | 2 | Tick | one frame = one sim step, variable dt; physics one step at a rate bucket (ACU-RE-0051) | `tick.json` | above 100 fps (explicit cap only) |
 | 3 | Camera | live view found; heading = camera yaw + stick; rates, pitch range, follow (ACU-RE-0052) | `camera.json` | collision/distance policy, curve |
-| 4 | Locomotion | oracle exported (earlier); camera-relative heading now pinned by `camera.json` | `locomotion.json` | native clip selection, root-motion ownership |
+| 4 | Locomotion | oracle exported (earlier); camera-relative heading pinned by `camera.json`; root-motion ownership observed (0056, 0057: locomotion is `clip_root`) | `locomotion.json` | native clip selection, root-delta extraction |
 | 5 | Parkour scanner inputs | candidates are ledge lips of the decoded mesh (92 % within 5 cm) (ACU-RE-0055) | `parkour_geometry.json` | generator routine (live probe got 0 hits in Paris), inclusion rules |
 | 6 | World travel remainder | setter chain and arrival sequence observed live (ACU-RE-0054) | `world_travel.json` | player-entity creator (write watch on World +0xD8) |
 | 7 | Patch precedence | front-insert mount, first-match lookup; live reads agree (ACU-RE-0053) | — | mount order observed live |

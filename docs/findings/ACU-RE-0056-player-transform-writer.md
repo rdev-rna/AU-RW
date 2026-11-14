@@ -82,7 +82,9 @@ animation root motion or not) is **not** established.
 
 ## Unknowns
 
-- The writer of the body's velocity or target (Havok-side, under `0x1425F…`–`0x1426…`).
+- The writer of the body's velocity or target. **Resolved in
+  [ACU-RE-0057](ACU-RE-0057-body-velocity-from-root-motion.md):** the animation root delta / dt,
+  through the BipedComponent request slot `+0x130`.
 - The enclosing function of `0x141A87F1C` and what `0x141A96090` returns.
 - Whether the A/B order or count differs during parkour actions (free-run here was mostly
   running; a scripted vault was not isolated).

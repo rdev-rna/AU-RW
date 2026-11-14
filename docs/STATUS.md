@@ -1,5 +1,16 @@
 # Project status
 
+Latest (2026-11-14, body velocity source): animation root motion drives the player.
+- Write watches on the live player follow one chain each frame
+  ([ACU-RE-0057](findings/ACU-RE-0057-body-velocity-from-root-motion.md)): the AtomAnimComponent
+  takes the graph's root delta, stores it on the skeleton, and turns it into the physics proxy's
+  velocity, R·delta/dt.
+- Measured: velocity / (delta/dt) = 1.000, and the body moves by |delta| per frame (ratio
+  1.000–1.003). This holds when walking, strafing, free-running, climbing and turning in place.
+- ADR-0005 is updated: locomotion is `clip_root`.
+- Open: the root-delta extraction inside the graph (`0x1400FA080`), and a rarer position-target
+  mode (`0x141A51F70`). New script `tools/native_probe/root_motion_link.py`.
+
 Latest (2026-11-14, player transform owner): a hardware data-write watch (new probe command
 `HOOKDATA`) on the live player shows a single writer of the entity matrix. Each frame the physics
 sync copies the physics body's pose to the entity and carries all motion; character code re-writes

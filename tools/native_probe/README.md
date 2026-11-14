@@ -213,7 +213,9 @@ python tools/native_probe/focus.py activate <pid>   # posts activation messages 
   The trap fires after the writing instruction (`rip` = next instruction; for a leaf writer
   `return_address` is its caller). The snapshot is taken at `address + offset`, and data slots
   keep 512 stack bytes. `position_writers.py PID OUT` watches the player transform
-  (ACU-RE-0056). Never put an execute hook on hot routines such as `0x1420F6F70` (~11k calls/s);
+  (ACU-RE-0056). `root_motion_link.py PID OUT [--stick X Y] [--body]` watches the skeleton's
+  root delta, the BipedComponent velocity request and, with `--body`, the position target and
+  body translation (ACU-RE-0057). Never put an execute hook on hot routines such as `0x1420F6F70` (~11k calls/s);
   arming it stalled the client.
 - **Always launch with an explicit frame cap** (`--fps-cap 30..240`; nothing above 300 is needed).
   Never `--fps-cap 0`: an uncapped run on 2026-11-14 stalled the user's whole PC.

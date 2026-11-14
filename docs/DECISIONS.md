@@ -11,7 +11,7 @@ Use `docs/templates/DECISION.md`; store accepted decisions under `docs/decisions
 | ADR-0002 | [Identity policy](decisions/0002-identity-policy.md) | Key state, caches and oracles on resource file IDs; native entity addresses/runtime IDs change on every world arrival (ACU-RE-0049) |
 | ADR-0003 | [Coordinates and units](decisions/0003-coordinates-and-units.md) | Native X right, Y forward, Z up, metres in data and simulation; Bevy gets (x, z, −y) at the boundary; compass headings atan2(x, y). Handedness inferred |
 | ADR-0004 | [Tick policy](decisions/0004-tick-policy.md) | Fixed 1/60 s tick (native-parity at a 60 fps cap), 1/30 s parity mode; native game is variable-step (ACU-RE-0051) |
-| ADR-0005 | [Root-motion ownership](decisions/0005-root-motion-ownership.md) | Simulation owns the transform through one character body; per-state velocity source (controller or clip root + warp). Native: the entity copies the physics body pose each frame (ACU-RE-0056); velocity source unknown |
+| ADR-0005 | [Root-motion ownership](decisions/0005-root-motion-ownership.md) | Simulation owns the transform through one character body; per-state velocity source (controller or clip root + warp). Native: the entity copies the physics body pose each frame (ACU-RE-0056); the body velocity is the animation root delta / dt, so locomotion is `clip_root` (ACU-RE-0057) |
 
 Collision backend is pending. Tick policy: ADR-0004. Patch precedence: front-insert mount order
 observed statically, with live reads agreeing (ACU-RE-0053). Version pins and
