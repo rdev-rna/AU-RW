@@ -64,6 +64,9 @@ the native transition-selection order, and shows event conditions read clip-auth
 Live locomotion inputs: [ACU-RE-0067](findings/ACU-RE-0067-live-locomotion-parameters-and-blend-rules.md)
 reads the player's graph parameters live (controller = graph instance, f20 layout), measures
 MovementSpeed/HighProfile/Parkour and clips per stick input, and decodes the axial blend weights.
+Clip events: [ACU-RE-0068](findings/ACU-RE-0068-clip-event-intervals.md) reads the runtime
+event-interval lists live: integer event tracks are step tracks (key to next key), plus an end
+marker `0x80000002`; `event(id)` tests overlap with the frame window.
 
 Use `docs/templates/FINDING.md`; store durable findings under `docs/findings/`.
 Link bulky raw evidence in ignored `outputs/` with identity and reproduction steps.
