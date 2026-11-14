@@ -1,5 +1,14 @@
 # Project status
 
+Latest (2026-11-14, action capture attempt): `tools/native_probe/action_capture.py` ran three
+passes (148 scenes, RT+A and RT+B) from earlier scan spots. **No usable traversal data.**
+- Pass 1 triggered 18 traversal clips, but its watches went quiet early: the player entity was
+  probably replaced and the recorder kept the old pointers.
+- Passes 2 and 3 recorded fully but triggered no traversal: scan spots are unreliable teleport
+  targets, and no swing or window occurred.
+- Lesson: plan by variant (approach state x angle x side x high/low profile, from clip names), and
+  re-resolve the player after every teleport.
+
 Latest (2026-11-14, trace replay): earlier traces were replayed against decoded clip root motion
 ([ACU-RE-0059](findings/ACU-RE-0059-trace-replay-root-motion.md)).
 - New `animation::parse_root` reads only the root channels. It decodes root motion for 584 of
