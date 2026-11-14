@@ -61,6 +61,9 @@ indexes all 5,320 machines. The locomotion root is not found yet.
 Stream format and hub: [ACU-RE-0066](findings/ACU-RE-0066-atomgraph-stream-and-navigation-hub.md)
 parses AtomGraph payloads exactly with the native loaders, finds the navigation hub machine and
 the native transition-selection order, and shows event conditions read clip-authored events.
+Live locomotion inputs: [ACU-RE-0067](findings/ACU-RE-0067-live-locomotion-parameters-and-blend-rules.md)
+reads the player's graph parameters live (controller = graph instance, f20 layout), measures
+MovementSpeed/HighProfile/Parkour and clips per stick input, and decodes the axial blend weights.
 
 Use `docs/templates/FINDING.md`; store durable findings under `docs/findings/`.
 Link bulky raw evidence in ignored `outputs/` with identity and reproduction steps.
