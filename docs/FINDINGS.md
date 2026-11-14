@@ -8,6 +8,11 @@ packed, so `.text`/`.rdata`/`.data`/`.pdata` have RawSize 0 and no code byte was
 compared. The verdict is `bound_without_code_comparison`; 867 absent starts and three
 patched `.UBX1` pages remain unexplained.
 
+Symbol index: [ACU-RE-0060](findings/ACU-RE-0060-reflection-symbol-index.md) reads the runtime
+class reflection (6,617 classes, 8,966 vtables, 31,910 property descriptors) into
+`local/symbol_index.sqlite`; 50,280 of 217,041 corpus functions get a sourced, confidence-
+labelled proposal (`vf<slot>` is a slot number, not a method name). See `docs/SYMBOL_INDEX.md`.
+
 Latest pose-stage evidence: [ACU-RE-0028](findings/ACU-RE-0028-model-pose-bone-modifiers.md)
 identifies the traced slot-2 array as the model-space pose written by skeleton
 bone modifiers (MaxLookAt, Orientation/PositionConstraint, Hinge), recovers
@@ -63,6 +68,7 @@ Link bulky raw evidence in ignored `outputs/` with identity and reproduction ste
 | ACU-RE-0011 | [Clustered vertex attribute decode and the first character render](findings/ACU-RE-0011-clustered-vertex-decode.md) | Vertex layouts and position scale validated against stored cluster boxes; Arno renders in a synthetic grey arena; axes/winding/skinning unresolved |
 | ACU-RE-0012 | [Clustered mesh descriptor and draw-primitive layout](findings/ACU-RE-0012-clustered-mesh-layout.md) | 52 B cluster / 36 B draw-primitive records typed and validated on 15 meshes; descriptor vertex bases correct a stale `min_index`; bit-mask semantics still unresolved |
 | ACU-RE-0013 | [Material and diffuse texture chain](findings/ACU-RE-0013-material-texture-chain.md) | Typed materials/sets/selectors, nonboolean reference scope; nineteen Arno parts bind eight materials and seven diffuse textures in an inspected grey scene |
+| ACU-RE-0060 | [Runtime class reflection as a corpus symbol index](findings/ACU-RE-0060-reflection-symbol-index.md) | Getter/vtable/class-info/property layout observed in one mapped capture; CRC, isA and size checks; 23.2 % of corpus functions get proposals; slot numbers are not method names |
 
 Humanoid extension: [ACU-RE-0014](findings/ACU-RE-0014-humanoid-skeleton.md)
 adds complete male/base payload reads and four modifier schemas; runtime solver

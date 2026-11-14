@@ -13,3 +13,7 @@ symbols are added only after executable/export correspondence is established.
 Names supplied by a third-party format reference are layout hypotheses until
 checked against original asset bytes. Raw class hashes, IDs and fields remain
 preserved; do not rename or rewrite the reference corpus.
+
+Reflection-derived corpus names (`Class::vf<slot>`, accessors, helpers) live in the
+ignored `local/symbol_index.sqlite`, not in this table; see `docs/SYMBOL_INDEX.md` and
+ACU-RE-0060. Promote a name here only after its behavior is established.

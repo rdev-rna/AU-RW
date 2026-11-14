@@ -1,5 +1,16 @@
 # Project status
 
+Latest (2026-11-14, symbol index): **the corpus now has a reflection-derived symbol index**
+([ACU-RE-0060](findings/ACU-RE-0060-reflection-symbol-index.md), `docs/SYMBOL_INDEX.md`).
+`tools/symbol_index.py` reads class getters, vtables, class-info headers and property
+descriptors from the mapped capture `9a1124f1...`. It finds 6,617 classes, 8,966 vtables
+(38,674 slot functions) and 31,910 fields (26,526 with offsets; 548 of the 555 decodable
+accessors agree). The result is `local/symbol_index.sqlite`, rebuilt in ~10 s with the
+same content each time, and `tools/symbol_query.py` answers `name`/`class`/`methods`/`fields`/
+`callers`. Of the 217,041 corpus functions, 50,280 (23.2 %) get a proposal with a source and
+confidence, including 289 names cited from findings. Slot names (`Entity::vf16`) are not
+method names; non-reflected code stays unnamed. Nothing was renamed in the corpus.
+
 Latest (2026-10-22, corpus binding): **the mapped corpus is bound to this installed
 build by headers and resources; code identity is unavailable and unverified**
 ([ACU-RE-0031](findings/ACU-RE-0031-corpus-binary-identity.md), ACU-003 done, #33).
