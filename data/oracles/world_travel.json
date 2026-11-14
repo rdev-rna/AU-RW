@@ -1,0 +1,129 @@
+{
+ "schema": "acu-oracle/world-travel/1",
+ "finding": "ACU-RE-0049 (observations 14-16)",
+ "binary_sha256": "748abdc6456397fe7d8080f975f2a5ed3123bce548e7bf1c68b23f47e8b27e40",
+ "method": "50 ms poll of World holder [0x145217368] (+0x90 handle, +0x98 World), World +0xD8 player, travel manager [0x145219860] (+592 world, +600 destination, +644 state); in-game map fast travel",
+ "time_resolution_s": 0.05,
+ "trips": [
+  {
+   "run": "map-travel-2",
+   "from_world": "0000000e84b48064",
+   "from_world_name": "ACU_Versailles",
+   "to_world": "0000000f18b7e1cf",
+   "to_world_name": "ACU_Paris",
+   "destination": "0000001770d432be",
+   "destination_name": "PlayerPortal to Paris",
+   "events_s": {
+    "queue_commands_pending": 1.531,
+    "transition_world": 1.578,
+    "target_world_object": 4.547,
+    "player_spawned": 23.75,
+    "travel_state_idle": 28.312
+   },
+   "arrival_position": [
+    768.55,
+    -46.65,
+    -0.44
+   ],
+   "relations": {
+    "new_world_object": true,
+    "new_player_entity": true,
+    "player_world_backpointer_matches": true,
+    "no_player_while_world_absent": true,
+    "travel_state_1_until_player": true
+   },
+   "new_runtime_player_id": null
+  },
+  {
+   "run": "map-travel-3",
+   "from_world": "0000000f18b7e1cf",
+   "from_world_name": "ACU_Paris",
+   "to_world": "0000000e84b48064",
+   "to_world_name": "ACU_Versailles",
+   "destination": "00000017717b9bf1",
+   "destination_name": "PlayerPortal to Versailles",
+   "events_s": {
+    "queue_commands_pending": 1.516,
+    "transition_world": 1.563,
+    "target_world_object": 3.891,
+    "player_spawned": 17.86,
+    "travel_state_idle": 21.438
+   },
+   "arrival_position": [
+    156.01,
+    -172.59,
+    -0.39
+   ],
+   "relations": {
+    "new_world_object": true,
+    "new_player_entity": true,
+    "player_world_backpointer_matches": true,
+    "no_player_while_world_absent": true,
+    "travel_state_1_until_player": true
+   },
+   "new_runtime_player_id": "f0019960"
+  },
+  {
+   "run": "map-travel-3",
+   "from_world": "0000000e84b48064",
+   "from_world_name": "ACU_Versailles",
+   "to_world": "0000000f18b7e1cf",
+   "to_world_name": "ACU_Paris",
+   "destination": "0000001770d432be",
+   "destination_name": "PlayerPortal to Paris",
+   "events_s": {
+    "queue_commands_pending": 1.531,
+    "transition_world": 1.531,
+    "target_world_object": 4.75,
+    "player_spawned": 23.484,
+    "travel_state_idle": 27.765
+   },
+   "arrival_position": [
+    768.55,
+    -46.65,
+    -0.46
+   ],
+   "relations": {
+    "new_world_object": true,
+    "new_player_entity": true,
+    "player_world_backpointer_matches": true,
+    "no_player_while_world_absent": true,
+    "travel_state_1_until_player": true
+   },
+   "new_runtime_player_id": "f00270dc"
+  }
+ ],
+ "world_handle_stable_within_process": {
+  "map-travel-2": {
+   "ACU_Versailles": true,
+   "ACU_Paris": true
+  },
+  "map-travel-3": {
+   "ACU_Paris": true,
+   "ACU_Versailles": true
+  }
+ },
+ "guard": {
+  "during_travel_raw_request_status": [
+   -5,
+   -5
+  ],
+  "during_travel_python_ready": [
+   false,
+   false
+  ],
+  "during_travel_set_flag_refused": true,
+  "after_arrival_old_player_raw_status": -6,
+  "after_arrival_new_player_differs": true,
+  "arrival_wait_s": 23.797,
+  "statuses": {
+   "-5": "travel in progress",
+   "-6": "not the current World's player"
+  }
+ },
+ "not_established": [
+  "what writes travel state +644 on the map path",
+  "whether timings depend on hardware/streaming (only one machine measured)",
+  "what the player entity is created from and which state carries over between worlds"
+ ]
+}

@@ -112,3 +112,29 @@ python tools/parkour_trace.py local/native-probe/runs/<name>/native-session.json
 Next: map the action-type numbers to classes (fancy table → constructor → factory switch
 `0x1401CC990`), capture the weight (fancy `0x28`) at the exit, and pair selections with
 animation clip starts to tie decisions to the clips the Rust side already decodes.
+
+## Development handoff
+- **Confidence:** observed — candidate lists, ranking and chosen index recorded live in three
+  runs; what each action type means is open.
+- **Established:**
+  - Selection routine entry `0x140133B00`, shared epilogue `0x140133D4B`; candidate array is the
+    9th argument (`[RSP+0x48]` at entry); EAX at the epilogue is the chosen index or -1
+    (`or eax,-1` at `0x140133D48`). Callers `0x14013C200`, `0x140141420` tail-jump in.
+  - Live behaviour matches `140133B00.c`: pass 1 drops near-zero fitness; exit order is not
+    fitness order; final filters can reject higher-ranked candidates (run 1, 16.40 s, index 4).
+  - Action-type numbers seen and chosen per run (tables above; runs `parkour-1`,
+    `parkour-2-preset`, `parkour-5-runner`).
+- **Not established:** meaning of any action type; the sort key (fitness × per-action weight at
+  fancy `0x28` is inferred, weight not captured); which input caused which type; field names
+  `+0xC0`/`+0xC4` (ACUFixes, unverified); per-frame completeness (run 1 dropped 122 events; only
+  16 candidates per call gathered); run-to-run comparability (start, route and settings differ).
+- **Interface:** unknown for product code. Observed shape: an array of pointers to 672-byte
+  candidates, each with fitness, distance and action type; output = selected index or -1. A
+  future selector belongs in `acu_sim`; the probe and trace decoder are live tooling only.
+- **Oracle:** `python tools/native_probe/capture_run.py local/native-probe/runs/<name> --image
+  <mapped image>`, decoded by `tools/parkour_trace.py`; compare per call the candidate set, rank
+  order and selected index/type with a Rust selector fed the same candidates.
+- **Spawned / follow-up:**
+  - Map action-type numbers to classes (done in ACU-RE-0043; names still open).
+  - Capture the per-action weight (fancy `0x28`) at the exit.
+  - Pair selections with animation clip starts (started in ACU-RE-0045).

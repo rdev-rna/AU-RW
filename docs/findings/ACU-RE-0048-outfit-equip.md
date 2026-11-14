@@ -170,3 +170,28 @@ cape" (`0x140EF61B0`, debug manager `0x140EA52A0` line 1693) uses the same dispa
 
 Reproduction: the asset queries are in the sections above (`asset_query.py sql` joins of `link` to
 `resource`). The disassembly helper is a throwaway capstone reader over the mapped image.
+
+## Development handoff
+- **Confidence:** partial — static only; item IDs and the loadout write are established, the
+  in-world model redraw is not, and nothing was run live.
+- **Established:**
+  - Item file IDs (type `c69075ab`, `crc-name`), Tailored `_03`: Head `00000011a8f258c7`, Chest
+    `00000011a8f25ab2`, Forearms `00000011a8f25bf5`, Waist `00000011a8f25b55`, Legs
+    `00000011a8f25c98` (the position-to-ID mapping is a high-confidence inference).
+  - PPM `[0x1451B3C58]`; active loadout `sub_140D61560(PPM)`; slot choice `0x140D33320` by gear
+    type/subtype; AGM from `[0x1451B4C58]+0x1970` with three AvatarGear* arrays.
+  - Equip `0x140D2B240(AGM, gear)` swaps the slot with no ownership check; menu-close commit
+    `0x141103820`; ownership add `0x140D55970(gear+0x10, PPM+0x1B8, 1, 1, 0, 1)`.
+- **Not established:** the visual redraw path; effects of `0x140C85280(55)` and `0x140D71A80`
+  (possible save/network work); slot → body-part mapping; `AvatarGear+0x68` UIString (ACUFixes
+  only); the position-1 → `_03` step live; which item duplicate loads (#35).
+- **Interface:** live tooling only, not product code (a game-thread equip call). Rust side
+  unknown: the `c69075ab` item format is not decoded, so an `acu_assets` outfit slice needs its
+  own finding.
+- **Oracle:** none run yet. Proposed by the call recipe: on the game thread, read each gear's
+  `[gear+0x10]` block file ID and name UIString before equipping, read the loadout slots after
+  `0x140D2B240`, and screenshot the model.
+- **Spawned / follow-up:**
+  - Find the routine that applies gear meshes to the in-world entity.
+  - Determine what `0x140C85280(55)` and `0x140D71A80` do before calling them.
+  - Confirm the `_03` mapping and `+0x68` live.

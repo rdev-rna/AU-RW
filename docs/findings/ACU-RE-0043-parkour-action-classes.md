@@ -56,3 +56,29 @@ Observations and inferences:
 
 Limits: the scan is a heuristic and is only trusted where the enum getter confirms it. Rows
 without live sightings are static-only. Names and meanings are open by design.
+
+## Development handoff
+- **Confidence:** observed — the static type → table mapping is confirmed by the enum getter
+  for 94 types and by live sightings for 35 tables (0 disagree); no names.
+- **Established:**
+  - Two factory switches: `0x1401CC990` (106 cases) and `0x1401D1FC0` (6 character cases
+    `'3'`–`'8'`). Each case gives allocation size, constructor and (last `+8` store) fancy
+    table; the enum getter is fancy slot `0x45`.
+  - Behaviour per type lives in the fancy table: types 3, 4, 5 share vtable `0x142E88448`
+    with fancy tables `0x143A46F80`, `0x143A3A2F0`, `0x143A62AB0`.
+  - Live-only tables: 33 `0x1439EA7E0`, 77 `0x143A04A20`, 38 `0x143A3D130`, 57 `0x143A75170`;
+    type 53 is `0x143A58280` from the second factory.
+- **Not established:** action names or meanings; types 17, 21, 34, 41, 45, 97, 100–103, 123
+  (static scan unresolved, no live sighting); whether type-10/12 objects report 9/11 at run
+  time; static rows for 33/77/78 (resolution errors); rows without live sightings are
+  static-only.
+- **Interface:** a numeric action-type enum keyed by the game's type number, carrying its
+  fancy-table VA as provenance and no semantics; belongs in `acu_sim`. The table tool is
+  analysis tooling, not product code.
+- **Oracle:** `python tools/parkour_action_table.py --image <mapped image> --live <decoded run>…`
+  (output `local/parkour-actions/table.json`); a Rust table must agree with every live
+  (fancy table, enum) pair in the decoded `parkour-*` / `pinned-*` traces.
+- **Spawned / follow-up:**
+  - Name each type from the clips it plays (ACU-RE-0045 pairing).
+  - Resolve the 13 static gaps and the 10→9 / 12→11 rows with live sightings.
+  - Fix the helper-call walk that picks the wrong store for 33 and 77.

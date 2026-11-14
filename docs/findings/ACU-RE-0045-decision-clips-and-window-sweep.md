@@ -62,3 +62,30 @@ reverse with free run (back out through the window), which worked in five of six
 Next: repeat the sweep with longer run-ups and repeats per angle, measure the window plane
 (from the entry/landing positions of several trials), and find the selecting system for
 window entries (the probe can hook it once located).
+
+## Development handoff
+- **Confidence:** partial — the observations are live (finding state: observed), but
+  decision → clip links are temporal association only, samples are small and the window-entry
+  selector is not located.
+- **Established:**
+  - Live clip readout: animation component vtable `0x142E7F780` → controller `+0xD0` → graph
+    rows `+0x6A8` → playback leaf (method `+0x58 == 0x1400BCC20`) → file ID at `+0x10`, time at
+    `+0x384`. Idle = `00000003836e1d49` `xx_Nav_IdleLow_Footr`, weight 1.0.
+  - Decisions and clip starts share a clock. Observed follow-ups (nav-1, catalog-1): type 53 →
+    `xx_Parkour_WallEntry45_…` (+0.30 s); types 39 and 8 → `xx_Parkour_Leaping_Fd650cm-Dn200cm_V03`;
+    type 67 → `xx_Climbing_Climb_Intent_Up_Start`; type 106 → `xx_Parkour_Muraille_Exit_…`.
+  - Window entries start without a `0x140133B00` decision; each starts two angle variants
+    (Fd0/Fd45) whose weights settle within about 0.2 s (three-run table above).
+- **Not established:** the window normal (angles are travel directions); that blend weight
+  follows approach angle or foot variant follows stride phase (inferences); causality of any
+  decision → clip pair; repeatability per angle; clip names are `crc-name` labels.
+- **Interface:** for `acu_motion`: a clip-start event stream (file ID, start time, graph weight)
+  and a two-variant window-entry blend whose selector input is unknown. The readout and sweep
+  tools are live tooling only, not product code.
+- **Oracle:** `tools/native_probe/live_state.py` (clip stream), `tools/parkour_clip_pairs.py`
+  (pairing), `tools/native_probe/staged_sweep.py … --spot 69.34 -217.88 --heading 75.5`;
+  compare clip IDs, start offsets and settled weights per approach.
+- **Spawned / follow-up:**
+  - Repeat the sweep with longer run-ups and several repeats per angle.
+  - Measure the window plane from entry/landing positions.
+  - Locate the system that selects window entries and hook it.

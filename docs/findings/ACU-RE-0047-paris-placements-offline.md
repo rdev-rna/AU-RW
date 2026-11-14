@@ -312,3 +312,34 @@ kit names also match the decoded vertex lengths.
 - Constants recorded in this finding:
   - tags: `788baa0d`, `ec658d29`, `536e963b`, `4aec3476`, `60121a9e`
   - offsets: 14, 26, 78, 115, 179
+
+## Development handoff
+- **Confidence:** partial — placement layouts and transforms observed on every payload and
+  cross-checked live in Versailles; obstacle classes are size/name inferences.
+- **Established:**
+  - Entity/EntityGroup header `u8 1, u64 self, u32 type, u8 flag`. Flag 3: f32[16] at 14
+    (rows 0–2 basis, row 3 translation, column 3 = (0,0,0,1)), component count at 78. Flag 0:
+    world matrix at 115 (not 26, not 14), component count at 179.
+  - Entity AABB: tag `4aec3476` + f32[6]. Visual ref: `ec658d29` + 4 bytes + u64. LOD mesh refs:
+    `536e963b` + u8 1 + u64, one per LOD in order.
+  - Row-3 translation equals live positions to 0.5–0.7 mm (`0000001a5fd4c457`,
+    `00000026fb963214`, Versailles); player spawn = `Player_Activator` `0000000e84b48068`.
+  - Kit names' nominal lengths match decoded LOD0 vertex lengths (supports metres).
+- **Not established:** Paris against live data; handedness and row- vs column-vector convention;
+  nested inline entities and per-instance matrices in groups; the full component layout; bytes
+  90–114 and tags `755ace14`, `80320fb8`, `15da0c49`, `eebb2443`; the role of `_Parkour_` groups;
+  ground contact, navmesh, collision; duplicate precedence (#35; 2 Paris ids ambiguous);
+  obstacle classes.
+- **Interface:** `acu_assets`: decode a cell's placements → (file ID, flag, 4×4 world matrix,
+  AABB, visual ref, LOD mesh IDs). `acu_bevy`: place them with
+  `p' = x*row0 + y*row1 + z*row2 + row3`, as `load_map` does. Z up; metres supported by kit
+  lengths and the live match.
+- **Oracle:** `python tools/paris_placements.py --archive <forge> all` and
+  `python -m unittest tools/test_paris_placements.py`; compare Rust-decoded transforms with
+  `placements.jsonl` per file ID, and with live `tools/native_probe/world_entities.py` positions.
+- **Spawned / follow-up:**
+  - Decode nested entities and per-instance matrices inside groups.
+  - Check a Paris position live; establish handedness.
+  - Add elevation/ground contact to separate wall kit from ground obstacles.
+  - Settle the cell-entry duplicate rule (#35) and the 2 ambiguous ids; the 40 LOD0 decode
+    failures.

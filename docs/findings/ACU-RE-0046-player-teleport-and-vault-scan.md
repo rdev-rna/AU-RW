@@ -130,3 +130,32 @@ sides (start 6.5 m out at the prop's height, RT + A for 2.5 s): 352 runs, 6,037 
 Blocked on data, not tools: the only progress save on this machine is the Versailles one, so
 the live Paris hop scan needs a save in Paris. The offline Paris placement map (ACU-RE-0047)
 does not need the game.
+
+## Development handoff
+- **Confidence:** observed — teleport, Invisible and God Mode verified live; scans are
+  Versailles only and per-prop labels are not reliable.
+- **Established:**
+  - Teleport: on the game window's thread, overwrite the entity world matrix (`E+0x20`, position
+    row `+0x50`) and call `0x14131A530(H)`; error 0.000 m, held 3.5 s (run `teleport-1-launch`).
+    The requested yaw was not kept.
+  - H (Human) = `[AtomAnimComponent (vtable 0x142E7F780) + 0xC58]` = debug manager `a1[4]`; the
+    debug teleport's interface 13 is null in retail.
+  - Invisible: `0x141EC93F0(component, value)` on the component typed by `0x140B9CD00`. God Mode:
+    `0x141212680(&[0x141CCFAC0(entity)+184], value)`.
+  - Live entity identity: `[E+0x130]+0x10` = the entity's `Entity` file ID (matches ACU-RE-0047
+    decoded positions within 0.7 mm).
+  - Vault clip families by name (asset index, `crc-name`); first true vault
+    `Sprint_SkipOver_Fd010cm-Up100cm` with decision type 14 (vault-scan-3).
+- **Not established:** how the reset restores orientation; whether the window thread is the
+  simulation thread; streaming at long-distance destinations; which prop triggers which move
+  (time-window association only); any Paris data (no Paris save).
+- **Interface:** live tooling only, not product code (teleport, safety flags, entity inventory,
+  scans). Vault clip names may feed `acu_motion` clip lists as name-level labels only.
+- **Oracle:** `tools/native_probe/teleport.py`, `vault_scan.py`, `world_entities.py`,
+  `hop_scan.py` and `tools/prop_moves.py`; compare post-teleport positions, and per-prop move
+  families once labels are keyed to decisions.
+- **Spawned / follow-up:**
+  - Key prop labels on the decision's chosen candidate target joined to the nearest decoded
+    placement (ACU-RE-0047); stop each run at the first parkour clip.
+  - Keep the requested yaw through the reset.
+  - Paris hop scan once a Paris save exists.

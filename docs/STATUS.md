@@ -1,5 +1,17 @@
 # Project status
 
+Latest (2026-11-14, rewrite readiness, world travel): preparation before any new port code.
+[REWRITE_READINESS.md](REWRITE_READINESS.md) maps every system to spec / data / oracle / open
+unknowns and orders the remaining research by the roadmap. The research holes on the critical path
+are collision/physics/navmesh (not decoded), the native tick rate, and the camera. Findings
+0042–0049 now end with Development handoffs. The first portable oracle is
+`data/oracles/world_travel.json` (`tools/oracle_export.py`). Live world travel works through the
+in-game map in both directions ([ACU-RE-0049](findings/ACU-RE-0049-world-travel.md)), and every
+arrival makes a new World and player entity, so state is keyed on resource file IDs
+([ADR-0002](decisions/0002-identity-policy.md)). Live tooling: in-process keyboard, travel guard
+(shim t8), `teleport.py keep-safe`, and `capture_run.py --close` (closing used to be able to lock
+the user's input).
+
 Latest (2026-11-14, teleport, safety flags, world inventory, offline placements): Arno can be
 teleported live (entity matrix + Human behaviour reset; the debug "Teleport Character" is absent
 in retail), made invisible to enemies and immortal through the debug menu's own flags, and every

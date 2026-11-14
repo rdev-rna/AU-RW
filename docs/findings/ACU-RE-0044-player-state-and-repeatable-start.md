@@ -52,3 +52,29 @@ without hooks; a pinned save then starts every capture at the same position.
 
 Unknowns: units are presumably metres (not established); which object owns the authoritative
 transform; float determinism of the readout.
+
+## Development handoff
+- **Confidence:** observed — live readout for one build and one save; the axis convention rests
+  on one sample.
+- **Established:**
+  - Player chain `[0x145217368] → +0x98 → World W → +0xD8 → entity E`, with `[E+0x60] == W`
+    (`141CD0D30.c`, run `live-re-1`); while loading, E is a placeholder at the origin.
+  - World matrix at `E+0x20`, position at `E+0x50`. Row 2 = (0, 0, 1) in every sample → Z up;
+    row 1 = forward, row 0 = right (one sample, dot 0.98).
+  - Component array at `E+0x78`; every component points back to E at `+0x10` (46 of 46).
+  - Writing `E+0x50` or the four component position copies has no effect (restored next frame).
+  - Pinned save `capture-start-1` starts at `(56.065, -270.651, -0.549)`, forward
+    `(0.2588, 0.9659, 0)` (runs `pinned-3a`, `pinned-3b`, `pinned-5`).
+  - Stick input is camera-relative; open-loop timed scripts diverge from the same start.
+- **Not established:** units (presumably metres, not established here); which object owns the
+  authoritative transform; float determinism of the readout; a full handedness proof.
+- **Interface:** player position (x, y, z) and basis (right, forward, up), Z up, units
+  unconfirmed. The explicit native → Bevy axis conversion belongs in `acu_sim`, presentation in
+  `acu_bevy`. The readout, save pin and navigation are live tooling only, not product code.
+- **Oracle:** `tools/native_probe/player_state.py` (probe `READ`) for per-frame position and
+  basis; `tools/save_pin.py` with `tools/native_probe/capture_run.py` for a repeatable start;
+  compare start pose and displacement under the same input.
+- **Spawned / follow-up:**
+  - Find the authoritative transform owner / the game's teleport routine (see ACU-RE-0046).
+  - Run `tools/native_probe/navigate.py` live (so far unit tested only).
+  - Confirm units and float determinism.
