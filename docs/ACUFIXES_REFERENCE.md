@@ -62,25 +62,15 @@ offset == RVA):
   `07afa161c61064659c033827ff8d91b1e3c7a0759a46286e810962f312f02137` — used only to
   compare hook-site prologues.
 
-### ACUFixes is installed in the game folder
+### Leftover ACUFixes files in the game folder
 
-The game directory already contains an ACUFixes deployment (readme `v0.9.3`,
-`ACUFixes/plugins/ACUFixes.dll` SHA-256
-`a1284ac45ad1b2584cf243bc6a45ec11f3865ba65011bb64a08ade9269ee52ee`, an
-`AssetOverrides.dll` plugin, and loader/plugin logs last written 2026-10-19). At review
-time the **loader is not active**: there is no `version.dll` and no
-`ACUFixes-PluginLoader.dll` beside `ACU.exe`. In both mapped images above, the three
-ACUFixes full-replacement sites in `GenericHooksInParkourFiltering.cpp`
-(`0x140133B00`, `0x1401D1CF0`, `0x1401D1E50`) hold identical, non-jump prologue bytes,
-as do three neighbouring functions used below (`0x1401A7000`, `0x1401A2100`,
-`0x1401A7620`). So those captures were not taken with its parkour replacement hooks
-applied; other ACUFixes patch sites were not checked.
-Nothing in the game folder was changed by this review.
-
-Hazard for native probing: if a `version.dll` proxy reappears, ACUFixes patches code
-and changes gameplay (window entry, breakfall, autowalk, cover, etc.). Live
-comparisons must confirm the loader is absent, or record that it is present, before
-treating observations as unmodded behaviour.
+The game directory still holds an `ACUFixes/` folder (plugins, configs, logs and the
+AssetOverrides `Better LOD` mod) from an earlier install the user has since removed.
+Nothing loads it: there is no `version.dll` or `ACUFixes-PluginLoader.dll` beside
+`ACU.exe`. As a consistency check, the three ACUFixes full-replacement sites
+(`0x140133B00`, `0x1401D1CF0`, `0x1401D1E50`) and the neighbouring functions used below
+(`0x1401A7000`, `0x1401A2100`, `0x1401A7620`) hold identical, non-jump prologue bytes in
+both mapped images. Nothing in the game folder was changed by this review.
 
 ## Coverage and mapping to open questions
 
@@ -171,15 +161,6 @@ adds `Enum_ReactionHash_ReactToWhat.h`, which ACUFixes master does not have. Pre
 ACUFixes master for any class it has, because some layouts were corrected later (the
 reviewed commit fixes `BaseEntity`'s size).
 
-**Second deployment in the game folder.** `ACUFixes/plugins/AssetOverrides.dll`
-(SHA-256 `69dc482541718557ab7071ee5ec9a9dfdf992e8734b97c5793c05df5de9fa7ee`) is
-installed with `enableOnStartup: true` and a mod folder `AssetOverrides/Better LOD/` of
-**17,407 loose `.LODSelector` overrides**. It is dormant for the same reason ACUFixes is
-(no loader). If the loader is restored, live captures will see modded LODSelectors and
-not the archive contents. That would corrupt any native comparison for the
-Entity → LODSelector → mesh work (ACU-RE-0037, open PR #136) and the whole-map pass.
-Offline archive reads are unaffected, because the plugin does not modify `.forge` files.
-
 ## Suggested next tasks
 
 1. **Parkour candidate trace (Stage 4 prep).** Build a read-only native-probe profile
@@ -202,7 +183,3 @@ Offline archive reads are unaffected, because the plugin does not modify `.forge
 6. **Native datapack path (AssetOverrides leads).** Check the forge-open, datapack
    prologue and object-from-type-hash entry points against `acu_assets` framing. This
    would give the offline reader and patch precedence a native cross-check.
-7. **Guard live runs against the installed mods.** Have the native-probe launcher refuse
-   to run, or record a flag, when `version.dll` or `ACUFixes-PluginLoader.dll` sits beside
-   `ACU.exe`, so modded parkour and LODSelector behaviour never enter a comparison
-   unlabelled.

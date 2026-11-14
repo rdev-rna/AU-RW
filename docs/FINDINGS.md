@@ -92,3 +92,7 @@ decodes original tracks and the external skeleton root frame.
 Directional selection: [ACU-RE-0019](findings/ACU-RE-0019-directional-navigation.md)
 records original lateral roots, fixes the forward-only adapter and documents
 the FH trajectory/steering and cloth reference boundaries.
+
+Parkour selection layouts: [ACU-RE-0041](findings/ACU-RE-0041-acufixes-layout-spot-checks.md)
+re-derives ACUFixes' candidate selection loop, fancy-vtable layout and action
+fitness/distance offsets against this build; see [the review](ACUFIXES_REFERENCE.md).

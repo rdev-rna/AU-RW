@@ -1,5 +1,16 @@
 # Project status
 
+Latest (2026-11-14, ACUFixes review): the unlicensed ACUFixes modding library
+(NameTaken3125, `e20228a0`) is reviewed as a cite-only lead source in
+[ACUFIXES_REFERENCE.md](ACUFIXES_REFERENCE.md); no code was copied.
+[ACU-RE-0041](findings/ACU-RE-0041-acufixes-layout-spot-checks.md) re-derives against this
+build the parkour candidate selection loop (`0x140133B00`), the 0x20-byte fancy-vtable
+entry layout, the action fitness (+0x204) and distance (+0xC8) getters, and the
+`Animation`/`AnimTrackData` storage offsets. `tools/acufixes_spot_check.py` passes 12/12 on
+both mapped captures. It also infers that ACU-RE-0030's scanner caller `0x1401A7000` is
+fancy virtual `0x7A` of a parkour-action subclass family. Field meanings beyond what the
+code shows, and the rest of ACUFixes' layouts, remain unverified.
+
 Latest (2026-10-22, corpus binding): **the mapped corpus is bound to this installed
 build by headers and resources; code identity is unavailable and unverified**
 ([ACU-RE-0031](findings/ACU-RE-0031-corpus-binary-identity.md), ACU-003 done, #33).
