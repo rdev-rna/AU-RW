@@ -226,6 +226,7 @@ class State:
     nodes: list[Node] = field(default_factory=list)
     machine: list["State"] | None = None
     entry_conditions: list = field(default_factory=list)
+    has_entry: bool = False  # an empty entry_conditions list means "always" (0x1400C3400)
 
 
 def machine(b: bytes, at: int, scan: int = 2_000_000) -> list[State]:
@@ -238,26 +239,55 @@ def machine(b: bytes, at: int, scan: int = 2_000_000) -> list[State]:
     return states
 
 
-def _initial(b: bytes, o: int, end: int) -> tuple[list[dict], int]:
-    """An AtomInitialState in [o, end) -> (entry conditions, target state index).
+def expression_block(b: bytes, expr: int, end: int) -> tuple[list[dict], list[int], int]:
+    """An AtomConditionExpression at `expr` -> (conditions, compared parameters, offset after it).
 
-    After the last condition's wrapper (object start + 49): f32 1.0, u32 n, n u32 parameter
-    indices (the parameters the expression compares), then the u32 read as the target state
-    index (inference: the targets are a permutation of each machine's states)."""
-    conds = [condition(b, x) for x, _ in objects(b, o, end, only="AtomCondition")]
-    if not conds:
-        raise FormatError(f"initial state at {o}: no conditions")
+    Reflection (ACU-RE-0065) gives its fields: u32, the `Conditions` array of AtomCondition,
+    then an array of u32 parameter indices. Serialized: u32, u32 (array metadata; 0x5000ea8b
+    when filled, 0 in some empty arrays), u32 count, `count` AtomCondition objects (a flat
+    list: group entries count too), then u32 n and n parameter indices. Each condition's
+    wrapper ends with f32 1.0 (object start + 49). The count bounds the list, so conditions of
+    transitions that follow are never taken."""
+    count = u32(b, expr + 21)
+    if count > 4096:
+        raise FormatError(f"condition expression at {expr}: implausible count {count}")
+    if count == 0:
+        at = expr + 25
+        n = u32(b, at)
+        if n != 0:
+            raise FormatError(f"condition expression at {expr}: parameters without conditions")
+        return [], [], at + 4
+    found = objects(b, expr, end, only="AtomCondition")[:count]
+    if len(found) != count:
+        raise FormatError(f"condition expression at {expr}: {len(found)} of {count} conditions")
+    conds = [condition(b, x) for x, _ in found]
     wrap = conds[-1]["offset"] + 13 + 28
     if b[wrap + 49:wrap + 53] != struct.pack("<f", 1.0):
-        raise FormatError(f"initial state at {o}: unexpected bytes after the last condition")
+        raise FormatError(f"condition expression at {expr}: unexpected bytes after the last condition")
     n = u32(b, wrap + 53)
     if n > 64:
-        raise FormatError(f"initial state at {o}: implausible parameter count {n}")
+        raise FormatError(f"condition expression at {expr}: implausible parameter count {n}")
     reads = [u32(b, wrap + 57 + 4 * k) for k in range(n)]
     used = {c["param"] for c in conds if c["kind"] == 0}
     if set(reads) != used:
-        raise FormatError(f"initial state at {o}: parameter list {reads} != compared {sorted(used)}")
-    return conds, u32(b, wrap + 57 + 4 * n)
+        raise FormatError(f"condition expression at {expr}: parameter list {reads} != compared {sorted(used)}")
+    return conds, reads, wrap + 57 + 4 * n
+
+
+def _initial(b: bytes, o: int, end: int) -> tuple[list[dict], int]:
+    """An AtomInitialState at `o` -> (entry conditions, target state index).
+
+    Reflection (ACU-RE-0065): AtomInitialState = AtomConditionExpression, a 1-byte target
+    (type code 5), AtomNodeID; the target byte directly follows the expression and the
+    AtomNodeID header follows it. An empty condition list holds: 0x1400C3400 returns 0
+    (true) when its count is 0."""
+    expr = objects(b, o, min(end, o + 64), only="AtomConditionExpression")
+    if not expr or expr[0][0] != o + 13:
+        raise FormatError(f"initial state at {o}: no condition expression")
+    conds, _, at = expression_block(b, o + 13, end)
+    if not any(x == at + 1 for x, _ in objects(b, at, min(end, at + 32), only="AtomNodeID")):
+        raise FormatError(f"initial state at {o}: AtomNodeID does not follow the target byte")
+    return conds, b[at]
 
 
 def _machine(b: bytes, level: list[tuple[int, str]], i: int, depth: int) -> tuple[list[State], int]:
@@ -301,9 +331,10 @@ def _machine(b: bytes, level: list[tuple[int, str]], i: int, depth: int) -> tupl
     while j < len(level) and level[j][1] == "AtomInitialState":
         o = level[j][0]
         conds, target = _initial(b, o, level[j + 1][0] if j + 1 < len(level) else len(b))
-        if target >= len(states) or states[target].entry_conditions:
+        if target >= len(states) or states[target].has_entry:
             break
         states[target].entry_conditions = conds
+        states[target].has_entry = True
         j += 1
     bounds = [o for o, _ in level] + [len(b)]
     for s in states:
@@ -333,7 +364,8 @@ def all_clips(states: list[State]) -> set[str]:
 def describe(states: list[State], names: dict[int, str], clips: dict[str, str]) -> list[dict]:
     out = []
     for s in states:
-        entry = expression(s.entry_conditions, names) if s.entry_conditions else None
+        entry = (expression(s.entry_conditions, names) if s.entry_conditions
+                 else "always" if s.has_entry else None)
         if s.machine is not None:
             out.append({"state": s.index, "offset": s.offset, "entry": entry,
                         "machine": describe(s.machine, names, clips)})

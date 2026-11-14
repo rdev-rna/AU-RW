@@ -54,6 +54,10 @@ them into rules.
 Parameter sources: [ACU-RE-0064](findings/ACU-RE-0064-window-graph-parameter-sources.md) finds the
 code that writes those parameters (the CRC-32 name hashes are immediates) and confirms the clip
 flag is the mirror bit.
+AtomGraph layout and locomotion: [ACU-RE-0065](findings/ACU-RE-0065-atomgraph-reflection-and-locomotion-machines.md)
+reads entry-rule layouts from the engine's reflection tables (empty rule = always, 1-byte
+target, count-bounded conditions), decodes the walk-loop blend on `DiffAngleToFacing`, and
+indexes all 5,320 machines. The locomotion root is not found yet.
 
 Use `docs/templates/FINDING.md`; store durable findings under `docs/findings/`.
 Link bulky raw evidence in ignored `outputs/` with identity and reproduction steps.

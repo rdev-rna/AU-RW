@@ -1,5 +1,15 @@
 # Project status
 
+Latest (2026-11-15, locomotion rebuild started, AtomGraph layout): the arena's motion matcher is
+not how ACU animates and will be replaced by the native graph
+([ACU-RE-0065](findings/ACU-RE-0065-atomgraph-reflection-and-locomotion-machines.md)).
+- Entry-rule layout now comes from the engine's reflection tables: an empty rule is "always"
+  (`0x1400C3400`), the target is one byte, conditions are bounded by their count.
+  `tools/atomgraph.py` machine failures drop from 1,352 to 92 of 5,320.
+- Walk loop: AxialBlend on `DiffAngleToFacing` (−90 / 0 / +90 sway clips), time scale 0.8.
+- Open: the locomotion root (clips sit in separate trees), transitions, blend/time-scale
+  evaluators, parameter sources. Next: a reflection-driven NewDemo deserializer.
+
 Latest (2026-11-15, Paris block in the test arena): `acu_bevy --block FILE` puts a block of
 decoded Paris collision into the rigged Arno arena and traverses it
 ([test-world-movement.md](mechanics/test-world-movement.md#paris-collision-block-2026-11-15)).

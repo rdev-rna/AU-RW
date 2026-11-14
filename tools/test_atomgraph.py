@@ -74,8 +74,14 @@ def clip(file_id: int, flag: int = 0) -> bytes:
 def initial(conds: bytes, reads: list[int], target: int) -> bytes:
     n = conds.count(struct.pack("<I", A.HASH["AtomCondition"]))
     expr = obj("AtomConditionExpression", struct.pack("<III", 0x1234, 0x5678, n) + bytes(9))
-    return obj("AtomInitialState", bytes(9)) + expr + conds + struct.pack("<fI", 1.0, len(reads)) + \
-        b"".join(struct.pack("<I", r) for r in reads) + struct.pack("<I", target) + obj("AtomNodeID", bytes(16))
+    return obj("AtomInitialState") + expr + conds + struct.pack("<fI", 1.0, len(reads)) + \
+        b"".join(struct.pack("<I", r) for r in reads) + bytes([target]) + obj("AtomNodeID", bytes(16))
+
+
+def initial_always(target: int) -> bytes:
+    """A rule with an empty Conditions array, laid out as in NewDemo (offset 10,077,867)."""
+    expr = obj("AtomConditionExpression", struct.pack("<IIII", 0, 0x5000EA8B, 0, 0))
+    return obj("AtomInitialState") + expr + bytes([target]) + obj("AtomNodeID", bytes(16))
 
 
 def graph_state(nodes: list[bytes]) -> bytes:
@@ -204,6 +210,16 @@ class Machines(unittest.TestCase):
         mid = out[1]["machine"]
         self.assertEqual([s["entry"] for s in mid], ["Direction == 3", "Direction == 2"])
         self.assertEqual([s["entry"] for s in mid[1]["machine"]], ["Direction == 0", "Direction == 1"])
+
+    def test_empty_rule_is_always_and_takes_its_target_byte(self):
+        sm = obj("AtomStateMachineNode", bytes(16)) + obj("AtomNodeID", bytes(16))
+        states = grating_state(0) + grating_state(1)
+        raw = params_block() + sm + states + direction_rule(1, 1) + initial_always(0)
+        at = len(params_block())
+        parsed = A.machine(raw, at)
+        self.assertTrue(parsed[0].has_entry)
+        self.assertEqual(parsed[0].entry_conditions, [])
+        self.assertTrue(parsed[1].entry_conditions)
 
     def test_parameter_list_must_match_the_compared_parameters(self):
         pre = params_block()
