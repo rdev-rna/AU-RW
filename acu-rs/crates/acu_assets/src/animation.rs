@@ -1,6 +1,7 @@
 //! Bounded navigation animation subset, ACU-RE-0018. Event bytes remain opaque.
 use crate::{Result, invalid, reader::Reader};
 use serde::Serialize;
+use std::f32::consts::FRAC_1_SQRT_2;
 
 #[derive(Clone, Debug, Serialize)]
 pub struct Track {
@@ -79,6 +80,31 @@ fn value(r: &mut Reader<'_>, codec: u8) -> Result<[f32; 4]> {
             let index = usize::from(bits[0] & sign != 0) + 2 * usize::from(bits[1] & sign != 0);
             return quaternion(bits.map(|x| (x & mask) as f32 * scale - bias), index);
         }
+        // Codecs 3, 7 and 8: ACU-RE-0061. Key decoders 0x140087B60 (3), 0x140087830 (7),
+        // 0x140087ED0 (8), reached through the per-type table at 0x145137A40.
+        3 => {
+            let p = r.u32()?;
+            let scale = f32::from_bits(0x3AB5_5FA3); // sqrt(2) / 1022
+            let a = [20, 10, 0].map(|s| ((p >> s) & 1023) as f32 * scale - FRAC_1_SQRT_2);
+            return quaternion(a, (p >> 30) as usize);
+        }
+        7 => {
+            let raw = r.u16()?;
+            let z = f32::from(raw & 0x7fff) * f32::from_bits(0x3835_07C7) - FRAC_1_SQRT_2; // sqrt(2) / 32766
+            let w = (1.0 - z * z).max(0.0).sqrt();
+            return Ok(if raw & 0x8000 == 0 {
+                [0.0, 0.0, z, w]
+            } else {
+                [0.0, 0.0, w, z]
+            });
+        }
+        8 => {
+            // Three stored components; the low mantissa bits of the first two select the
+            // omitted one, and the components are used as stored (flag bits included).
+            let a = [float(r)?, float(r)?, float(r)?];
+            let index = (a[0].to_bits() & 1) as usize + 2 * (a[1].to_bits() & 1) as usize;
+            return quaternion(a, index);
+        }
         5 => {
             let packed = (u64::from(r.u32()?) << 32) | u64::from(r.u32()?);
             let scale = std::f64::consts::SQRT_2 / 1048574.0;
@@ -105,7 +131,9 @@ fn value(r: &mut Reader<'_>, codec: u8) -> Result<[f32; 4]> {
         }
         11 => {
             for x in &mut v[..3] {
-                *x = f32::from(r.i16()?) / 10000.0;
+                // Millimetres: the type-33 sampler 0x140065450 multiplies each i16 by 0.001
+                // (ACU-RE-0061; the earlier /10000 was wrong).
+                *x = f32::from(r.i16()?) * 0.001;
             }
         }
         12 => v[0] = float(r)?,
@@ -234,7 +262,8 @@ fn parse_tracks(bytes: &[u8], root_only: bool) -> Result<Clip> {
         }
         if times
             .windows(2)
-            .any(|w| w[0] > w[1] || (t / 3 <= 14 && w[0] == w[1]))
+            // Codec 13 scalars (sampler 0x140063E60) repeat a key time in shipped clips: a step.
+            .any(|w| w[0] > w[1] || (t / 3 <= 14 && t / 3 != 13 && w[0] == w[1]))
             || times.last().copied().unwrap_or(0.0) > duration + 1.0 / 60.0
         {
             return invalid("animation key timing");
@@ -333,7 +362,7 @@ mod tests {
     }
     #[test]
     fn root_only_parse_ignores_unsupported_bone_tracks() {
-        // The fixture's two root tracks plus a third track in codec 7 (type 21), which the full
+        // The fixture's two root tracks plus a third track in codec 10 (type 30), which the full
         // parser rejects. Header fields that count tracks are patched from 2 to 3.
         let mut b = fixture();
         let mapping = b
@@ -348,7 +377,7 @@ mod tests {
         b.splice(entries_end..entries_end, entry);
         let count_at = entries_end + 16 + 2 + 4;
         b[count_at..count_at + 2].copy_from_slice(&3u16.to_le_bytes());
-        b.push(21);
+        b.push(30);
         b.extend(8u32.to_le_bytes());
         b.extend(1u32.to_le_bytes());
         b.extend([0xAA; 8]);
@@ -373,6 +402,46 @@ mod tests {
         assert!(q[3] > 0.9999);
         assert!(q[0].abs() < 0.00001);
         assert!(quaternion([0.8; 3], 3).is_err());
+    }
+    fn close(a: [f32; 4], b: [f32; 4]) -> bool {
+        a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-4)
+    }
+    #[test]
+    fn codec_7_single_axis_halves() {
+        // 0x3FFF is the midpoint of 15 bits: z = 0.5 * sqrt(2) - 1/sqrt(2) = 0, so w = 1.
+        let v = |raw: u16| value(&mut Reader::new(&raw.to_le_bytes()), 7).unwrap();
+        assert!(close(v(0x3FFF), [0.0, 0.0, 0.0, 1.0]));
+        // The sign bit swaps the stored component into w: a half turn about z.
+        assert!(close(v(0xBFFF), [0.0, 0.0, 1.0, 0.0]));
+        let h = std::f32::consts::FRAC_1_SQRT_2;
+        assert!(close(v(0x7FFE), [0.0, 0.0, h, h]));
+        assert!(close(v(0x0000), [0.0, 0.0, -h, h]));
+        assert!(value(&mut Reader::new(&[0xFF]), 7).is_err());
+    }
+    #[test]
+    fn codec_3_ten_bit_smallest_three() {
+        // Each 10-bit field at 511 decodes to 0; the top two bits name the omitted component.
+        let mid = (511 << 20) | (511 << 10) | 511u32;
+        let v = |p: u32| value(&mut Reader::new(&p.to_le_bytes()), 3).unwrap();
+        assert!(close(v(mid), [1.0, 0.0, 0.0, 0.0]));
+        assert!(close(v(mid | 0x4000_0000), [0.0, 1.0, 0.0, 0.0]));
+        assert!(close(v(mid | 0x8000_0000), [0.0, 0.0, 1.0, 0.0]));
+        assert!(close(v(mid | 0xC000_0000), [0.0, 0.0, 0.0, 1.0]));
+        // Field values 1022 / 1022 / 511 put 0.7071 in two components: norm 1, omitted = 0.
+        let q = v((1022 << 20) | (1022 << 10) | 511 | 0xC000_0000);
+        assert!(q[3].abs() < 1e-3);
+        assert!(value(&mut Reader::new(&[0; 3]), 3).is_err());
+    }
+    #[test]
+    fn codec_8_flag_bits_select_omitted_component() {
+        let enc = |a: [f32; 3]| a.iter().flat_map(|x| x.to_le_bytes()).collect::<Vec<u8>>();
+        let flag = f32::from_bits(1); // only the flag bit set
+        let v = |a| value(&mut Reader::new(&enc(a)), 8).unwrap();
+        assert!(close(v([0.0, 0.0, 0.6]), [0.8, 0.0, 0.0, 0.6]));
+        assert!(close(v([flag, 0.0, 0.6]), [0.0, 0.8, 0.0, 0.6]));
+        assert!(close(v([0.0, flag, 0.6]), [0.0, 0.0, 0.8, 0.6]));
+        assert!(close(v([flag, flag, 0.6]), [0.0, 0.0, 0.6, 0.8]));
+        assert!(value(&mut Reader::new(&enc([0.9, 0.9, 0.0])), 8).is_err());
     }
     #[test]
     #[ignore = "requires original ACU install"]

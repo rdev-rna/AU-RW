@@ -43,6 +43,10 @@ Navigation tracks: [ACU-RE-0018](findings/ACU-RE-0018-animation-tracks.md)
 records original clip mappings, time/value codecs and external skeleton root
 placement. The walk/sprint/idle adapter uses the imported primary pose objective;
 events, native selection and traversal remain incomplete.
+Codecs 3/7/8: [ACU-RE-0061](findings/ACU-RE-0061-animation-codecs-3-7-8.md) reads the remaining
+quaternion key decoders from the binary and fixes codec 11's scale (0.001). Entry 928 now fully
+decodes 8,071 of 8,103 clips, and 586 of the 590 played clips. It is cross-checked against a
+third-party export of 92 clips: 183,911 keys, max error 6.7e-7.
 
 Use `docs/templates/FINDING.md`; store durable findings under `docs/findings/`.
 Link bulky raw evidence in ignored `outputs/` with identity and reproduction steps.

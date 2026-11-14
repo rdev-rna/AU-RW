@@ -1,5 +1,5 @@
 """Capture traversal actions per family with per-frame root motion, pose, leaves and parkour
-decisions (ACU-RE-0060; needs the probe build with HOOKDATA and the debug-register re-sync).
+decisions (attempt recorded in docs/STATUS.md, no finding; needs the probe build with HOOKDATA and the debug-register re-sync).
 
     python tools/native_probe/action_capture.py PID OUT_DIR --candidates action-candidates.json
         [--per-family 3] [--seconds 3] [--buttons A B]

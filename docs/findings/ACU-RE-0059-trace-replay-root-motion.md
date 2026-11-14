@@ -133,7 +133,7 @@ State: **offline analysis of earlier live traces plus asset decode.** No new gam
 - **The warp itself.** Watch the pending offset (`anim+0x2F0` / `+0x300`, ACU-RE-0057) and the
   warp kernel's output during actions. Compare it with the selected candidate's target position
   (ACU-RE-0042/0055), not the unverified height field.
-- **Codec 7/8 bone tracks** (339 of 590 clips) block full pose playback of most traversal clips;
+- **Codec 7/8 bone tracks** (339 of 590 clips) blocked full pose playback of most traversal clips (resolved in ACU-RE-0061: 586 of 590 decode);
   root motion is not blocked.
 - The engine gravity constant, and horizontal momentum in jumps that are not straight drops.
 

@@ -1,5 +1,22 @@
 # Project status
 
+Latest (2026-11-14, animation codecs 3/7/8): [ACU-RE-0061](findings/ACU-RE-0061-animation-codecs-3-7-8.md).
+`animation::parse` now decodes key codecs 3 (10-bit smallest three), 7 (15-bit single axis) and
+8 (float smallest three, flag bits). These were read from the per-type sampler table at
+`0x145137A40`.
+- Two bugs fixed:
+  - codec 11 is i16 × 0.001 (it was ÷ 10,000);
+  - codec 13 scalars may repeat a key time.
+- Full decode: 8,071 of 8,103 clips in entry 928, and 586 of the 590 clips played in traces
+  (was 251).
+- Cross-check: `tools/anim_json_compare.py` compares against the Mirage "Unity Mod" JSON export (local
+  only): 92 clips, 183,911 keys, no mismatches, max error 6.7e-7.
+- Codec 3 is checked by unit tests and continuity only.
+- `acu-root-tracks --all-tracks` dumps every track.
+- Gates: fmt clean, clippy clean and tests pass outside `acu_bevy`. The `acu_bevy` test target
+  fails to compile at HEAD (missing `map_*` fields in an `Options` initializer); this predates the
+  slice.
+
 Latest (2026-11-14, action capture attempt): `tools/native_probe/action_capture.py` ran three
 passes (148 scenes, RT+A and RT+B) from earlier scan spots. **No usable traversal data.**
 - Pass 1 triggered 18 traversal clips, but its watches went quiet early: the player entity was
