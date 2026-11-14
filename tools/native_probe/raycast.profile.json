@@ -1,0 +1,15 @@
+{
+  "description": "World ray cast (ACU-RE-0050 live check). ACU.exe 748abdc6...7e40, base 0x140000000; expected bytes from mapped image 9a1124f1...0520. 0x1425FD830(rcx=query, rdx=world, r8=&origin, r9=&end) is the ray routine behind 0x1425FD7D0 (origin + length*direction). Probe at 0x1425FD850 (movaps xmm7,[r8]): xmm5 already holds the end loaded from [r9] at 0x1425FD841, r8 snapshot = origin. Return address names the caller (e.g. 0x140D0B8D0 downward 0.3 m probe, 0x1401716A0 upward probe). Lead credited to ACUFixes (NameTaken3125), re-derived from the corpus and mapped image.",
+  "rotation_seconds": 600,
+  "probes": [
+    {
+      "label": "raycast_origin_end",
+      "rva": "25fd850",
+      "expected_hex": "410f28380f28cf0f5ccd0f54c80f55c6",
+      "category": "collision",
+      "register_index": 2,
+      "offset": 0,
+      "bytes": 16
+    }
+  ]
+}
