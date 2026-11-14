@@ -56,6 +56,26 @@ impl Controls {
     }
 }
 
+/// Walking facing rate (ACU-RE-0069 obs. 13): while walking, native turns the body toward the
+/// stick at a constant 2.15 degrees per 60 Hz frame (about 2.25 rad/s) with an identity root
+/// delta rotation (`loco-turn-delta-1`, `loco-turns-1`).
+pub const WALK_TURN_RATE: f32 = 2.25;
+
+/// Procedural facing change for one tick, radians (left positive, as the arena yaw).
+/// INFERENCE: native applies it while a looping walk graph plays (in starts, stops and plant
+/// turns the clip root rotation turns the body). CHOICE: the measured full-stick rate is used at
+/// every walking speed, and free run is left to the graph's root motion (its native law is not
+/// decoded: an exponential approach plus clip turns, obs. 13).
+pub fn walk_turn(controls: &Controls, in_loop: bool, dt: f32) -> f32 {
+    if !in_loop || controls.free_run || controls.movement_speed() <= 0.0 {
+        return 0.0;
+    }
+    // TargetAngle is right positive; the arena yaw grows to the left.
+    let error = -controls.target_angle().to_radians();
+    let max = WALK_TURN_RATE * dt;
+    error.clamp(-max, max)
+}
+
 /// Graph parameters measured in the open street of loco-params-1 (no wall, edge or crowd in
 /// range reads the 10.0 cap).
 const OPEN_GROUND: [(&str, f32); 3] = [
@@ -121,6 +141,12 @@ impl GraphDriver {
             .leaves
             .iter()
             .max_by(|a, b| a.weight.total_cmp(&b.weight))
+    }
+
+    /// Whether the heaviest leaf plays in a looping graph state (walk / run / sprint loop).
+    pub fn in_loop(&self) -> bool {
+        self.dominant()
+            .is_some_and(|l| self.player.graph.state_loops(l.state))
     }
 
     /// Resource name of a clip id, or its 16-digit hexadecimal id.
@@ -263,6 +289,32 @@ mod tests {
         assert!((a(1.0, 0.0) - 90.0).abs() < 1e-4);
         assert!((a(-1.0, 0.0) + 90.0).abs() < 1e-4);
         assert!((a(0.0, -1.0).abs() - 180.0).abs() < 1e-4);
+    }
+
+    #[test]
+    fn walk_turn_is_rate_limited_and_gated() {
+        let right = Controls {
+            stick: Vec2::X,
+            free_run: false,
+        };
+        let step = walk_turn(&right, true, 1.0 / 60.0);
+        assert!(
+            (step.to_degrees() + 2.148).abs() < 0.01,
+            "{}",
+            step.to_degrees()
+        );
+        assert_eq!(walk_turn(&right, false, 1.0 / 60.0), 0.0);
+        let run = Controls {
+            free_run: true,
+            ..right
+        };
+        assert_eq!(walk_turn(&run, true, 1.0 / 60.0), 0.0);
+        let near = Controls {
+            stick: Vec2::new(0.01, 1.0),
+            free_run: false,
+        };
+        let s = walk_turn(&near, true, 1.0 / 60.0);
+        assert!((s + 0.01f32.atan2(1.0)).abs() < 1e-6);
     }
 
     #[test]

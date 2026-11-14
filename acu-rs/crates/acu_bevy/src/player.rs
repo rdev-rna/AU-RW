@@ -51,20 +51,24 @@ fn advance(
     } else {
         Vec2::new(d.dot(right), d.dot(forward))
     };
-    driver.apply(Controls {
+    let controls = Controls {
         stick,
         free_run: input.run,
-    });
+    };
+    driver.apply(controls);
     let delta = driver.step(acu_sim::DT);
+    let steer = acu_motion::graph_driver::walk_turn(&controls, driver.in_loop(), acu_sim::DT);
     // ACU-RE-0057: the graph's root delta drives the body. Its translation is in the actor
     // frame at the step's start; the body orientation composes with its rotation. Only the
     // yaw (native Z) part is applied in this flat arena.
+    // While walking, native also turns the body toward the stick at a measured rate
+    // (ACU-RE-0069 obs. 13; `walk_turn`).
     let (displacement, yaw) = if traversing {
         (Vec2::ZERO, player.yaw)
     } else {
         (
             right * delta.translation.x + forward * delta.translation.y,
-            acu_motion::amo::wrap_angle(player.yaw + native_yaw(delta.rotation)),
+            acu_motion::amo::wrap_angle(player.yaw + native_yaw(delta.rotation) + steer),
         )
     };
     match block {
@@ -555,5 +559,50 @@ mod tests {
             }
         }
         assert!(failures.is_empty(), "{failures:#?}");
+    }
+
+    #[test]
+    #[ignore = "requires original ACU install; drives the native NewDemo graph"]
+    fn installed_walking_turn_matches_native_rate() {
+        let dir = std::env::var("ACU_GAME_DIR").expect("ACU_GAME_DIR required");
+        let dir = std::path::Path::new(&dir);
+        let library = crate::rig::load(dir).unwrap();
+        let (mut driver, _) = crate::motion::load_graph(dir, &library).unwrap();
+        driver.reset();
+        // Walk toward arena -Z for 2 s, then hold the stick toward +X (90 degrees right).
+        let mut player = Player {
+            position: Vec3::new(2.0, 0.0, 10.0),
+            ..Player::default()
+        };
+        let mut yaws = Vec::new();
+        for tick in 0..240 {
+            let direction = if tick < 120 { -Vec2::Y } else { Vec2::X };
+            advance(
+                &mut player,
+                &mut driver,
+                Input {
+                    direction,
+                    ..Default::default()
+                },
+                None,
+            );
+            yaws.push(player.yaw);
+        }
+        let turned = |t: usize| -yaws[t].to_degrees();
+        println!(
+            "yaw after the stick turned: 6 ticks {:.1}, 21 ticks {:.1}, 42 ticks {:.1}, 120 ticks {:.1}",
+            turned(125),
+            turned(140),
+            turned(161),
+            turned(239)
+        );
+        // Native (loco-turn-delta-1): 2.15 degrees per frame, 90 degrees after about 0.7 s.
+        let early = turned(140) - turned(125);
+        assert!(
+            (early / 15.0 - 2.15).abs() < 0.3,
+            "rate {:.2}/tick",
+            early / 15.0
+        );
+        assert!((turned(239) - 90.0).abs() < 5.0, "final {:.1}", turned(239));
     }
 }

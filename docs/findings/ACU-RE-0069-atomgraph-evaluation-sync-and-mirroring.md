@@ -127,14 +127,41 @@ WalkSlow agrees to 3–4 decimals. Where the clip sync group and loop flag come 
     - Native holds small stick offsets without turning: TargetAngle 3.6° for more than 50
       samples at MovementSpeed 2.2, with yaw constant.
 
+13. **Turning while moving is mostly procedural** (new live runs, capped at 60 fps, closed with
+    `--close`, saves put back):
+    - **`loco-turn-delta-1`** (`root_delta_capture.py --stick 0 32000 --walk 2.5 --turn 32000 0`;
+      root delta M+0x90 watched, writer RIP `0x14009999B`; transform sampled at 60 Hz):
+      - For the whole walking turn, the root delta rotation is exactly identity and its
+        translation stays on local +Y.
+      - The entity yaw meanwhile advances a constant 2.14–2.15° per frame (91.4° → 177.4° in
+        about 0.67 s). It then follows the camera at about 0.5° per frame.
+      - So walking steering does not come from clip root motion.
+    - **`loco-turns-1`** (30 Hz parameters plus clips; crowd walk graph
+      `DenseCrowd_WalkFwd_AvoidRight` plus Walk_3-Loop):
+      - After the stick turns right 90°, TargetAngle falls linearly by about 4.2° per sample, from
+        83.6° to 0.4°.
+      - Yaw rises at the same rate.
+      - No plant-and-turn clip plays.
+      - `AllowedToTurn`, `debugFacingAngleDelta` and `Turns` stay 0 or false.
+    - **`loco-turn-delta-2`** (free run held, then stick right):
+      - The yaw first closes on a target exponentially: each frame's change is about 0.835 times
+        the previous one (4.4°, 3.7°, 3.1°, 2.6°, …), then it stops after about 33°.
+      - The rest of the turn comes from a clip root rotation of about −75° of root yaw (frames of
+        −4.7°, −11.1° and −26.6°).
+      - The free-run controller is not decoded.
+    - **`loco-params-1` sample 713:** blocked in a wall brace, the yaw snapped exactly +90.0° in
+      one frame, and a fresh Walk_3-Loop started at time 0. This is a wall-context snap.
+
 ## Inferences
 
 - The clip sync group is root `f92` and the loop flag root `f112` (obs. 5, 6, 9). The root
   compares `f92` with the record group, and the data pattern holds across every graph inspected.
   The instruction that writes args `+88`/`+98` was not found.
 - `AtomWriteParamNode` passes its input pose through.
-- Native turning while moving comes from the graph (turn starts, sway clips, axial blends by
-  TargetAngle) and the root rotation. No procedural facing is involved (ACU-RE-0057 obs. 7).
+- Turning in starts, stops and plant-and-turns comes from clip root rotation (ACU-RE-0057
+  obs. 7). Turning inside a walk loop is procedural: about 2.25 rad/s toward the stick (obs. 13).
+  The gate (loop graphs only) and the code that writes the facing are not identified; the
+  writer is the next target, via a data watch on the body rotation.
 
 ## Implementation choices (labelled in code)
 
@@ -149,6 +176,11 @@ WalkSlow agrees to 3–4 decimals. Where the clip sync group and loop flag come 
   - open-ground distances use the 10.0 cap;
   - TimeScale is 1 and UseBipedFootIK is true.
 - The arena applies only the yaw part of the root rotation.
+- `graph_driver::walk_turn`:
+  - adds the measured walking facing rate (2.25 rad/s, clamped to the TargetAngle error) while
+    the dominant leaf's graph loops and free run is off;
+  - uses the full-stick rate at every walking speed (half stick is not measured);
+  - leaves free run to root motion only.
 
 ## Unknowns
 

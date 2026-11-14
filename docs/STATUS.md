@@ -8,8 +8,10 @@ Latest (2026-11-15, the arena walks and runs on the native NewDemo graph;
   - turns the stick into MovementSpeed / HighProfile / Parkour / TargetAngle (ACU-RE-0067);
   - steps the interpreter, blends the leaf poses (mirroring through the skeleton mirror links);
   - returns the blended clip root delta.
-- `player.rs` moves and turns the body only by that root delta (ACU-RE-0057). There is no
-  authored facing or direction warp.
+- `player.rs` moves and turns the body by that root delta (ACU-RE-0057). Inside walk loops it
+  also turns the body toward the stick at the measured native rate of 2.25 rad/s. The live
+  captures `loco-turn-delta-1` and `loco-turns-1` show identity root rotation while native
+  turns at 2.15° per frame. There is no authored facing or direction warp.
 - Sync: clip records take group = root `f92` and loop = root `f112` (INFERENCE, obs. 9). Walk
   starts are one-shot, so a mirrored start no longer skips its turn.
 - Checks:
@@ -22,6 +24,8 @@ Latest (2026-11-15, the arena walks and runs on the native NewDemo graph;
   - stop entry 0.18 s early;
   - idle phase offset;
   - `DiffAngleToTarget` (game-computed, not set);
+  - the free-run turn law (an exponential approach plus clip turns, `loco-turn-delta-2`);
+  - the code that writes the walking facing;
   - Parkour 21 beside walls;
   - climbing has no clips.
 

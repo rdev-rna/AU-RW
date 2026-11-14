@@ -360,6 +360,18 @@ impl Graph {
     pub fn state_at(&self, at: usize) -> Option<usize> {
         self.by_at.get(&at).copied()
     }
+    /// Whether a graph state's clips build looping sync records (root `f112`, ACU-RE-0069
+    /// obs. 9): walk, run and sprint loops; not starts, stops or plant-and-turns.
+    pub fn state_loops(&self, s: usize) -> bool {
+        match self.states.get(s).map(|s| &s.body) {
+            Some(Body::Graph {
+                nodes,
+                root: Some(r),
+                ..
+            }) => Sync::of_root(&nodes[*r]).looping,
+            _ => false,
+        }
+    }
     pub fn param(&self, name: &str) -> Option<usize> {
         self.params.iter().position(|p| p.name == name)
     }

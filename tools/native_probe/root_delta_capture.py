@@ -2,6 +2,7 @@
 decoded root tracks (ACU-RE-0058; needs the probe build with HOOKDATA).
 
     python tools/native_probe/root_delta_capture.py PID OUT.jsonl [--stick X Y] [--walk 4]
+        [--turn X Y --turn-secs 2.5]   # optional second stick held after the walk (ACU-RE-0069)
 
 - Slot 3 (default): data watch on the skeleton motion object's root delta M+0x90 (ACU-RE-0057), sample
   M+0x90..+0xB0 (translation, rotation). One trap per frame for the player.
@@ -62,6 +63,10 @@ def main() -> int:
     ap.add_argument("out")
     ap.add_argument("--stick", type=int, nargs=2, default=[0, FULL], metavar=("X", "Y"))
     ap.add_argument("--walk", type=float, default=4.0)
+    ap.add_argument("--turn", type=int, nargs=2, default=None, metavar=("X", "Y"),
+                    help="stick held after the walk phase (a turn while moving)")
+    ap.add_argument("--turn-secs", type=float, default=2.5)
+    ap.add_argument("--free-run", action="store_true", help="hold the right trigger while moving")
     ap.add_argument("--slot", type=int, default=3, help="probe slot (a slot re-armed right after a busy "
                     "watch can stay on the old address on one thread; see README)")
     a = ap.parse_args()
@@ -115,7 +120,12 @@ def main() -> int:
             th.start()
         pad = focus.InProcessPad(a.pid)
         try:
-            for name, action, secs in [("idle", {}, 1.0), ("walk", {"left_stick": list(a.stick)}, a.walk), ("stop", {}, 1.5)]:
+            run = {"right_trigger": 255} if a.free_run else {}
+            phases = [("idle", {}, 1.0), ("walk", {"left_stick": list(a.stick), **run}, a.walk)]
+            if a.turn:
+                phases.append(("turn", {"left_stick": list(a.turn), **run}, a.turn_secs))
+            phases.append(("stop", {}, 1.5))
+            for name, action, secs in phases:
                 state["phase"] = name
                 log({"kind": "phase", "qpc": L.qpc(), "phase": name, "action": action})
                 pad.update(action)
