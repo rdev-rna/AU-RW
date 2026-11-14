@@ -10,6 +10,9 @@ serde.workspace = true
 glam.workspace = true
 acu_assets = { path = "../acu_assets" }
 
+[dev-dependencies]
+serde_json.workspace = true
+
 # Preserve the imported source's explicit negative-control switches; off by default.
 [features]
 negative-smoother-carry-keeps-rate = []

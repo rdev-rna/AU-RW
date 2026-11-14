@@ -15,6 +15,7 @@ pub mod amo_request;
 pub mod amo_samples;
 pub mod amo_search;
 pub mod amo_velocity_smoother;
+pub mod atom_graph;
 pub mod bone_modifier;
 pub mod coat;
 #[allow(clippy::collapsible_if)]

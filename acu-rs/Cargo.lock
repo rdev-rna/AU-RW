@@ -117,6 +117,7 @@ dependencies = [
  "acu_assets",
  "glam",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
