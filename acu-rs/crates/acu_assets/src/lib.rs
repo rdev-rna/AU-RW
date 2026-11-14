@@ -2,6 +2,7 @@
 #![forbid(unsafe_code)]
 
 pub mod animation;
+pub mod atom_stream;
 pub mod catalog;
 pub mod control;
 pub mod forge;
