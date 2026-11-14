@@ -49,6 +49,8 @@ pub struct Cond {
     pub op: u32,
     pub join: u32,
     pub second_param: bool,
+    /// Event mode (`f8` bits 9-10); 2 = absent or ending (`sub_1400C7500`).
+    pub mode: u32,
     pub id: u32,
     pub value: Wrapped,
     pub children: Vec<Cond>,
@@ -147,6 +149,8 @@ pub struct State {
     pub class: &'static str,
     pub at: usize,
     pub transitions: Vec<Transition>,
+    /// `f88`: ids raised every frame while the state is active (`sub_14010E0F0`).
+    pub events: Vec<u32>,
     pub body: Body,
 }
 
@@ -192,6 +196,7 @@ fn conds(expr: Option<&Obj>) -> Option<Vec<Cond>> {
                 op: c.u("f8.b3_6").unwrap_or(0) as u32,
                 join: c.u("f8.b7_8").unwrap_or(0) as u32,
                 second_param: c.u("f8.b11").unwrap_or(0) != 0,
+                mode: c.u("f8.b9_10").unwrap_or(0) as u32,
                 id: c.u("f0").unwrap_or(0) as u32,
                 value: wrapped,
                 children,
@@ -317,6 +322,7 @@ impl Graph {
                 class: s.class,
                 at: s.at,
                 transitions: transitions(s, "f16"),
+                events: s.ints("f88").to_vec(),
                 body,
             });
         }
@@ -608,23 +614,40 @@ impl Ctx<'_> {
                 }
             }
             1 | 4 => {
-                // Kind 1: the evaluating state's list; kind 4: the instance list (+2120).
-                let scope = if c.kind == 1 { self.scope } else { None };
+                // sub_1400C23D0 -> sub_1400C7500. Kind 1 reads the evaluating state's list over
+                // the frame window; kind 4 the instance list over an unbounded window.
+                let (scope, w) = if c.kind == 1 {
+                    (self.scope, win)
+                } else {
+                    (None, (f32::MIN, f32::MAX))
+                };
                 let mut hit: Option<(f32, f32)> = None;
                 for &(state, id, s, e) in self.events {
                     if id != c.id || scope.is_some_and(|sc| !self.g.within(state, sc)) {
                         continue;
                     }
-                    let lo = s.max(win.0);
-                    let hi = e.min(win.1);
-                    if lo - hi <= EPS {
+                    if s - w.1 < EPS && w.0 - e < EPS {
                         hit = Some(match hit {
-                            None => (lo, hi),
-                            Some((a, b)) => (a.min(lo), b.max(hi)),
+                            None => (s, e),
+                            Some((a, b)) => (a.min(s), b.max(e)),
                         });
                     }
                 }
-                hit
+                if c.mode == 2 {
+                    // Absent: whole window. Present: holds only when it ends inside the window.
+                    return match hit {
+                        None => Some(w),
+                        Some(_) if w.0 == f32::MIN => None,
+                        Some((_, e)) => (e + EPS < w.1).then_some((e, w.1)),
+                    }
+                    .map(|(a, b)| if c.kind == 4 { win } else { (a, b) });
+                }
+                match hit {
+                    // The caller intersects with the found interval (sub_1400C23D0 kind 1).
+                    Some((a, b)) if c.kind == 1 => Some((win.0.max(a), win.1.min(b))),
+                    Some(_) => Some(win),
+                    None => None,
+                }
             }
             _ => None,
         }
@@ -866,10 +889,33 @@ impl Player {
                 }
             }
         }
+        // sub_14010E0F0: every active state's f88 ids span the whole step window.
+        let mut active = Vec::new();
+        active_states(&self.graph, self.root, &self.rt, &mut active);
+        for s in active {
+            for &id in &self.graph.states[s].events {
+                ev.push((s, id, t0, t0 + dt));
+            }
+        }
         self.events = ev;
         self.window = (t0, t0 + dt);
         self.clock += dt;
         self.leaves = leaves;
+    }
+}
+
+/// Active states (current and fading) of the runtime tree.
+fn active_states(g: &Graph, s: usize, rt: &StateRt, out: &mut Vec<usize>) {
+    out.push(s);
+    match (rt, &g.states[s].body) {
+        (StateRt::Machine(m), Body::Machine { states, .. }) => {
+            if let Some(f) = &m.fade {
+                active_states(g, states[f.from as usize], &f.child, out);
+            }
+            active_states(g, states[m.current as usize], &m.child, out);
+        }
+        (StateRt::Layer(inner), Body::Layering { base, .. }) => active_states(g, *base, inner, out),
+        _ => {}
     }
 }
 
@@ -1400,6 +1446,7 @@ mod tests {
             op,
             join,
             second_param: false,
+            mode: 0,
             id,
             value: v,
             children: vec![],

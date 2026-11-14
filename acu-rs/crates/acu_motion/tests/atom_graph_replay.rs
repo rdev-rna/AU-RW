@@ -79,6 +79,9 @@ fn replay_live_parameters() {
 
     let mut player = Player::new(graph, hub, clips).unwrap();
     let mut started = false;
+    // Parkour reads 11 between frames; the per-frame value (0 idle, 1 moving, 21 free run)
+    // shows only in some samples (loco-params-1). Hold the last non-11 sample.
+    let mut parkour = 0i64;
     let params = rows(&run.join("params2.jsonl"));
     let live = rows(&run.join("live-state2.jsonl"));
     let mut live_at = 0;
@@ -92,6 +95,13 @@ fn replay_live_parameters() {
             .unwrap_or(1.0 / 30.0);
         prev_qpc = Some(qpc);
         for (name, v) in p["v"].as_object().unwrap() {
+            if name == "Parkour" {
+                if let Some(x) = v.as_i64().filter(|&x| x != 11) {
+                    parkour = x;
+                }
+                player.set(name, Value::Int(parkour as i32));
+                continue;
+            }
             let value = match v {
                 serde_json::Value::Bool(b) => Value::Bool(*b),
                 serde_json::Value::Number(n) if n.is_i64() || n.is_u64() => {
