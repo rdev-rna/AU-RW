@@ -6,6 +6,7 @@
 //!
 //! Implementation choices that are **not** native evidence are marked `CHOICE:` and reported
 //! through [`Diagnostics`] so that a run can never present them as parity.
+use crate::sync::{NOT_FOUND, Pos, Record};
 use acu_assets::atom_stream::{Obj, Val};
 use std::collections::HashMap;
 
@@ -531,8 +532,14 @@ pub struct Leaf {
 
 #[derive(Clone, Debug, Default)]
 struct GraphRt {
-    /// Normalized phase of the root (CHOICE: native syncs by markers, ACU-RE-0069).
+    /// Normalized phase of the root in its merged sync record (root +88).
     phase: f32,
+    /// Sync position of the root (root +80, `sub_1400EA210`).
+    pos: Option<Pos>,
+    /// The merged record of the last step.
+    record: Option<Record>,
+    /// Record and position handed over by the state this one replaced (`sub_140120520`).
+    handoff: Option<(Record, Pos)>,
     started: bool,
     damp: HashMap<usize, f32>,
     /// CacheValue latches and RandomSelection picks (CHOICE: reset on graph entry).
@@ -560,7 +567,7 @@ struct Fade {
 enum StateRt {
     Machine(MachineRt),
     Layer(Box<StateRt>),
-    Graph(GraphRt),
+    Graph(Box<GraphRt>),
     Empty,
 }
 
@@ -575,6 +582,8 @@ struct Ctx<'a> {
     /// State whose own event list kind-1 conditions read (`a2[1] + 2064`); None = instance list.
     scope: Option<usize>,
     window: (f32, f32),
+    /// Sync handed to graph states created by `enter` (the outgoing state's record/position).
+    handoff: Option<(Record, Pos)>,
     diag: &'a mut Diagnostics,
     /// Global LCG state (`qword_14525FAE0 + 4`; CHOICE: seed).
     rng: &'a mut u32,
@@ -817,6 +826,7 @@ impl Player {
             events: &[],
             window: self.window,
             scope: None,
+            handoff: None,
             diag: &mut self.diag,
             rng: &mut self.rng,
         };
@@ -877,6 +887,7 @@ impl Player {
                 events: &events,
                 window: self.window,
                 scope: None,
+                handoff: None,
                 diag: &mut self.diag,
                 rng: &mut self.rng,
             };
@@ -895,6 +906,7 @@ impl Player {
                 events: &[],
                 window: (0.0, 0.0),
                 scope: None,
+                handoff: None,
                 diag: &mut self.diag,
                 rng: &mut self.rng,
             };
@@ -950,6 +962,16 @@ impl Player {
     }
 }
 
+/// The sync record and position of a state's current pose (its innermost current graph).
+fn sync_of(rt: &StateRt) -> Option<(Record, Pos)> {
+    match rt {
+        StateRt::Machine(m) => sync_of(&m.child),
+        StateRt::Layer(inner) => sync_of(inner),
+        StateRt::Graph(g) => Some((g.record.clone()?, g.pos?)),
+        StateRt::Empty => None,
+    }
+}
+
 /// Active states (current and fading) of the runtime tree.
 fn active_states(g: &Graph, s: usize, rt: &StateRt, out: &mut Vec<usize>) {
     out.push(s);
@@ -992,7 +1014,10 @@ fn enter(ctx: &mut Ctx, s: usize) -> StateRt {
                 fade: None,
             })
         }
-        Body::Graph { .. } => StateRt::Graph(GraphRt::default()),
+        Body::Graph { .. } => StateRt::Graph(Box::new(GraphRt {
+            handoff: ctx.handoff.clone(),
+            ..GraphRt::default()
+        })),
         Body::Layering { base, layers } => {
             if !layers.is_empty() {
                 ctx.diag
@@ -1049,7 +1074,10 @@ fn update(ctx: &mut Ctx, s: usize, rt: &mut StateRt, dt: f32) {
         }
     }
     if let Some(t) = chosen {
+        // The outgoing state's record and position go to the graph states created now.
+        ctx.handoff = sync_of(&m.child);
         let child = enter(ctx, states[t.target as usize]);
+        ctx.handoff = None;
         let old = std::mem::replace(&mut m.child, Box::new(child));
         m.fade = Some(Fade {
             from: m.current,
@@ -1101,11 +1129,65 @@ fn collect(ctx: &mut Ctx, s: usize, rt: &mut StateRt, w: f32, dt: f32, out: &mut
     }
 }
 
-/// A pose value of the data pass: weighted leaves and the sync duration (+140).
-#[derive(Default)]
+/// A pose value of the data pass: weighted leaves and the pose's sync record (+8960 slot).
 struct Pose {
     leaves: Vec<(usize, f32)>,
-    duration: f32,
+    record: Record,
+}
+
+impl Default for Pose {
+    fn default() -> Self {
+        Pose {
+            leaves: Vec::new(),
+            record: Record::none(0.0),
+        }
+    }
+}
+
+impl Pose {
+    fn duration(&self) -> f32 {
+        self.record.total
+    }
+}
+
+/// CHOICE (ACU-RE-0069): the evaluation context's requested sync group and looping flag
+/// (`ctx + 16`, `ctx + 20` read by `sub_1400CC8A0`) are not traced; every observed sync track
+/// uses group 0 and the locomotion roots loop.
+const SYNC_GROUP: i32 = 0;
+const SYNC_LOOPING: bool = true;
+
+/// `sub_1400CC8A0` / `sub_14002C9B0`: the record of a clip node and its rotation offset.
+fn clip_record(info: Option<&ClipInfo>, mirror: bool) -> (Record, f32) {
+    match info {
+        Some(c) if c.duration > EPS => Record::build(
+            &c.sync_keys,
+            0.0,
+            c.duration,
+            SYNC_GROUP,
+            mirror,
+            SYNC_LOOPING,
+        ),
+        Some(c) => (Record::none(c.duration), 0.0),
+        None => (Record::none(0.0), 0.0),
+    }
+}
+
+/// Clip seconds of a clip record at a shared position (`sub_1400B0A80`: phase in the clip's own
+/// record times its length), or the normalized fallback when either side has no sync.
+fn clip_time(rec: &Record, offset: f32, d: f32, pos: Option<&Pos>, fallback: f32) -> f32 {
+    let x = match pos {
+        Some(p) if rec.valid() => {
+            let x = rec.phase(p, false);
+            let x = if x == NOT_FOUND {
+                rec.phase(p, true)
+            } else {
+                x
+            };
+            if x == NOT_FOUND { fallback } else { x }
+        }
+        _ => fallback,
+    };
+    (offset + x * d).rem_euclid(d.max(EPS))
 }
 
 fn graph_leaves(ctx: &mut Ctx, s: usize, g: &mut GraphRt, w: f32, dt: f32, out: &mut Vec<Leaf>) {
@@ -1124,6 +1206,7 @@ fn graph_leaves(ctx: &mut Ctx, s: usize, g: &mut GraphRt, w: f32, dt: f32, out: 
     let Some(p0) = nodes[root].inputs.first() else {
         return;
     };
+    let handoff = g.handoff.clone();
     let mut ev = Eval {
         ctx,
         nodes,
@@ -1131,31 +1214,61 @@ fn graph_leaves(ctx: &mut Ctx, s: usize, g: &mut GraphRt, w: f32, dt: f32, out: 
         damp: &mut g.damp,
         latch: &mut g.latch,
         pick: &mut g.pick,
+        handoff: handoff.as_ref(),
     };
     let pose = ev.pose(p0);
-    if pose.duration <= EPS {
+    let rec = pose.record;
+    if rec.total <= EPS {
         return;
     }
-    // A graph entered this frame advances over the frame from phase 0, so its first event
-    // window is [0, dt] in clip time, not a wrap from a previous cycle.
-    let step = dt / pose.duration;
-    g.phase += step;
+    // Phase at the start of this step: the stored position re-read against this step's merged
+    // record (sub_1400EA210), or, for a graph entered this frame, the handed-over position
+    // matched by marker ids and clamped by the root's f96 when it is >= 0 (sub_140120520).
+    let mut phase = g.phase;
+    if !g.started {
+        phase = 0.0;
+        if let Some((_, hp)) = &handoff {
+            let x = rec.match_phase(hp);
+            if x != NOT_FOUND && rec.valid() {
+                phase = x;
+            }
+            let max = f32::from_bits(nodes[root].field("f96") as u32);
+            if max >= 0.0 && phase > max {
+                phase = max;
+            }
+        }
+    } else if let (true, Some(p)) = (rec.valid(), g.pos) {
+        let x = rec.phase(&p, false);
+        if x != NOT_FOUND {
+            phase = x;
+        }
+    }
+    let before = rec.valid().then(|| rec.position(phase));
+    // CHOICE: the step adds dt / total (root +84 = total / global speed, speed 1) and wraps.
+    let step = dt / rec.total;
+    let next = (phase + step).rem_euclid(1.0);
+    let after = rec.valid().then(|| rec.position(next));
+    g.phase = next;
+    g.pos = after;
+    g.record = Some(rec.clone());
     g.started = true;
-    let phase = g.phase;
     for (n, lw) in pose.leaves {
         let clip = nodes[n].clip.unwrap_or(0);
         let mirror = nodes[n].inputs.get(2).cloned().is_some_and(|p| ev.flag(&p));
-        let d = ev.ctx.clips.get(&clip).map(|c| c.duration).unwrap_or(0.0);
-        // CHOICE: every clip loops at the shared normalized phase.
-        let time = (phase * d).rem_euclid(d.max(EPS));
+        let info = ev.ctx.clips.get(&clip);
+        let d = info.map(|c| c.duration).unwrap_or(0.0);
+        let (lr, offset) = clip_record(info, mirror);
+        let time = clip_time(&lr, offset, d, after.as_ref(), next);
+        let t0 = clip_time(&lr, offset, d, before.as_ref(), phase);
+        let advance = (time - t0).rem_euclid(d.max(EPS));
         out.push(Leaf {
             state: s,
             node: n,
             clip,
             weight: w * lw,
             time,
-            rate: d / pose.duration,
-            advance: step * d,
+            rate: if dt > EPS { advance / dt } else { 0.0 },
+            advance,
             mirror,
         });
     }
@@ -1168,6 +1281,7 @@ struct Eval<'c, 'a> {
     damp: &'c mut HashMap<usize, f32>,
     latch: &'c mut HashMap<usize, f32>,
     pick: &'c mut HashMap<usize, usize>,
+    handoff: Option<&'c (Record, Pos)>,
 }
 
 impl Eval<'_, '_> {
@@ -1193,7 +1307,7 @@ impl Eval<'_, '_> {
                 None => 0.0,
             },
             11 => match self.linked(p) {
-                Some(n) => self.node_pose(n).duration,
+                Some(n) => self.node_pose(n).duration(),
                 None => 0.0,
             },
             _ => 0.0,
@@ -1228,6 +1342,16 @@ impl Eval<'_, '_> {
                 self.ctx.diag.note("damp node passes its target through");
                 self.damp.insert(n, target);
                 target
+            }
+            "AtomWriteParamNode" => {
+                // INFERENCE: its one input feeds consumers through its output (walk-start graph
+                // 11747715: CacheValue(TargetAngle) -> WriteParam -> axial axis), so the output is
+                // the input. The write to parameter hash f84 is not applied; evaluator not located.
+                self.ctx
+                    .diag
+                    .note("write-param node passes its input (param write not applied)");
+                let p = self.nodes[n].inputs.first().cloned();
+                p.map(|p| self.scalar(&p)).unwrap_or(0.0)
             }
             "AtomCacheValueNode" => {
                 // sub_1400EAF90: computes once, then holds (flag at f84 is never cleared here).
@@ -1280,17 +1404,16 @@ impl Eval<'_, '_> {
         let node = &self.nodes[n];
         match node.class {
             "AtomAnimationDataNode" => {
-                let d = node
-                    .clip
-                    .and_then(|c| self.ctx.clips.get(&c))
-                    .map(|c| c.duration)
-                    .unwrap_or(0.0);
-                if d <= EPS {
+                let info = node.clip.and_then(|c| self.ctx.clips.get(&c));
+                if info.is_none_or(|c| c.duration <= EPS) {
                     self.ctx.diag.note("clip absent from the loaded package");
                 }
+                let mirror = node.inputs.get(2).cloned();
+                let mirror = mirror.is_some_and(|p| self.flag(&p));
+                let info = self.nodes[n].clip.and_then(|c| self.ctx.clips.get(&c));
                 Pose {
                     leaves: vec![(n, 1.0)],
-                    duration: d,
+                    record: clip_record(info, mirror).0,
                 }
             }
             "AtomAxialBlendNode" => self.axial(n, false),
@@ -1375,11 +1498,44 @@ impl Eval<'_, '_> {
                 p.map(|p| self.pose(&p)).unwrap_or_default()
             }
             "AtomSelectBestMatchingTagsNode" => {
-                // sub_1400ECD90: the child index latched at activation (sub_1400D7640) is used;
-                // the marker-cost search (sub_1400E01F0 / sub_1400CDE10) runs only with a sync
-                // source. Graph-state activation (sub_1400E7C00) passes none, so the latch is
-                // the first child, port 2.
-                let p = self.nodes[n].inputs.get(2).cloned();
+                // sub_1400ECD90: the child chosen once per activation is used.
+                // Activation (sub_1400D7640): with a sync source whose record group equals port 0,
+                // take its position, step to the next segment when the fraction is >= port 1, then
+                // sub_1400E01F0 picks the child of least sub_1400CDE10 cost (strictly less; none
+                // -> port 2). Without a source the latch is port 2.
+                let inputs = self.nodes[n].inputs.clone();
+                let k = match self.pick.get(&n) {
+                    Some(&k) => k,
+                    None => {
+                        let mut k = 2;
+                        if let Some((orec, opos)) = self.handoff.cloned() {
+                            let group = self.scalar(&inputs[0]) as i32;
+                            if orec.id == group && orec.valid() {
+                                let mut pos = opos;
+                                let t = self.scalar(&inputs[1]);
+                                if (t - 1.0).abs() > EPS
+                                    && pos.frac >= t
+                                    && let Some(p) = orec.next_segment(&pos)
+                                {
+                                    pos = p;
+                                }
+                                // CHOICE: the cost threshold (activation context +32) is not
+                                // traced; FLT_MAX keeps the matched-sequence cost.
+                                let mut best = NOT_FOUND;
+                                for (c, port) in inputs.iter().enumerate().skip(2) {
+                                    let cost = self.pose(port).record.select_cost(&pos, NOT_FOUND);
+                                    if cost < best {
+                                        best = cost;
+                                        k = c;
+                                    }
+                                }
+                            }
+                        }
+                        self.pick.insert(n, k);
+                        k
+                    }
+                };
+                let p = inputs.get(k).cloned();
                 p.map(|p| self.pose(&p)).unwrap_or_default()
             }
             "AtomTimeScaleNode" => {
@@ -1396,7 +1552,7 @@ impl Eval<'_, '_> {
                     v = 1.0;
                 }
                 let mut pose = self.pose(&p2);
-                let d = pose.duration;
+                let d = pose.duration();
                 let (mut new_d, ratio) = if is_duration {
                     (v, v / d)
                 } else {
@@ -1405,7 +1561,12 @@ impl Eval<'_, '_> {
                 if new_d <= EPS || ratio <= EPS {
                     new_d = 0.1;
                 }
-                pose.duration = new_d;
+                // sub_1400B57B0 -> sub_14011EE30: every segment and the total scale together.
+                let k = if d > EPS { new_d / d } else { 1.0 };
+                pose.record.scale(k);
+                if !pose.record.valid() {
+                    pose.record.total = new_d;
+                }
                 pose
             }
             "AtomAnimationRootNode" => {
@@ -1486,8 +1647,8 @@ impl Eval<'_, '_> {
                 leaves.extend(b.leaves.into_iter().map(|(n, x)| (n, x * w)));
                 Pose {
                     leaves,
-                    // +140 blended linearly (ACU-RE-0067 obs. 6)
-                    duration: (1.0 - w) * a.duration + w * b.duration,
+                    // sub_1400FD7A0: totals and matching marker segments lerp (ACU-RE-0067 obs. 6).
+                    record: Record::merge(&a.record, &b.record, w),
                 }
             }
         }
@@ -1530,6 +1691,7 @@ mod tests {
             events: &[],
             window: (0.0, 1.0),
             scope: None,
+            handoff: None,
             diag: &mut diag,
             rng: &mut 1,
         };
@@ -1566,6 +1728,7 @@ mod tests {
             events: &events,
             window: (0.0, 1.0),
             scope: None,
+            handoff: None,
             diag: &mut diag,
             rng: &mut 1,
         };

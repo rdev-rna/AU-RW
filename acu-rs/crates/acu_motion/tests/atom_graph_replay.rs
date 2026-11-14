@@ -87,18 +87,27 @@ fn replay_live_parameters() {
                     .map(|e| format!("{:08x}[{:.3},{:.3}]", e.0, e.1, e.2))
                     .collect();
                 println!("clip {n} {id:016x} d={:.3} {}", c.duration, ev.join(" "));
+                println!(
+                    "  sync {:?}",
+                    c.sync_keys
+                        .iter()
+                        .map(|k| format!("{:.4}:{:08x}", k.0, k.1))
+                        .collect::<Vec<_>>()
+                );
             }
         }
     }
+    let durations: HashMap<u64, f32> = clips.iter().map(|(k, c)| (*k, c.duration)).collect();
     let mut player = Player::new(graph, hub, clips).unwrap();
     let mut started = false;
-    // Parkour reads 11 between frames; the per-frame value (0 idle, 1 moving, 21 free run)
-    // shows only in some samples (loco-params-1). Hold the last non-11 sample.
+    // Parkour reads 11 between frames; the per-frame value shows only in some samples.
     let mut parkour = 0i64;
     let params = rows(&run.join("params2.jsonl"));
     let live = rows(&run.join("live-state2.jsonl"));
     let mut live_at = 0;
     let (mut agree, mut total) = (0, 0);
+    let mut phase_err: Vec<f64> = Vec::new();
+    let mut per_clip: HashMap<u64, Vec<f64>> = HashMap::new();
     let mut last = (String::new(), String::new());
     let mut prev_qpc = None;
     for p in &params {
@@ -109,8 +118,19 @@ fn replay_live_parameters() {
         prev_qpc = Some(qpc);
         for (name, v) in p["v"].as_object().unwrap() {
             if name == "Parkour" {
-                if let Some(x) = v.as_i64().filter(|&x| x != 11) {
-                    parkour = x;
+                // All 58 real samples of loco-params-1 satisfy: 0 when MovementSpeed is 0,
+                // 1 when it is above 0, 21 only beside walls. Between real samples the slot
+                // reads 11, so derive 0/1 from MovementSpeed and keep a real 21 while moving.
+                let moving = p["v"]["MovementSpeed"].as_f64().unwrap_or(0.0) > 0.0;
+                match v.as_i64() {
+                    Some(11) | None => {
+                        parkour = match (moving, parkour) {
+                            (false, _) => 0,
+                            (true, 21) => 21,
+                            (true, _) => 1,
+                        }
+                    }
+                    Some(x) => parkour = x,
                 }
                 player.set(name, Value::Int(parkour as i32));
                 continue;
@@ -215,6 +235,33 @@ fn replay_live_parameters() {
         let name = |id: u64| names.get(&id).cloned().unwrap_or(format!("{id:016x}"));
         total += 1;
         agree += usize::from(ours == theirs);
+        if ours == theirs && ours != 0 {
+            // Phase error of the dominant clip, in clip seconds (wrapped).
+            let our_t = player
+                .leaves
+                .iter()
+                .filter(|l| l.clip == ours)
+                .max_by(|a, b| a.weight.total_cmp(&b.weight))
+                .map(|l| l.time);
+            let their_t = live[live_at]["clips"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|c| c["file_id"].as_str() == Some(&format!("{ours:016x}")))
+                .max_by(|a, b| {
+                    a["weight"]
+                        .as_f64()
+                        .unwrap_or(0.0)
+                        .total_cmp(&b["weight"].as_f64().unwrap_or(0.0))
+                })
+                .and_then(|c| c["time"].as_f64());
+            if let (Some(a), Some(b), Some(&d)) = (our_t, their_t, durations.get(&ours)) {
+                let d = d as f64;
+                let e = ((a as f64 - b).rem_euclid(d)).min((b - a as f64).rem_euclid(d));
+                phase_err.push(e);
+                per_clip.entry(ours).or_default().push(e);
+            }
+        }
         let now = (name(ours), name(theirs));
         if now != last {
             println!(
@@ -227,6 +274,29 @@ fn replay_live_parameters() {
         }
     }
     println!("dominant-clip agreement {agree}/{total}");
+    let mut rows: Vec<(u64, Vec<f64>)> = per_clip.into_iter().collect();
+    rows.sort_by_key(|r| std::cmp::Reverse(r.1.len()));
+    for (id, mut e) in rows.into_iter().take(12) {
+        e.sort_by(f64::total_cmp);
+        println!(
+            "  time error {:45} n={:4} median {:.3} max {:.3}",
+            names.get(&id).cloned().unwrap_or_default(),
+            e.len(),
+            e[e.len() / 2],
+            e[e.len() - 1]
+        );
+    }
+    phase_err.sort_by(f64::total_cmp);
+    if !phase_err.is_empty() {
+        let q = |f: f64| phase_err[((phase_err.len() - 1) as f64 * f) as usize];
+        println!(
+            "dominant-clip time error (s): n={} median {:.3} p90 {:.3} max {:.3}",
+            phase_err.len(),
+            q(0.5),
+            q(0.9),
+            q(1.0)
+        );
+    }
     for t in player.diag.transitions.iter().take(40) {
         println!("transition {t:?}");
     }
