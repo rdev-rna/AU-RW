@@ -11,6 +11,9 @@
 // Local\acu-pad-<pid>, XInputGetState/GetStateEx/GetCapabilities report a connected pad at user
 // index 0 with that state, and the window is sent WM_DEVICECHANGE so the game re-enumerates.
 // Nothing outside this process sees the pad; other user indices pass through to the real API.
+// Frame limiter: with fps_cap set in acu_focus.ini ([focus] fps_cap=N) beside this DLL,
+// IDXGISwapChain::Present (vtable slot 8, found through a throwaway swap chain) waits so the game
+// presents at most N frames per second; the status reports the measured rate.
 // Everything is reversible: signal the named event Local\acu-focus-stop-<pid> and the original
 // window procedure, the saved 5 code bytes of each patched export and the two DirectInput
 // device vtable slots are restored. No game code or file changes.
@@ -20,12 +23,14 @@
 #include <windows.h>
 #include <dinput.h>
 #include <xinput.h>
+#include <d3d11.h>
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
 #include <string>
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "dxguid.lib")
+#pragma comment(lib, "winmm.lib")
 
 static HMODULE self;
 static HWND gameWindow = nullptr;
@@ -34,6 +39,32 @@ static volatile LONG droppedActivateApp = 0, droppedActivate = 0, droppedKillFoc
                      ignoredXInputDisable = 0, frozenCursorReads = 0, blankedDeviceState = 0, blankedDeviceData = 0;
 struct Patch { const char* module; const char* name; void* target; BYTE saved[5]; bool active; };
 static Patch patches[16];
+
+// Frame limiter state.
+using PresentFn = HRESULT(STDMETHODCALLTYPE*)(IDXGISwapChain*, UINT, UINT);
+static void** presentTable = nullptr;
+static PresentFn originalPresent = nullptr;
+static bool presentPatched = false;
+static unsigned fpsCap = 0;
+static volatile LONG presents = 0, measuredFps = 0;
+static LARGE_INTEGER qpcFrequency;
+static int64_t nextFrame = 0;
+static HRESULT STDMETHODCALLTYPE presentFake(IDXGISwapChain* chain, UINT sync, UINT flags) {
+    if (fpsCap && !(flags & DXGI_PRESENT_TEST)) {
+        const int64_t period = qpcFrequency.QuadPart / fpsCap;
+        LARGE_INTEGER now;
+        QueryPerformanceCounter(&now);
+        if (!nextFrame || now.QuadPart - nextFrame > period) nextFrame = now.QuadPart;  // start, or fell behind
+        while (now.QuadPart < nextFrame) {
+            int64_t ms = (nextFrame - now.QuadPart) * 1000 / qpcFrequency.QuadPart;
+            if (ms > 1) Sleep((DWORD)(ms - 1)); else YieldProcessor();
+            QueryPerformanceCounter(&now);
+        }
+        nextFrame += period;
+    }
+    InterlockedIncrement(&presents);
+    return originalPresent(chain, sync, flags);
+}
 static int patchCount = 0;
 
 // The real foreground query, resolved from the user32 stub before that stub is patched.
@@ -262,12 +293,67 @@ static void patchDirectInput() {
     }
 }
 
+static std::wstring besideDll(const wchar_t* name) {
+    wchar_t path[MAX_PATH];
+    DWORD n = GetModuleFileNameW(self, path, MAX_PATH);
+    std::wstring s(path, n);
+    return s.substr(0, s.find_last_of(L"\\/") + 1) + name;
+}
+
+static void patchPresent() {
+    fpsCap = GetPrivateProfileIntW(L"focus", L"fps_cap", 0, besideDll(L"acu_focus.ini").c_str());
+    if (fpsCap > 240) fpsCap = 240;
+    QueryPerformanceFrequency(&qpcFrequency);
+    HMODULE d3d = GetModuleHandleA("d3d11.dll");
+    auto create = d3d ? (decltype(&D3D11CreateDeviceAndSwapChain))GetProcAddress(d3d, "D3D11CreateDeviceAndSwapChain") : nullptr;
+    if (!create) return;
+    HWND dummy = CreateWindowExW(0, L"STATIC", L"acu-focus-dummy", WS_OVERLAPPED, 0, 0, 64, 64, nullptr, nullptr, self, nullptr);
+    if (!dummy) return;
+    DXGI_SWAP_CHAIN_DESC desc{};
+    desc.BufferCount = 1;
+    desc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+    desc.BufferDesc.Width = desc.BufferDesc.Height = 64;
+    desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
+    desc.OutputWindow = dummy;
+    desc.SampleDesc.Count = 1;
+    desc.Windowed = TRUE;
+    IDXGISwapChain* chain = nullptr;
+    ID3D11Device* device = nullptr;
+    ID3D11DeviceContext* context = nullptr;
+    if (SUCCEEDED(create(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, 0, nullptr, 0, D3D11_SDK_VERSION, &desc, &chain,
+                         &device, nullptr, &context)) && chain) {
+        void** table = *(void***)chain;
+        DWORD old;
+        if (VirtualProtect(table + 8, sizeof(void*), PAGE_READWRITE, &old)) {
+            presentTable = table;
+            originalPresent = (PresentFn)table[8];
+            table[8] = (void*)&presentFake;
+            VirtualProtect(table + 8, sizeof(void*), old, &old);
+            presentPatched = true;
+        }
+    }
+    if (chain) chain->Release();
+    if (context) context->Release();
+    if (device) device->Release();
+    DestroyWindow(dummy);
+}
+
+static void restorePresent() {
+    DWORD old;
+    if (presentPatched && VirtualProtect(presentTable + 8, sizeof(void*), PAGE_READWRITE, &old)) {
+        presentTable[8] = (void*)originalPresent;
+        VirtualProtect(presentTable + 8, sizeof(void*), old, &old);
+        presentPatched = false;
+    }
+}
+
 static BOOL CALLBACK findWindow(HWND hwnd, LPARAM) {
     DWORD pid = 0;
     GetWindowThreadProcessId(hwnd, &pid);
-    if (pid != GetCurrentProcessId() || !IsWindowVisible(hwnd) || GetWindow(hwnd, GW_OWNER)) return TRUE;
-    RECT r;
-    if (!GetClientRect(hwnd, &r) || r.right - r.left < 320) return TRUE;
+    if (pid != GetCurrentProcessId() || GetWindow(hwnd, GW_OWNER)) return TRUE;
+    // The engine's top-level window class; it may be minimised (0x0 client area) when found.
+    wchar_t cls[64];
+    if (!GetClassNameW(hwnd, cls, 64) || wcscmp(cls, L"ScimitarEngineWindowClass")) return TRUE;
     gameWindow = hwnd;
     return FALSE;
 }
@@ -295,6 +381,9 @@ static void writeStatus(const char* state, const char* error) {
               "\"neutralised\":{\"cursor_reads\":%ld,\"device_state\":%ld,\"device_data\":%ld}",
               reallyFocused() ? "true" : "false", realForeground ? "true" : "false", originalGetCursorPos ? "true" : "false",
               dinputActive, frozenCursorReads, blankedDeviceState, blankedDeviceData);
+    s += buf;
+    sprintf_s(buf, ",\"frame\":{\"present_hooked\":%s,\"fps_cap\":%u,\"fps\":%ld,\"presents\":%ld}",
+              presentPatched ? "true" : "false", fpsCap, measuredFps, presents);
     s += buf;
     sprintf_s(buf, ",\"pad\":{\"mapped\":%s,\"enabled\":%s,\"sequence\":%lu,\"state_reads\":%ld,\"caps_reads\":%ld,\"device_notices\":%ld}",
               pad ? "true" : "false", padActive(0) ? "true" : "false", pad ? (unsigned long)pad->sequence : 0ul,
@@ -342,6 +431,8 @@ static DWORD WINAPI worker(void*) {
     patchGetCursorPos();
     patchXInputPad();
     patchDirectInput();
+    patchPresent();
+    if (fpsCap) timeBeginPeriod(1);
     patchExport("user32.dll", "GetForegroundWindow", (void*)&gameWindowFake);
     patchExport("user32.dll", "GetActiveWindow", (void*)&gameWindowFake);
     patchExport("user32.dll", "GetFocus", (void*)&gameWindowFake);
@@ -364,8 +455,16 @@ static DWORD WINAPI worker(void*) {
             InterlockedIncrement(&padDeviceNotices);
             padWasActive = active;
         }
-        if (tick % 10 == 0) writeStatus("installed", nullptr);
+        if (tick % 10 == 0) {
+            static LONG lastPresents = 0;
+            LONG now = presents;
+            measuredFps = now - lastPresents;
+            lastPresents = now;
+            writeStatus("installed", nullptr);
+        }
     }
+    restorePresent();
+    if (fpsCap) timeEndPeriod(1);
     // Restore: only put the old procedure back if ours is still the installed one.
     if (originalProc && (WNDPROC)GetWindowLongPtrW(gameWindow, GWLP_WNDPROC) == &subclassProc)
         SetWindowLongPtrW(gameWindow, GWLP_WNDPROC, (LONG_PTR)originalProc);

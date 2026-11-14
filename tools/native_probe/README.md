@@ -207,6 +207,13 @@ python tools/native_probe/focus.py remove <pid>     # restores everything listed
   reports a connected pad with that state, and the window receives `WM_DEVICECHANGE` so the
   game enumerates it. No device or driver is involved and no other process sees the pad.
 
+- Frame limiter: `focus.py install <pid> --fps-cap N` writes `acu_focus.ini`; the shim paces
+  `IDXGISwapChain::Present` (vtable slot 8, found through a throwaway swap chain) to N per
+  second and reports the measured rate in `frame.fps`.
+- The game window is found by its engine class, `ScimitarEngineWindowClass`, even when it is
+  minimised. A minimised ACU stops presenting; restore it without activation
+  (`ShowWindow(hwnd, SW_SHOWNOACTIVATE)`) or keep it on another virtual desktop.
+
 Patches are 5-byte `jmp rel32` to a nearby trampoline (some user32 exports are 6-byte
 stubs); call-through originals are only built for prologues whose first instruction is
 exactly 5 position-independent bytes. Removal restores the saved bytes, the two DirectInput

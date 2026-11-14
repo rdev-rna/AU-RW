@@ -69,9 +69,13 @@ def live(pid: int) -> dict | None:
     return s if all(p.get("active") for p in s.get("patches", [])) else None
 
 
-def install(pid: int, dll: Path = OUT / "acu_focus.dll", timeout: float = 15) -> dict:
+def install(pid: int, dll: Path = OUT / "acu_focus.dll", timeout: float = 15, fps_cap: int = 0) -> dict:
     if live(pid):
         return live(pid)
+    if not 0 <= fps_cap <= 240:
+        raise ValueError("fps_cap must be 0 (off) .. 240")
+    # Read by the shim at install: [focus] fps_cap paces IDXGISwapChain::Present.
+    (OUT / "acu_focus.ini").write_text(f"[focus]\nfps_cap={fps_cap}\n", encoding="ascii")
     # LoadLibrary of an already-loaded path is a no-op, so every install uses a fresh copy. The
     # copy stays in OUT because the shim writes focus-<pid>.json beside its own DLL.
     copy = OUT / f"acu_focus-{pid}-{time.time_ns()}.dll"
@@ -180,8 +184,9 @@ def main() -> None:
     ap.add_argument("mode", choices=("install", "status", "remove"))
     ap.add_argument("pid", type=int)
     ap.add_argument("--dll", type=Path, default=OUT / "acu_focus.dll")
+    ap.add_argument("--fps-cap", type=int, default=0, help="frame limiter for install (0 = off)")
     a = ap.parse_args()
-    result = install(a.pid, a.dll) if a.mode == "install" else remove(a.pid) if a.mode == "remove" else status(a.pid)
+    result = install(a.pid, a.dll, fps_cap=a.fps_cap) if a.mode == "install" else remove(a.pid) if a.mode == "remove" else status(a.pid)
     print(json.dumps(result, indent=2))
 
 

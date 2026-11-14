@@ -55,6 +55,46 @@ python tools/native_probe/controller_autoplay.py <pid> tools/native_probe/parkou
 the world. On 2026-11-14 the ViGEm virtual pad device (`USB\VID_045E&PID_028E\01`) was
 disabled in Device Manager, so XInput never saw it; the in-process pad does not depend on it.
 
+### Startup videos (game-folder change, reversible)
+
+On 2026-11-14 the user supplied `FastUnity-391-1-0-1759610364.rar` (SHA-256
+`86c7da1c3f123244914ec7f7d3c34de93354a67de1d50c65eef39e920e2b0c03`; from its name, mod
+391 v1.0 on Nexus Mods). It contains 32 identical 480-byte Bink 2 placeholders
+(SHA-256 `6b2d145f…327cc`) for `videos/AbstergoLogo.bk2`, `UbisoftLogo.bk2`,
+`pc_TWIMTBP.bk2`, `ACU_TitleScreen.bk2` and the 14 per-language `pc_WarningSaving.bk2` /
+`warning_disclaimer.bk2` clips, plus a ReadMe. No executable content. The archive is not
+redistributed here.
+
+```powershell
+python tools/intro_skip.py install <extracted-archive-folder>   # backs up, then replaces
+python tools/intro_skip.py status
+python tools/intro_skip.py restore                               # originals back, hash-verified
+```
+
+`intro_skip.py` accepts only small `KB2` files whose paths already exist under the game's
+`videos/`. Originals (95 MB) and their hashes are kept in ignored
+`local/game-backups/intro-skip/`. After installing, a Ubisoft Connect launch goes from the
+launcher splash straight to "Press any key"; the menu still needs title A + Continue A.
+
+### Low-GPU capture preset and 60 fps cap
+
+```powershell
+python tools/capture_preset.py apply      # ACU closed; backs up ACU.ini first
+python tools/native_probe/focus.py install <pid> --fps-cap 60
+python tools/capture_preset.py restore    # ACU closed; original ACU.ini, hash-verified
+```
+
+The preset sets every `[Graphics]` quality key in `Documents/Assassin's Creed Unity/ACU.ini`
+to its lowest value, windowed 1280x720 and VSync off (`Stretching=1` scales the render to the
+window). ACU has no frame-rate option, and VSync in a window follows the desktop refresh
+(75 Hz here), so the 60 fps cap is the shim's `Present` limiter. Keep this preset fixed for
+all captures: quality settings may change what the game simulates.
+
+Measured 2026-11-14 on an RTX 2070 SUPER (ACU's own 3D-engine utilisation, Windows GPU
+counters): title screen 72 % at 61 fps uncapped at 1080p before, 49 % at 60 fps after; in
+the world with the preset, 40 % at 60 fps. An in-world before value was not captured. The
+backbuffer size was not read back, so the 1280x720 render is configured, not measured.
+
 ## Input sweep and native correlation
 
 After reaching gameplay, `controller_sweep.example.json` sends every ordinary
