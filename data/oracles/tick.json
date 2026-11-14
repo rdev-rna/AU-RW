@@ -1,0 +1,51 @@
+{
+ "schema": "acu-oracle/tick/1",
+ "finding": "ACU-RE-0051",
+ "binary_sha256": "748abdc6456397fe7d8080f975f2a5ed3123bce548e7bf1c68b23f47e8b27e40",
+ "world": "ACU_Paris",
+ "method": "native probe entry hooks (tools/native_probe/tick_time.profile.json): engine frame clock 0x1427743F0 (rcx snapshot: +0x88 game time 1e-5 s, +0x90 f32, +0x94 mode), clock update 0x14276D750 (xmm1 = dt ms), physics step planner 0x1425FB720 (rcx+0x10F0: dt, step, rate, count at +0x14), BeginFrame 0x141CC19A0; shim frame cap chosen at launch",
+ "notes": ["rates come from hooked hits; the probe ring overwrites under load, so only engine_frame_clock spans are used for rates (the 30 fps file kept 6.3 s of frame-clock hits)", "physics_plan values are those the planner stored on its previous call"],
+ "runs": [
+  {
+   "run": "tick-1",
+   "file": "events.jsonl",
+   "fps_cap": 60,
+   "frames_hooked": 1060,
+   "span_s": 17.783,
+   "frame_rate_hz": 59.55,
+   "engine_mode": [[2, 1060]],
+   "engine_fixed_hz_field": [[30.0, 1060]],
+   "wall_frame_dt_s": {"n": 1059, "p10": 0.0166, "median": 0.01667, "p90": 0.01673},
+   "game_time_dt_s": {"n": 1059, "p10": 0.0166, "median": 0.01666, "p90": 0.01673},
+   "game_time_per_wall_s": 0.9997,
+   "clock_tree_updates_per_frame": 10.07,
+   "clock_update_dt_ms": {"n": 10560, "p10": 16.605, "median": 16.668, "p90": 16.728},
+   "physics_plan": [
+    {"step_s":0.01667,"rate_hz":60.0,"steps":1,"frames":1047},
+    {"step_s":0.02222,"rate_hz":45.0,"steps":1,"frames":2},
+    {"step_s":0.03333,"rate_hz":30.0,"steps":1,"frames":1},
+    {"step_s":0.00833,"rate_hz":120.0,"steps":1,"frames":1}
+   ]
+  },
+  {
+   "run": "tick-1",
+   "file": "events-cap30.jsonl",
+   "fps_cap": 30,
+   "frames_hooked": 190,
+   "span_s": 6.333,
+   "frame_rate_hz": 29.84,
+   "engine_mode": [[2, 190]],
+   "engine_fixed_hz_field": [[30.0, 190]],
+   "wall_frame_dt_s": {"n": 189, "p10": 0.03316, "median": 0.03334, "p90": 0.03353},
+   "game_time_dt_s": {"n": 189, "p10": 0.03315, "median": 0.03333, "p90": 0.03352},
+   "game_time_per_wall_s": 0.9998,
+   "clock_tree_updates_per_frame": 9.85,
+   "clock_update_dt_ms": {"n": 1920, "p10": 33.145, "median": 33.334, "p90": 33.505},
+   "physics_plan": [
+    {"step_s":0.03333,"rate_hz":30.0,"steps":1,"frames":187},
+    {"step_s":0.01667,"rate_hz":60.0,"steps":1,"frames":7}
+   ]
+  }
+ ],
+ "not_established": ["100 fps and uncapped behaviour (which physics rate bucket is chosen above 60 fps)", "the rate bucket table and its thresholds", "behaviour while paused or in menus"]
+}

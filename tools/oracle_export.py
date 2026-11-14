@@ -3,6 +3,8 @@
     python tools/oracle_export.py world-travel [--runs local/native-probe/runs] [--output data/oracles/world_travel.json]
     python tools/oracle_export.py locomotion   [--runs ...] [--output data/oracles/locomotion.json]
     python tools/oracle_export.py parkour      [--runs ...] [--output data/oracles/parkour.json]
+    python tools/oracle_export.py camera       [--runs ...] [--output data/oracles/camera.json]
+    python tools/oracle_export.py tick         [--runs ...] [--output data/oracles/tick.json]
 
 world-travel (ACU-RE-0049): `world-samples.jsonl` written by the 50 ms world sampler during runs
 map-travel-2/-3 (one row per change of holder +0x90/+0x98, World +0xD8, travel manager
@@ -744,7 +746,185 @@ def dump(obj, depth: int = 0, inline_from: int = 4) -> str:
     return "[\n" + ",\n".join(pad + dump(v, depth + 1, inline_from) for v in obj) + "\n" + end + "]"
 
 
+# ---------------------------------------------------------------------------------------------
+# camera (ACU-RE-0052): camera_sweep.py phases (both sticks, in-process pad) and 50 ms samples of
+# the player camera (CameraManager component +0x50 position, +0x60 quaternion) and the player.
+# ---------------------------------------------------------------------------------------------
+
+CAMERA_RUNS = ("camera-2",)
+
+
+def wrap180(d: float) -> float:
+    return (d + 180.0) % 360.0 - 180.0
+
+
+def camera_phase_summary(rows: list[dict]) -> dict:
+    """Yaw/pitch change, camera distance and the move heading relative to the starting camera yaw."""
+    if len(rows) < 2:
+        return {"samples": len(rows)}
+    dt = rows[-1]["t"] - rows[0]["t"]
+    dyaw = sum(wrap180(b["cam_yaw"] - a["cam_yaw"]) for a, b in zip(rows, rows[1:]))
+    out = {
+        "samples": len(rows),
+        "seconds": round(dt, 3),
+        "yaw_change_deg": round(dyaw, 2),
+        "yaw_rate_deg_s": round(dyaw / dt, 1) if dt else None,
+        "pitch_start_deg": round(rows[0]["cam_pitch"], 2),
+        "pitch_end_deg": round(rows[-1]["cam_pitch"], 2),
+        "dist_range_m": [round(min(r["dist"] for r in rows), 3), round(max(r["dist"] for r in rows), 3)],
+    }
+    # Early move heading (first 0.6 s with speed > 0.2 m/s) relative to the camera yaw at that time.
+    rel = []
+    for a, b in zip(rows, rows[4:]):
+        mv = (b["player"][0] - a["player"][0], b["player"][1] - a["player"][1])
+        if b["t"] - rows[0]["t"] > 0.8 or math.hypot(*mv) / (b["t"] - a["t"]) < 0.2:
+            continue
+        rel.append(wrap180(math.degrees(math.atan2(mv[0], mv[1])) - a["cam_yaw"]))
+    if rel:
+        out["early_move_heading_rel_cam_deg"] = round(sorted(rel)[len(rel) // 2], 1)
+    return out
+
+
+def camera(runs: Path) -> dict:
+    out_runs = []
+    for name in CAMERA_RUNS:
+        path = runs / name / "sweep.jsonl"
+        if not path.exists():
+            raise SystemExit(f"missing {path} (live capture data is machine-local; see ACU-RE-0052)")
+        recs = read_jsonl(path)
+        phases = [r for r in recs if r["kind"] == "phase"]
+        samples = [r for r in recs if r["kind"] == "sample" and "cam_yaw" in r]
+        t0 = phases[0]["t"]
+        names = [p["phase"] for p in phases]
+        out_runs.append({
+            "run": name,
+            "phases": [{"phase": p["phase"], "t": round(p["t"] - t0, 3), "left_stick": p["ls"],
+                        "right_stick": p["rs"], "seconds": p["seconds"],
+                        "summary": camera_phase_summary([s for s in samples if s["phase"] == p["phase"]])}
+                       for p in phases],
+            "sample_fields": ["t", "phase_index", "cam_pos", "cam_quat_xyzw", "cam_yaw_deg", "cam_pitch_deg",
+                              "player_pos", "player_yaw_deg", "cam_player_dist_m"],
+            "samples": [[round(s["t"] - t0, 3), names.index(s["phase"]) if s["phase"] in names else None,
+                         s["cam_pos"], s["cam_quat"], s["cam_yaw"], s["cam_pitch"], s["player"],
+                         s["player_yaw"], s["dist"]] for s in samples],
+        })
+    return {
+        "schema": "acu-oracle/camera/1",
+        "finding": "ACU-RE-0052",
+        "binary_sha256": BINARY_SHA256,
+        "save_pin": SAVE_PIN,
+        "world": "ACU_Paris",
+        "method": "tools/native_probe/camera_sweep.py: in-process pad (stick range +-32767; 32000 = full, "
+                  "16000 = half), 50 ms memory poll of the ACUPlayerCameraComponent owned by the player "
+                  "(CameraManager [0x14521AAD0] +0x40 array; component +0x50 position, +0x60 quaternion)",
+        "conventions": {
+            "yaw": "compass degrees atan2(fx, fy) of forward = q applied to local +Y; 0 = +Y, 90 = +X",
+            "pitch": "asin(forward.z), Z up",
+            "units": "world units as stored (metres per ACU-RE-0047)",
+            "fps_cap": 30,
+        },
+        "time_resolution_s": 0.05,
+        "runs": out_runs,
+        "not_established": [
+            "right-stick response curve between half and full deflection (two points only)",
+            "camera collision and distance policy (distance varies 1.2-3.9 m with pitch and walls)",
+            "auto-recentre rules (pitch returns to about -3.3 deg on movement; yaw follows a strafing player)",
+            "dependence on frame rate (only a 30 fps cap measured)",
+        ],
+    }
+
+
+# ---------------------------------------------------------------------------------------------
+# tick (ACU-RE-0051): native probe sessions with tick_time.profile.json (engine frame clock,
+# clock tree update, physics step planner, BeginFrame) at each shim fps cap.
+# ---------------------------------------------------------------------------------------------
+
+TICK_RUNS = (("tick-1", "events.jsonl", 60), ("tick-1", "events-cap30.jsonl", 30))
+
+
+def quantiles(values: list[float], digits: int = 5) -> dict:
+    v = sorted(values)
+    if not v:
+        return {"n": 0}
+    return {"n": len(v), "p10": round(v[len(v) // 10], digits), "median": round(v[len(v) // 2], digits),
+            "p90": round(v[9 * len(v) // 10], digits)}
+
+
+def tick_run(rows: list[dict]) -> dict:
+    hits: dict[str, list[dict]] = {}
+    freq = 10_000_000
+    for r in rows:
+        if r.get("kind") == "header":
+            freq = r["status"].get("qpc_frequency", freq)
+        if r.get("kind") == "events":
+            for h in r["events"]:
+                hits.setdefault(h["label"], []).append(h)
+    frame = sorted(hits.get("engine_frame_clock", []), key=lambda h: h["qpc"])
+    if len(frame) < 3:
+        raise SystemExit("too few engine_frame_clock hits")
+    q = [h["qpc"] for h in frame]
+    snaps = [bytes.fromhex(h["snapshot_hex"]) for h in frame]
+    game = [struct.unpack_from("<Q", b, 0x88)[0] for b in snaps]
+    span = (q[-1] - q[0]) / freq
+    contiguous = [(a, b) for a, b in zip(range(len(q)), range(1, len(q)))]
+    game_dt = [(game[b] - game[a]) / 1e5 for a, b in contiguous if game[b] > game[a]]
+    wall_dt = [(q[b] - q[a]) / freq for a, b in contiguous]
+    steps = Counter()
+    for h in hits.get("physics_step_plan", []):
+        b = bytes.fromhex(h["snapshot_hex"])
+        steps[(round(struct.unpack_from("<f", b, 4)[0], 5), round(struct.unpack_from("<f", b, 8)[0], 2),
+               struct.unpack_from("<i", b, 0x14)[0])] += 1
+    clock_hits = hits.get("clock_update", [])
+    return {
+        "frames_hooked": len(frame),
+        "span_s": round(span, 3),
+        "frame_rate_hz": round((len(frame) - 1) / span, 2),
+        "engine_mode": sorted(Counter(struct.unpack_from("<I", b, 0x94)[0] for b in snaps).items()),
+        "engine_fixed_hz_field": sorted(Counter(round(struct.unpack_from("<f", b, 0x90)[0], 3) for b in snaps).items()),
+        "wall_frame_dt_s": quantiles(wall_dt),
+        "game_time_dt_s": quantiles(game_dt),
+        "game_time_per_wall_s": round((game[-1] - game[0]) / 1e5 / span, 4),
+        "clock_tree_updates_per_frame": round(len(clock_hits) / max(1, len(hits.get("begin_frame", frame))), 2),
+        "clock_update_dt_ms": quantiles([struct.unpack_from("<f", bytes.fromhex(h["xmm0_5_hex"]), 16)[0]
+                                         for h in clock_hits], 3),
+        "physics_plan": [{"step_s": k[0], "rate_hz": k[1], "steps": k[2], "frames": n}
+                         for k, n in steps.most_common()],
+    }
+
+
+def tick(runs: Path) -> dict:
+    out = []
+    for name, fname, cap in TICK_RUNS:
+        path = runs / name / fname
+        if not path.exists():
+            raise SystemExit(f"missing {path} (live capture data is machine-local; see ACU-RE-0051)")
+        out.append({"run": name, "file": fname, "fps_cap": cap, **tick_run(read_jsonl(path))})
+    return {
+        "schema": "acu-oracle/tick/1",
+        "finding": "ACU-RE-0051",
+        "binary_sha256": BINARY_SHA256,
+        "world": "ACU_Paris",
+        "method": "native probe entry hooks (tools/native_probe/tick_time.profile.json): engine frame clock "
+                  "0x1427743F0 (rcx snapshot: +0x88 game time 1e-5 s, +0x90 f32, +0x94 mode), clock update "
+                  "0x14276D750 (xmm1 = dt ms), physics step planner 0x1425FB720 (rcx+0x10F0: dt, step, rate, "
+                  "count at +0x14), BeginFrame 0x141CC19A0; shim frame cap chosen at launch",
+        "notes": [
+            "rates come from hooked hits; the probe ring overwrites under load, so only engine_frame_clock "
+            "spans are used for rates (the 30 fps file kept 6.3 s of frame-clock hits)",
+            "physics_plan values are those the planner stored on its previous call",
+        ],
+        "runs": out,
+        "not_established": [
+            "100 fps and uncapped behaviour (which physics rate bucket is chosen above 60 fps)",
+            "the rate bucket table and its thresholds",
+            "behaviour while paused or in menus",
+        ],
+    }
+
+
 KINDS = {
+    "camera": ("data/oracles/camera.json", camera),
+    "tick": ("data/oracles/tick.json", tick),
     "world-travel": ("data/oracles/world_travel.json", world_travel),
     "locomotion": ("data/oracles/locomotion.json", locomotion),
     "parkour": ("data/oracles/parkour.json", parkour),

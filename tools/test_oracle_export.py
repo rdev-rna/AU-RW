@@ -237,5 +237,26 @@ class Parkour(unittest.TestCase):
         self.assertEqual(scan[0]["origin"], 2)
 
 
+class Camera(unittest.TestCase):
+    def test_wrap180(self):
+        self.assertEqual(ox.wrap180(190.0), -170.0)
+        self.assertEqual(ox.wrap180(-190.0), 170.0)
+
+    def test_phase_summary_rate_across_wrap(self):
+        # Yaw passes through +-180: the unwrapped change is +40 deg in 2 s.
+        rows = [{"t": i * 0.5, "cam_yaw": ox.wrap180(160.0 + 10.0 * i), "cam_pitch": -3.0,
+                 "dist": 3.9, "player": [0.0, 0.0, 0.0]} for i in range(5)]
+        s = ox.camera_phase_summary(rows)
+        self.assertAlmostEqual(s["yaw_change_deg"], 40.0)
+        self.assertAlmostEqual(s["yaw_rate_deg_s"], 20.0)
+        self.assertNotIn("early_move_heading_rel_cam_deg", s)
+
+    def test_phase_summary_heading_relative_to_camera(self):
+        # Camera faces compass 90 (+X); the player moves along -Y, i.e. 90 deg to the camera's right.
+        rows = [{"t": i * 0.05, "cam_yaw": 90.0, "cam_pitch": 0.0, "dist": 3.0,
+                 "player": [0.0, -0.1 * i, 0.0]} for i in range(10)]
+        self.assertEqual(ox.camera_phase_summary(rows)["early_move_heading_rel_cam_deg"], 90.0)
+
+
 if __name__ == "__main__":
     unittest.main()

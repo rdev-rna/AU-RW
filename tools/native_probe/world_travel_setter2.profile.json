@@ -1,0 +1,42 @@
+{
+  "description": "Map-route travel setter (ACU-RE-0054 session 1). ACU.exe 748abdc6...7e40, base 0x140000000. Entry probes on the travel request 0x141DFBDF0(req=[0x145219D08], &world, &dest, &third, mode), the request job state-1 handler 0x141D55E80(mgr), the queued travel command execute 0x1420A2E90(cmd; vtable 0x14306DE38) and the state setter 0x141D55D30(mgr, &world, &dest, extra) that writes +584/+592/+600 and +644. Snapshots: rdx handle pointer; mgr +584..+655; command 32 bytes. Stack copies give the callers.",
+  "rotation_seconds": 600,
+  "probes": [
+    {
+      "label": "travel_request",
+      "rva": "1dfbdf0",
+      "expected_hex": "48895c241856415641574883ec208379",
+      "category": "world_travel",
+      "register_index": 1,
+      "offset": 0,
+      "bytes": 8
+    },
+    {
+      "label": "travel_job_state1",
+      "rva": "1d55e80",
+      "expected_hex": "40535741564883ec204c8b35783e4c03",
+      "category": "world_travel",
+      "register_index": 0,
+      "offset": 584,
+      "bytes": 72
+    },
+    {
+      "label": "travel_cmd_execute",
+      "rva": "20a2e90",
+      "expected_hex": "4883ec284c8d49184c8d4110488d5108",
+      "category": "world_travel",
+      "register_index": 0,
+      "offset": 0,
+      "bytes": 32
+    },
+    {
+      "label": "travel_state_setter",
+      "rva": "1d55d30",
+      "expected_hex": "48895c241048896c2418488974242057",
+      "category": "world_travel",
+      "register_index": 0,
+      "offset": 584,
+      "bytes": 72
+    }
+  ]
+}

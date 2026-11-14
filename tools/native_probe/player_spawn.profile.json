@@ -1,0 +1,42 @@
+{
+  "description": "Arrival start and streaming focus (ACU-RE-0054 session 2). ACU.exe 748abdc6...7e40, base 0x140000000. Entry probes on world init 0x141D522C0(world, mode), start-to-focus 0x141D68080(world), focus set 0x141DFA910([World+1976], &xy) and the SaveGameDataManager event handler 0x1413EAAF0(mgr). Snapshots: World +16 handles, World +304..+335 starts, the focus (x, y) floats, saved handles +6840..+6863. Pair with a WATCH on the new World +0xD8 to time player creation.",
+  "rotation_seconds": 600,
+  "probes": [
+    {
+      "label": "world_init",
+      "rva": "1d522c0",
+      "expected_hex": "405355565741554883ec40488bb90001",
+      "category": "world_travel",
+      "register_index": 0,
+      "offset": 16,
+      "bytes": 16
+    },
+    {
+      "label": "start_focus",
+      "rva": "1d68080",
+      "expected_hex": "48895c2408574883ec40488b99480100",
+      "category": "world_travel",
+      "register_index": 0,
+      "offset": 304,
+      "bytes": 32
+    },
+    {
+      "label": "stream_focus_set",
+      "rva": "1dfa910",
+      "expected_hex": "f30f105204f30f101a8089e400000060",
+      "category": "world_travel",
+      "register_index": 1,
+      "offset": 0,
+      "bytes": 8
+    },
+    {
+      "label": "savegame_travel_event",
+      "rva": "13eaaf0",
+      "expected_hex": "405356574883ec30488d99801a000048",
+      "category": "world_travel",
+      "register_index": 0,
+      "offset": 6840,
+      "bytes": 24
+    }
+  ]
+}

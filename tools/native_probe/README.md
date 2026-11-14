@@ -205,6 +205,8 @@ python tools/native_probe/focus.py activate <pid>   # posts activation messages 
   installed while ACU closes (graceful for 15 s, then `taskkill /F`, `ClipCursor(NULL)` from outside
   throughout). Never `focus.py remove` a game that is about to close: on 2026-11-14 a shutdown that
   hung after the shim was removed took over the user's mouse and keyboard and stalled their PC.
+  Never hot-swap the shim (`remove` then `install`) on a running game either: a swap loop to
+  change the fps cap grabbed the user's mouse the same day. Choose the build and cap at launch.
 - Travel guard (shim build t8+, the default `acu_focus.dll` since 2026-11-14; the previous default
   t4 is kept as `acu_focus_t4.dll`, copy it back to restore): teleport and flag requests answer
   `-5` while the travel manager `[0x145219860]+644` is not 0, and `-6` when the entity is not the

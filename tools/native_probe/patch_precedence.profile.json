@@ -1,0 +1,42 @@
+{
+  "description": "Patch precedence (ACU-RE-0053, #35). ACU.exe 748abdc6...7e40, base 0x140000000. Entry probe on the Forge mount 0x142737350 (vtable 0x14363BD50 +0xB0; r8 = level name) and three post-call instruction sites in the resource read path 0x142733870 after the resolver call [qword_14525BDB0]->+0x160 (0x142733330): 0x1427338E5 (r12 = request: [0] file ID, [8] qword, [16] archive, [24] group id, [72] dword), 0x1427338EA (r11 = archive, +0x40 path) and 0x142733CC4 (rsi = second record). Hot path: expect ring drops; filter by file ID.",
+  "rotation_seconds": 600,
+  "probes": [
+    {
+      "label": "forge_mount",
+      "rva": "2737350",
+      "expected_hex": "48895c242048894c2408555657415441",
+      "category": "patch_precedence",
+      "register_index": 2,
+      "offset": 0,
+      "bytes": 64
+    },
+    {
+      "label": "forge_read_resolved",
+      "rva": "27338e5",
+      "expected_hex": "4d8b5c24104d8b9338030000418b8340",
+      "category": "patch_precedence",
+      "register_index": 12,
+      "offset": 0,
+      "bytes": 80
+    },
+    {
+      "label": "forge_read_archive_path",
+      "rva": "27338ea",
+      "expected_hex": "4d8b9338030000418b8340030000c1e0",
+      "category": "patch_precedence",
+      "register_index": 11,
+      "offset": 64,
+      "bytes": 128
+    },
+    {
+      "label": "forge_read_resolved_2",
+      "rva": "2733cc4",
+      "expected_hex": "448b0571d2b20265488b042558000000",
+      "category": "patch_precedence",
+      "register_index": 6,
+      "offset": 0,
+      "bytes": 32
+    }
+  ]
+}

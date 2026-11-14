@@ -1,0 +1,43 @@
+{
+  "description": "Player camera candidates (ACU-RE-0052). ACU.exe 748abdc6...7e40, base 0x140000000; expected bytes from mapped image 9a1124f1...0520. Static candidates, not yet run live. register_index: 0=rcx 1=rdx 2=r8 3=r9. camera_holder_update 0x141EA39C0(CameraHolder=[0x1451B1D50]): +0x80 position ring[5], +0xD0 rotation ring[5], +0x120 ring index. camera_proxy_forward 0x141E91F10(CameraProxy=[0x14521A768], out, framesBack): +0x64 mode, +0xB0/+0xE0 override quaternions; return addresses name the users of camera forward. camera_manager_forward 0x141EF7D20(CameraManager=[0x14521AAD0], out, r8=entity): gathers the camera component array (+0x40, u16 count +0x4A), 128 bytes each (vtable, +0x10 entity, +0x50, +0x60 quaternion, +0x70 fov). flatten_forward 0x14054F7E0(out, rdx=&up).",
+  "rotation_seconds": 600,
+  "probes": [
+    {
+      "label": "camera_holder_update",
+      "rva": "1ea39c0",
+      "expected_hex": "40534883ec30488d99f0010000488974",
+      "category": "camera",
+      "register_index": 0,
+      "offset": 128,
+      "bytes": 176
+    },
+    {
+      "label": "camera_proxy_forward",
+      "rva": "1e91f10",
+      "expected_hex": "48896c2418574883ec20488bfa8b5164",
+      "category": "camera",
+      "register_index": 0,
+      "offset": 64,
+      "bytes": 176
+    },
+    {
+      "label": "camera_manager_forward",
+      "rva": "1ef7d20",
+      "expected_hex": "4d85c0742d4c8b49400fb7494ac1e103",
+      "category": "camera",
+      "register_index": 0,
+      "offset": 64,
+      "bytes": 64,
+      "gather": {"register_index": 0, "offset": 0, "deref": false, "data_offset": 64, "count_offset": 74, "max_elements": 16, "element_bytes": 128}
+    },
+    {
+      "label": "flatten_forward",
+      "rva": "54f7e0",
+      "expected_hex": "48895c2408574881ec80000000488bd9",
+      "category": "camera",
+      "register_index": 1,
+      "offset": 0,
+      "bytes": 16
+    }
+  ]
+}

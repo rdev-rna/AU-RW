@@ -1,0 +1,42 @@
+{
+  "description": "Tick and time step candidates (ACU-RE-0051). ACU.exe 748abdc6...7e40, base 0x140000000; expected bytes from mapped image 9a1124f1...0520. Static candidates, not yet run live. register_index: 0=rcx 1=rdx 2=r8 3=r9. engine_frame_clock 0x1427743F0(engineClock=[0x14525FA20]): whole 160-byte clock before its per-frame update (+0x78/+0x80 raw ticks, +0x88 game time 1e-5 s, +0x90 fixed fps, +0x94 mode). clock_update 0x14276D750(clock, xmm1=dt_ms, r8b=advance): 88-byte clock; root is [0x14525D9D0], World clocks at World+0x7D8/+0x830/+0x888; many hits per frame. physics_step_plan 0x1425FB720(physicsMgr): +0x10F0 frame dt, +0x10F4 step dt, +0x10F8 rate, +0x10FC carry, +0x1100 table value, +0x1104 step count, +0x1108 per-step dt (values left by the previous call). begin_frame 0x141CC19A0(engineLoop, expected [0x145217380]): +8 frame counter, +40 game time at frame start.",
+  "rotation_seconds": 600,
+  "probes": [
+    {
+      "label": "engine_frame_clock",
+      "rva": "27743f0",
+      "expected_hex": "40534883ec30488b41780f2974242048",
+      "category": "tick_time",
+      "register_index": 0,
+      "offset": 0,
+      "bytes": 160
+    },
+    {
+      "label": "clock_update",
+      "rva": "276d750",
+      "expected_hex": "48895c240848896c2410488974241857",
+      "category": "tick_time",
+      "register_index": 0,
+      "offset": 0,
+      "bytes": 88
+    },
+    {
+      "label": "physics_step_plan",
+      "rva": "25fb720",
+      "expected_hex": "4883ec18488b01488bd10f293424488b",
+      "category": "tick_time",
+      "register_index": 0,
+      "offset": 4336,
+      "bytes": 32
+    },
+    {
+      "label": "begin_frame",
+      "rva": "1cc19a0",
+      "expected_hex": "40564883ec20488b15bb59550348895c",
+      "category": "tick_time",
+      "register_index": 0,
+      "offset": 0,
+      "bytes": 64
+    }
+  ]
+}
