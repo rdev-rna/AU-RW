@@ -127,6 +127,38 @@ Inference: a real fast travel first puts the game in a state where gameplay syst
       about 19 s after `0x1413EAEF0` asks for the start through the travel manager. This explains
       observation 10: a bare command 8 loads Paris but sets no manager state, so no player is made.
     - Saves were put back and match the pin.
+15. **Round trip Paris → Versailles → Paris in one process (run `map-travel-3`, pid 122172).**
+    - The launch used the pin but loaded **Paris** (holder `+0x90` = ACU_Paris, position
+      496.66, −7.31). The save files had the pin hashes before launch; `.upload` files appeared at
+      launch. Inference: Ubisoft Connect cloud sync replaced the pinned save with the Paris
+      autosave from run `map-travel-2`. The pin alone does not decide the start world.
+    - Paris → Versailles: the Paris map's "Versailles — [F] Fast Travel" pin is on Île Saint-Louis,
+      next to the Café Théâtre (the user's hint). Versailles → Paris used the P pin as before;
+      Arno had to walk ~30 m off the arrival point first, because his own marker covered the pin
+      and the cursor could not select it.
+    - Player entity per arrival (World `+0xD8`; "ID" is `[[E+0x130]+0x10]`, not in the asset index,
+      so it is a runtime ID):
+
+      | Arrival | World | Player | ID | Position |
+      | --- | --- | --- | --- | --- |
+      | Paris (load) | `0x11989F170` | `0x179577A10` | `F000494A` | 496.66, −7.31, −0.25 |
+      | Versailles | `0x17A761D30` | `0x186EF6A50` | `F0019960` | 156.01, −172.59, −0.39 |
+      | Paris again | `0x12535B5B0` | `0x12E470950` | `F00270DC` | 768.55, −46.65, −0.46 |
+
+    - **Every arrival creates a new World object and a new player entity with a new runtime ID**;
+      nothing reverts to the earlier address. What persists in the process: the world resource
+      handles (Paris `0x66CFFA0`, Versailles `0x74066B10`), the holder `0xF743420` and the travel
+      manager `0x740C2010`. Each trip follows the same sequence as observation 14: state 1,
+      transition world, new World after ~3–4 s, player after another ~14–19 s, state back to 0.
+    - Hooks on `0x141E42C00`, `0x141C5D3C0` and `0x141D60C90`
+      (`world_travel_setter.profile.json`): **0 hits** across both trips, so the map route does not
+      use the mission-history path. `0x1413EAEF0` was hit at each confirm, before the World change,
+      from `0x141EBD513` in `0x141EBD4E0`. That function loops over a listener array
+      (`qword_14521A830`, u16 count `word_14521A83A`) and calls each listener's vtable `+16` with no
+      arguments; `rdx` held the target world handle (`0x74066B10`, then `0x66CFFA0`) as a leftover.
+      Inference: confirming broadcasts a travel event to listeners, and the setter of `+644` runs
+      just before or inside that broadcast.
+    - Saves were put back and match the pin.
 
 ## Next
 
@@ -138,6 +170,7 @@ Do not repeat the bare `0x141D60C90` call (observation 7).
 Route that works (observation 14): `focus.py activate PID`, Back opens the map, move to the P pin
 in Île Saint-Louis, then keyboard F and Enter through `focus.InProcessKeys` (shim t7).
 Still open:
-- Find who sets the manager's `+644 = 1` on the map path. Hook `0x141E42C00` and `0x141C5D3C0`,
-  or a code path that the UI's confirm reaches.
+- Find who sets the manager's `+644 = 1` on the map path. Not `0x141E42C00`/`0x141C5D3C0`
+  (observation 15). Next: the listeners in `qword_14521A830`, and whoever calls `0x141EBD4E0`.
+- Paris → Versailles route: the "Versailles" pin on Île Saint-Louis by the Café Théâtre.
 - Decode `0x1413EAEF0` / `0x141D5D320` (what creates the new player entity).
