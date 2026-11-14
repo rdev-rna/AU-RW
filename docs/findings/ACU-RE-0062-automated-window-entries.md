@@ -98,5 +98,5 @@ State:
   `traversal_driver.py --plan run_in` runs ground entries.
 - `window_replay.py position|push` reproduces a recorded wall entry with a frame check before
   the push. The recorded side entry is a deterministic trigger for live hooks.
-- Next: decode `NewDemo` around the window clips (offline). Then watch the graph inputs during
-  the replayed entry.
+- Done: `NewDemo` decoded, see [ACU-RE-0063](ACU-RE-0063-newdemo-window-selection.md). Next: watch
+  the graph inputs during the replayed entry.

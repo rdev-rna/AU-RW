@@ -1,5 +1,19 @@
 # Project status
 
+Latest (2026-11-14, NewDemo window selection): [ACU-RE-0063](findings/ACU-RE-0063-newdemo-window-selection.md).
+- `tools/atomgraph.py` decodes AtomGraph state machines into rules: states, entry conditions,
+  If / interval / AxialBlend nodes, and clips. Operator, If, interval and AND/OR semantics come
+  from the runtime evaluators.
+- Climb window entry (`NewDemo` machine 37,005,472): `Direction` picks Up / Dn / Lt (flag 1) /
+  Lt (flag 0).
+  - In the Lt states, `SyncB_TargetHeight` bands (< −2.0, < −1.25, < −0.3) pick VeryHigh /
+    High / Lt / UpLt45.
+  - `HeightDifferential >= 0.2` picks the Grating variant.
+- Ground run-in: `TargetHeight` and `HighProfile` pick the state. A `TargetAngle` blend from
+  0° to 90° gives the live Fd0/Fd45 mix.
+- Next: read those parameters live during the deterministic replay (plus the mirror bit).
+- Tests: `python -m unittest tools/test_atomgraph.py` (13 synthetic, plus 1 install-dependent).
+
 Latest (2026-11-14, automated window entries): [ACU-RE-0062](findings/ACU-RE-0062-automated-window-entries.md).
 - Open windows are `FRV_Interior_*_WD*_Open` placements (`traversal_targets.py`).
 - `traversal_driver.py` entered ground-floor windows by free running (RT only) along the

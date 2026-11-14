@@ -47,6 +47,10 @@ Codecs 3/7/8: [ACU-RE-0061](findings/ACU-RE-0061-animation-codecs-3-7-8.md) read
 quaternion key decoders from the binary and fixes codec 11's scale (0.001). Entry 928 now fully
 decodes 8,071 of 8,103 clips, and 586 of the 590 played clips. It is cross-checked against a
 third-party export of 92 clips: 183,911 keys, max error 6.7e-7.
+Window selection: [ACU-RE-0063](findings/ACU-RE-0063-newdemo-window-selection.md) decodes the
+AtomGraph `NewDemo` machines that pick window-entry clips. `Direction` picks the state;
+parameter thresholds pick the height band and the grating variant. `tools/atomgraph.py` turns
+them into rules.
 
 Use `docs/templates/FINDING.md`; store durable findings under `docs/findings/`.
 Link bulky raw evidence in ignored `outputs/` with identity and reproduction steps.
