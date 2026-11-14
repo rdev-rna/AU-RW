@@ -201,6 +201,18 @@ python tools/native_probe/focus.py remove <pid>     # restores everything listed
 python tools/native_probe/focus.py activate <pid>   # posts activation messages so Start/Back menus open
 ```
 
+- **Closing the game: only `python tools/native_probe/capture_run.py --close <pid>`.** The shim stays
+  installed while ACU closes (graceful for 15 s, then `taskkill /F`, `ClipCursor(NULL)` from outside
+  throughout). Never `focus.py remove` a game that is about to close: on 2026-11-14 a shutdown that
+  hung after the shim was removed took over the user's mouse and keyboard and stalled their PC.
+- Travel guard (shim build t8+, the default `acu_focus.dll` since 2026-11-14; the previous default
+  t4 is kept as `acu_focus_t4.dll`, copy it back to restore): teleport and flag requests answer
+  `-5` while the travel manager `[0x145219860]+644` is not 0, and `-6` when the entity is not the
+  current World's player (stale pointer after a world change or reload). World-load requests
+  (modes 3/4) answer `-5` while a travel runs. `teleport.ready()` / `wait_ready()` check the same
+  from Python and raise `teleport.NotReady` without sending anything.
+- `teleport.py <pid> keep-safe`: re-arms Invisible + God Mode whenever a new player entity appears
+  (each world arrival, death or reload makes a new one; ACU-RE-0049 obs. 15).
 - Keyboard (shim build t7+): `focus.InProcessKeys(pid)` writes `Localcu-keys-<pid>`
   (`<III256B`: magic `ACUK`, enabled, sequence, one held flag per DirectInput scancode). Held keys
   are ORed into the game's DirectInput keyboard `GetDeviceState` reads, and each change is queued

@@ -3,6 +3,7 @@ native probe profile, decode, close.
 
     python tools/native_probe/capture_run.py local/native-probe/runs/<name>
     python tools/native_probe/capture_run.py local/native-probe/runs/<name> --attach <pid> --keep-game
+    python tools/native_probe/capture_run.py --close <pid>   # the only way to close ACU (see shutdown())
 
 Stages (each recorded with timings in capture.json):
  1. launch   uplay://launch/720/0 (ACU.exe started directly exits); wait for the engine window
@@ -170,23 +171,47 @@ def reach_world(pid: int, run: Run, timeout: float, hwnd: int) -> dict:
     raise RuntimeError(f"world not reached within {timeout}s; game window saved to {path}")
 
 
-def close_game(pid: int, run: Run):
+def shutdown(pid: int, grace: float = 15.0) -> dict:
+    """Close ACU without ever handing it the user's mouse and keyboard.
+
+    2026-11-14 incident: the old order removed the shim first, then asked the game to close and waited.
+    The game hung while shutting down; with the shim gone it could clip and hide the cursor, read the
+    user's real mouse/keyboard and take the foreground, so the PC was unusable (video stuttered too)
+    until it finally exited. Now:
+      1. the shim stays installed, so the game keeps seeing no user input and its ClipCursor,
+         SetCursorPos and ShowCursor(FALSE) calls stay dropped;
+      2. graceful close (taskkill without /F), up to `grace` seconds;
+      3. then force-terminate (taskkill /F). Saves are put back from the pin afterwards anyway;
+      4. throughout, ClipCursor(NULL) from this process releases any cursor clip.
+    """
+    user.ClipCursor.argtypes = [C.c_void_p]
     try:
-        focus.remove(pid)
-    except Exception as error:  # still close the game
-        run.stage("close_warning", shim=str(error))
-    try:
-        command(pid, "SHUTDOWN")
+        command(pid, "SHUTDOWN")  # native probe: unhook and stop its pipe
     except Exception:
         pass
     subprocess.run(["taskkill", "/PID", str(pid)], capture_output=True)
-    deadline = time.monotonic() + 30
-    while pid in acu_running() and time.monotonic() < deadline:
-        time.sleep(.5)
-    run.stage("close", closed=pid not in acu_running())
+    start, forced = time.monotonic(), False
+    while pid in acu_running():
+        user.ClipCursor(None)
+        elapsed = time.monotonic() - start
+        if not forced and elapsed >= grace:
+            subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True)
+            forced = True
+        if elapsed >= grace + 15:
+            break
+        time.sleep(.1)
+    user.ClipCursor(None)
+    return {"closed": pid not in acu_running(), "forced": forced, "s": round(time.monotonic() - start, 1)}
+
+
+def close_game(pid: int, run: Run):
+    run.stage("close", **shutdown(pid))
 
 
 def main():
+    if len(sys.argv) == 3 and sys.argv[1] == "--close":
+        print(json.dumps(shutdown(int(sys.argv[2]))))
+        return
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("output", type=Path, help="new run directory under local/native-probe/")
     ap.add_argument("--attach", type=int, help="use an already running ACU at the main menu or in the world")

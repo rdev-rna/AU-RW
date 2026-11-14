@@ -4,6 +4,7 @@
     python tools/native_probe/teleport.py <pid> where
     python tools/native_probe/teleport.py <pid> invisible on|off     # enemies ignore Arno
     python tools/native_probe/teleport.py <pid> godmode on|off
+    python tools/native_probe/teleport.py <pid> keep-safe [--seconds N]  # re-arm both after every arrival
 
 Route (binary SHA-256 748abdc6...7e40, image base 0x140000000):
   - The debug menu's "Teleport Character" (0x140EF73D0 -> 0x140EE11B0) asks the Human for
@@ -16,6 +17,13 @@ Route (binary SHA-256 748abdc6...7e40, image base 0x140000000):
 The focus shim (acu_focus*.dll in the game) runs both steps on the game window's thread inside
 SEH when a request is written to Local\acu-teleport-<pid>; it checks the Human vtable and the
 entity's world back-pointer first. Arno lands where he is put: pick Z on known ground.
+
+World travel (ACU-RE-0049 obs. 14/15): every arrival builds a new World and a new player entity, so
+pointers taken before a trip are stale and per-entity flags (Invisible, God Mode) are gone. For ~20 s
+there is no World or no player. Every call here resolves the player fresh and requires `ready()`
+(travel manager idle and the World chain consistent); shim build t8+ re-checks the same on the game
+thread and answers -5 (travelling) or -6 (not the current player). `keep-safe` re-arms both flags
+whenever a new player entity appears.
 """
 from __future__ import annotations
 
@@ -45,7 +53,51 @@ HUMAN_OFFSET, HUMAN_VTABLE = 0xC58, 0x142FB2010  # in the AtomAnimComponent; ACU
 BEHAVIOUR_VTABLE, INVISIBLE_BYTE = 0x142F08230, 208  # debug "Invisible :" flag (ACU-RE-0046)
 MODE_INVISIBLE, MODE_GOD = 1, 2
 FALL_M = 1.5  # metres below the target after settling = fell through unstreamed ground
-STATUS = {1: "done", -1: "not the Human (vtable check)", -2: "not an entity", -3: "exception"}
+STATUS = {1: "done", -1: "not the Human (vtable check)", -2: "not an entity", -3: "exception",
+          -4: "unknown mode", -5: "world travel in progress (shim t8+)",
+          -6: "not the current World's player (stale pointer; shim t8+)"}
+
+
+class NotReady(RuntimeError):
+    """The world is changing or the player chain is not consistent; nothing was sent to the game."""
+
+
+def ready(mem: live_state.Memory) -> tuple[int, int]:
+    """(entity, world) when the travel manager is idle and the ACU-RE-0044 chain holds; else NotReady."""
+    state = live_state.travel_state(mem)
+    if state != 0:
+        raise NotReady(f"world travel in progress (travel manager state {state})")
+    found = live_state.player(mem)
+    if not found:
+        raise NotReady("no current player (loading, travelling or not in the world)")
+    return found
+
+
+def wait_ready(pid: int, timeout: float = 180, still_s: float = 1.0) -> dict | None:
+    """Wait until ready() holds and the same player entity has stayed put for still_s seconds."""
+    end, last, since = time.monotonic() + timeout, None, None
+    while time.monotonic() < end:
+        mem = live_state.Memory(pid)
+        try:
+            try:
+                entity, world = ready(mem)
+                raw = mem.read(entity + live_state.ENTITY_MATRIX + 48, 12)
+                position = struct.unpack("<3f", raw) if raw else None
+            except NotReady:
+                entity = world = position = None
+        finally:
+            mem.close()
+        key = (entity, world)
+        if entity and position and math.hypot(*position) > 1:
+            if key != last:
+                last, since = key, time.monotonic()
+            elif time.monotonic() - since >= still_s:
+                return {"entity": f"0x{entity:X}", "world": f"0x{world:X}",
+                        "position": [round(v, 3) for v in position]}
+        else:
+            last = since = None
+        time.sleep(0.25)
+    return None
 
 
 class Shared:
@@ -102,10 +154,7 @@ def set_flag(pid: int, mode: int, on: bool) -> dict:
     """mode 1: Invisible (enemies ignore Arno); mode 2: God Mode. Same calls as the debug menu."""
     mem, shared = live_state.Memory(pid), Shared(pid)
     try:
-        found = live_state.player(mem)
-        if not found:
-            raise RuntimeError("player chain not valid; is the game in the world?")
-        entity, _ = found
+        entity, _ = ready(mem)
         comp = behaviour_component(mem, entity) if mode == MODE_INVISIBLE else 0
         r = shared.call(comp, entity, [1.0 if on else 0.0] + [0.0] * 15, mode=mode)
         if mode == MODE_INVISIBLE:
@@ -114,6 +163,38 @@ def set_flag(pid: int, mode: int, on: bool) -> dict:
     finally:
         shared.close()
         mem.close()
+
+
+def safety_on(pid: int) -> dict:
+    return {"invisible": set_flag(pid, MODE_INVISIBLE, True), "god": set_flag(pid, MODE_GOD, True)}
+
+
+class SafetyKeeper:
+    """Keep Invisible and God Mode on the current player across world travel, deaths and reloads.
+
+    Flags belong to the player entity, and every arrival makes a new one (ACU-RE-0049 obs. 15).
+    `check()` re-arms both when the player entity differs from the one last armed. It waits for
+    ready() and does nothing while travelling.
+    """
+
+    def __init__(self, pid: int):
+        self.pid, self.armed_entity = pid, None
+
+    def check(self) -> dict | None:
+        mem = live_state.Memory(self.pid)
+        try:
+            entity, _ = ready(mem)
+        except NotReady:
+            return None
+        finally:
+            mem.close()
+        if entity == self.armed_entity:
+            return None
+        result = safety_on(self.pid)
+        ok = all(r.get("status") == 1 for r in result.values())
+        if ok:
+            self.armed_entity = entity
+        return {"entity": f"0x{entity:X}", "armed": ok, **result}
 
 
 def target_matrix(rows: list[list[float]], position: list[float], yaw_deg: float | None) -> list[float]:
@@ -132,10 +213,7 @@ def teleport(pid: int, x: float, y: float, z: float, yaw_deg: float | None = Non
     mem = live_state.Memory(pid)
     shared = Shared(pid)
     try:
-        found = live_state.player(mem)
-        if not found:
-            raise RuntimeError("player chain not valid; is the game in the world?")
-        entity, _ = found
+        entity, _ = ready(mem)
         h = human(mem, entity)
         m = struct.unpack("<16f", mem.read(entity + live_state.ENTITY_MATRIX, 64))
         rows = [list(m[i:i + 4]) for i in range(0, 16, 4)]
@@ -172,6 +250,9 @@ def main() -> None:
     for name in ("invisible", "godmode"):
         f = sub.add_parser(name)
         f.add_argument("state", choices=["on", "off"])
+    k = sub.add_parser("keep-safe")
+    k.add_argument("--seconds", type=float, default=0, help="0 = until interrupted")
+    k.add_argument("--interval", type=float, default=1.0)
     t = sub.add_parser("to")
     t.add_argument("x", type=float)
     t.add_argument("y", type=float)
@@ -182,9 +263,17 @@ def main() -> None:
     if a.mode in ("invisible", "godmode"):
         print(json.dumps(set_flag(a.pid, MODE_INVISIBLE if a.mode == "invisible" else MODE_GOD, a.state == "on")))
         return
+    if a.mode == "keep-safe":
+        keeper, end = SafetyKeeper(a.pid), (time.monotonic() + a.seconds if a.seconds else None)
+        while end is None or time.monotonic() < end:
+            event = keeper.check()
+            if event:
+                print(json.dumps({"t": round(time.time(), 3), **event}), flush=True)
+            time.sleep(a.interval)
+        return
     if a.mode == "where":
         mem = live_state.Memory(a.pid)
-        entity, _ = live_state.player(mem)
+        entity, _ = ready(mem)
         m = struct.unpack("<16f", mem.read(entity + live_state.ENTITY_MATRIX, 64))
         print(json.dumps({"entity": f"0x{entity:X}", "human": f"0x{human(mem, entity):X}",
                           "position": [round(v, 3) for v in m[12:15]],

@@ -64,24 +64,13 @@ def danger_check(pid: int, db, cache: dict, seconds: float = 1.0) -> list[str]:
 
 
 def wait_world(pid: int, timeout: float = 180) -> dict | None:
-    end = time.monotonic() + timeout
-    while time.monotonic() < end:
-        mem = live_state.Memory(pid)
-        try:
-            found = live_state.player(mem)
-            if found:
-                p = live_state.sample(mem, {})["position"]
-                if p and math.hypot(*p) > 1:
-                    return {"entity": f"0x{found[0]:X}", "position": p}
-        finally:
-            mem.close()
-        time.sleep(2)
-    return None
+    """Wait for a settled current player after a reload or world travel (teleport.wait_ready)."""
+    return teleport.wait_ready(pid, timeout)
 
 
 def safety_on(pid: int) -> dict:
-    return {"invisible": teleport.set_flag(pid, teleport.MODE_INVISIBLE, True),
-            "god": teleport.set_flag(pid, teleport.MODE_GOD, True)}
+    """Invisible + God Mode on the current player; re-run after every new player entity."""
+    return teleport.safety_on(pid)
 
 
 def main() -> None:
@@ -154,7 +143,10 @@ def main() -> None:
         frontier[:] = [p for p in frontier if cell(p) not in covered]
         previous = here
         hop = {"hop": n + 1, "target": target}
-        t = teleport.teleport(a.pid, *target, settle=a.settle)
+        try:
+            t = teleport.teleport(a.pid, *target, settle=a.settle)
+        except teleport.NotReady as error:  # travel, death or reload: nothing was sent
+            t = {"status": None, "not_ready": str(error)}
         hop["teleport"] = {k: t.get(k) for k in ("status", "error_m", "after", "attempts")}
         if t.get("fell_through"):
             # Ground never caught up after retries: go back to the last good hop, skip that cell.
@@ -168,7 +160,13 @@ def main() -> None:
                 hop["stop"] = "world did not come back"
                 hops_file.write(json.dumps(hop) + "\n")
                 break
-        hop["safety"] = safety_on(a.pid)
+        try:
+            hop["safety"] = safety_on(a.pid)
+        except teleport.NotReady as error:
+            back = wait_world(a.pid)
+            hop["safety"] = {"not_ready": str(error), "world_back": bool(back)}
+            if back:
+                hop["safety"]["armed"] = safety_on(a.pid)
         danger = danger_check(a.pid, db, names)
         if danger:
             hostile.add(cell(target))

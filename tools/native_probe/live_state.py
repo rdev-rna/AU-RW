@@ -35,6 +35,9 @@ WORLD_HOLDER_GLOBAL, HOLDER_WORLD, WORLD_PLAYER, ENTITY_WORLD = 0x145217368, 0x9
 ENTITY_MATRIX, ENTITY_COMPONENTS = 0x20, 0x78
 ANIM_COMPONENT_VTABLE, ANIM_CONTROLLER = 0x142E7F780, 0xD0
 GRAPH_HEADER, PLAYBACK_LEAF_METHOD = 0x6A8, 0x1400BCC20
+# Travel manager (ACU-RE-0049): state +644 is 1 from the travel request until the player is in the
+# new World, then 0. Every arrival builds a new World object and a new player entity (obs. 15).
+TRAVEL_MANAGER_GLOBAL, TRAVEL_STATE = 0x145219860, 644
 
 
 def qpc() -> int:
@@ -63,6 +66,13 @@ class Memory:
 
     def close(self):
         K.CloseHandle(self.handle)
+
+
+def travel_state(mem: Memory) -> int | None:
+    """Travel manager state (+644): 0 idle, 1 travelling; None if unreadable."""
+    manager = mem.u64(TRAVEL_MANAGER_GLOBAL)
+    raw = mem.read(manager + TRAVEL_STATE, 4) if manager else None
+    return struct.unpack("<i", raw)[0] if raw else None
 
 
 def player(mem: Memory) -> tuple[int, int] | None:

@@ -159,6 +159,20 @@ Inference: a real fast travel first puts the game in a state where gameplay syst
       Inference: confirming broadcasts a travel event to listeners, and the setter of `+644` runs
       just before or inside that broadcast.
     - Saves were put back and match the pin.
+16. **Travel guard verified live (run `travel-guard-1`, pid 120672, shim t8 SHA-256 `1883f99e…272d`).**
+    - Fast travel Paris → Versailles via the Café Théâtre pin. Before: player `0x1747A7BE0`,
+      Human `0x174EBA350`.
+    - The travel state was 1 at 2.0 s. `teleport.ready()` raised NotReady twice. A raw shim
+      request with the old player (mode 0, its own matrix, so no move) returned −5 twice.
+      `set_flag(God)` was refused without being sent.
+    - Arrival at 23.8 s: new player `0x12D0833F0`, World `0xF77BA8A0`, position (156.01, −172.59,
+      −0.39), the same arrival point as observation 15. The same raw request with the old player
+      returned −6 and the game kept running.
+    - `teleport.py keep-safe` re-armed Invisible and God Mode on the new player by itself (both
+      status 1). A normal teleport afterwards: status 1, error 0.148 m.
+    - Closing afterwards hung, and it took over the user's input and stalled their PC. The close
+      had removed the shim first. Closing is now `capture_run.py --close` (README). Saves were put
+      back and match the pin.
 
 ## Next
 

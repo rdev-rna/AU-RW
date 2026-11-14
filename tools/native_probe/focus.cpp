@@ -129,7 +129,8 @@ static bool readable(uintptr_t p, size_t n) {
     return p && VirtualQuery((void*)p, &m, sizeof m) && m.State == MEM_COMMIT &&
            !(m.Protect & (PAGE_NOACCESS | PAGE_GUARD)) && p + n <= (uintptr_t)m.BaseAddress + m.RegionSize;
 }
-// status: 1 moved and reset, -1 not the Human, -2 not an entity, -3 exception.
+// status: 1 moved and reset, -1 not the Human, -2 not an entity, -3 exception
+// (all modes: -5 travel in progress, -6 not the current World's player; see playerGuard).
 static int runTeleport(uintptr_t human, uintptr_t entity, const float* matrix, uint32_t* exception) {
     if (!readable(human, 8) || *(uintptr_t*)human != imageLow + kHumanVtableRva) return -1;
     if (!readable(entity + kEntityMatrix, 64) || !readable(entity + kEntityWorld, 8) || !*(uintptr_t*)(entity + kEntityWorld))
@@ -199,6 +200,38 @@ static int runStartWorld(uintptr_t world, uint32_t* exception) {
         return -3;
     }
 }
+// Travel guard (ACU-RE-0049 obs. 14/15): during a world change the holder's World is 0 for ~3 s and
+// the new World has no player for ~15-20 s more; every arrival makes a new World and player entity,
+// so a pointer taken before the trip is stale. -5: the travel manager [0x145219860] state +644 is
+// not 0 (a travel is running). -6: the World chain does not name this entity as the current player
+// (holder +0x98 -> World +0xD8 == entity and entity +0x60 == World). Read with SEH.
+constexpr uintptr_t kTravelStateOffset = 644, kHolderWorld = 0x98, kWorldPlayer = 0xD8;
+static int travelState() {
+    uintptr_t manager = *(uintptr_t*)(imageLow + kTravelManagerRva);
+    if (!readable(manager + kTravelStateOffset, 4)) return -1;
+    return *(int32_t*)(manager + kTravelStateOffset);
+}
+static int playerGuard(uintptr_t entity) {
+    __try {
+        if (travelState() != 0) return -5;
+        uintptr_t holder = *(uintptr_t*)(imageLow + kWorldHolderRva);
+        if (!readable(holder + kHolderWorld, 8)) return -6;
+        uintptr_t world = *(uintptr_t*)(holder + kHolderWorld);
+        if (!world || !readable(world + kWorldPlayer, 8) || *(uintptr_t*)(world + kWorldPlayer) != entity) return -6;
+        if (!readable(entity + kEntityWorld, 8) || *(uintptr_t*)(entity + kEntityWorld) != world) return -6;
+        return 0;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return -6;
+    }
+}
+static int worldGuard() {
+    __try {
+        return travelState() == 0 ? 0 : -5;
+    } __except (EXCEPTION_EXECUTE_HANDLER) {
+        return -5;
+    }
+}
+
 static void serviceTeleport() {
     volatile TeleportShared* t = teleport;
     if (!t || t->magic != kTeleportMagic || t->request == t->done) return;
@@ -206,7 +239,9 @@ static void serviceTeleport() {
     for (int i = 0; i < 16; i++) matrix[i] = t->matrix[i];
     uint32_t exception = 0;
     float readback = -1;
-    int status = t->mode == 0 ? runTeleport((uintptr_t)t->human, (uintptr_t)t->entity, matrix, &exception)
+    int guard = t->mode <= 2 ? playerGuard((uintptr_t)t->entity) : (t->mode == 3 || t->mode == 4) ? worldGuard() : 0;
+    int status = guard ? guard
+               : t->mode == 0 ? runTeleport((uintptr_t)t->human, (uintptr_t)t->entity, matrix, &exception)
                : t->mode == 3 ? runTravel((uintptr_t)t->human, t->entity, &exception)
                : t->mode == 4 ? runLoadWorld(t->entity, t->human, &exception)
                : t->mode == 5 ? runStartWorld((uintptr_t)t->entity, &exception)
