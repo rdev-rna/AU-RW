@@ -22,6 +22,7 @@ pub mod loco_match;
 pub mod modifier_order;
 pub mod native_pose;
 pub mod reflex;
+pub mod root_delta;
 pub mod target_warp;
 pub mod traversal;
 
