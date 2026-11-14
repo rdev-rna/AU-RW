@@ -58,6 +58,9 @@ AtomGraph layout and locomotion: [ACU-RE-0065](findings/ACU-RE-0065-atomgraph-re
 reads entry-rule layouts from the engine's reflection tables (empty rule = always, 1-byte
 target, count-bounded conditions), decodes the walk-loop blend on `DiffAngleToFacing`, and
 indexes all 5,320 machines. The locomotion root is not found yet.
+Stream format and hub: [ACU-RE-0066](findings/ACU-RE-0066-atomgraph-stream-and-navigation-hub.md)
+parses AtomGraph payloads exactly with the native loaders, finds the navigation hub machine and
+the native transition-selection order, and shows event conditions read clip-authored events.
 
 Use `docs/templates/FINDING.md`; store durable findings under `docs/findings/`.
 Link bulky raw evidence in ignored `outputs/` with identity and reproduction steps.

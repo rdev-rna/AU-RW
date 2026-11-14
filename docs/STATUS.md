@@ -1,6 +1,18 @@
 # Project status
 
-Latest (2026-11-15, locomotion rebuild started, AtomGraph layout): the arena's motion matcher is
+Latest (2026-11-15, AtomGraph stream exact; navigation hub found;
+[ACU-RE-0066](findings/ACU-RE-0066-atomgraph-stream-and-navigation-hub.md)):
+- `tools/atomgraph_stream.py` parses NewDemo with the native per-class loaders (class -> loader
+  via constructor at descriptor+0x30, vtable slot 2): 42,174,002 of 42,174,002 bytes, 945,730
+  objects. Entry targets are u16 (corrects ACU-RE-0065's one byte).
+- Navigation hub: machine at payload 9,974,731 (walk 1, run/sprint 2, idle/stop 4, sprint start 8, ...).
+- Transition selection: current state's transitions in order, then the machine's shared ones
+  (skipping those targeting the current state); first passing wins (`0x14010EAE0`, `0x1401260C0`).
+- Event conditions query clip-authored event intervals (idle and stop clips carry `0x0040000b`,
+  `0x00400005`); graph nodes push intervals too. Open: interval generation from clip tracks,
+  blend evaluators, controller parameters (`Parkour`, `HighProfile`, `TargetAngle`).
+
+Earlier (2026-11-15, locomotion rebuild started, AtomGraph layout): the arena's motion matcher is
 not how ACU animates and will be replaced by the native graph
 ([ACU-RE-0065](findings/ACU-RE-0065-atomgraph-reflection-and-locomotion-machines.md)).
 - Entry-rule layout now comes from the engine's reflection tables: an empty rule is "always"
