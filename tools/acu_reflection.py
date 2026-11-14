@@ -8,7 +8,9 @@ MAPPED.bin is a captured loaded image laid out by RVA (VA = 0x140000000 + offset
 
 Layout observed in .rdata (ACU.exe SHA-256 748abdc6…7e40):
 - class descriptor: u32 parent class CRC-32 (or a small number for a root class), u32 class
-  CRC-32, u32 size, u32 alignment;
+  CRC-32, u32 size, u16 (8 on most classes, 12 on AtomBlendBaseNode, 0x21 on AtomGraph; read as
+  alignment where it is 1..16), u16 (meaning unknown); accepted when the field-table pointer
+  is null or inside the searched range;
 - the u64 at descriptor - 0x20 points at the class's own field table;
 - field entries are 0x38 bytes: flags in bytes 0..2, byte 3 == 2, u32 field-name CRC at +4,
   u32 type CRC at +8 (0 for scalars), u16 type code at +14 (repeated at +16), u64 at +0x30
@@ -53,8 +55,11 @@ class Image:
         while (i := self.b.find(pat, i + 1, end)) > 0:
             if i + 12 > len(self.b) or i < 4:
                 continue
-            size, align = struct.unpack_from("<II", self.b, i + 4)
-            if align in (1, 2, 4, 8, 16) and 0 < size < 0x100000:
+            size, align = struct.unpack_from("<IH", self.b, i + 4)
+            if not (0 < size < 0x100000 and align < 0x100) or i < 0x24:
+                continue
+            table = struct.unpack_from("<Q", self.b, i - 4 - 0x20)[0]
+            if table == 0 or self.lo <= table < self.hi:
                 out.append(self.base + i - 4)
         return out
 
@@ -80,9 +85,9 @@ class Image:
         if len(found) != 1:
             return {"class": self.name(crc), "class_crc": f"{crc:08x}", "error": f"{len(found)} descriptors"}
         d = found[0]
-        parent, _, size, align = struct.unpack_from("<IIII", self.b, d - self.base)
+        parent, _, size, align, extra = struct.unpack_from("<IIIHH", self.b, d - self.base)
         out = {"class": self.name(crc), "class_crc": f"{crc:08x}", "descriptor": hex(d), "size": size,
-               "align": align, "fields": self.own_fields(d)}
+               "align": align, "extra": extra, "fields": self.own_fields(d)}
         if parent > 16:
             if depth >= MAX_DEPTH:
                 raise ValueError("parent chain deeper than 16")
