@@ -207,6 +207,14 @@ python tools/native_probe/focus.py activate <pid>   # posts activation messages 
   hung after the shim was removed took over the user's mouse and keyboard and stalled their PC.
   Never hot-swap the shim (`remove` then `install`) on a running game either: a swap loop to
   change the fps cap grabbed the user's mouse the same day. Choose the build and cap at launch.
+- Data-write watches (probe build with `HOOKDATA`, 2026-11-14; previous build kept as
+  `local/native-probe/acu_probe_pre-hookdata.dll`, copy it back to `acu_probe.dll` to restore):
+  `HOOKDATA slot hex_address length(1,2,4,8; aligned) label [every offset bytes category]`.
+  The trap fires after the writing instruction (`rip` = next instruction; for a leaf writer
+  `return_address` is its caller). The snapshot is taken at `address + offset`, and data slots
+  keep 512 stack bytes. `position_writers.py PID OUT` watches the player transform
+  (ACU-RE-0056). Never put an execute hook on hot routines such as `0x1420F6F70` (~11k calls/s);
+  arming it stalled the client.
 - **Always launch with an explicit frame cap** (`--fps-cap 30..240`; nothing above 300 is needed).
   Never `--fps-cap 0`: an uncapped run on 2026-11-14 stalled the user's whole PC.
 - After a teleport, menus and the map ignore Back/Start/M until Arno moves; walk 1 s first. On

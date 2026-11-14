@@ -1,5 +1,12 @@
 # Project status
 
+Latest (2026-11-14, player transform owner): a hardware data-write watch (new probe command
+`HOOKDATA`) on the live player shows a single writer of the entity matrix. Each frame the physics
+sync copies the physics body's pose to the entity and carries all motion; character code re-writes
+the same values ([ACU-RE-0056](findings/ACU-RE-0056-player-transform-writer.md)). ADR-0003..0005
+record the coordinate/unit convention, the fixed 1/60 s tick and the body-owned transform; what
+drives the physics body (velocity vs animation root motion) is the next probe.
+
 Latest (2026-11-14, research backlog stack): all seven critical-path research items of
 [REWRITE_READINESS.md](REWRITE_READINESS.md) now have a live- or decode-backed result and a
 portable oracle. Collision triangles and the ground rule are decoded (3.5 mm median against live;

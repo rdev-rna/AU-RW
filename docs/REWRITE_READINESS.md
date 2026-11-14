@@ -40,7 +40,7 @@ Legend: ✅ ready · 🟡 partial · ❌ missing · — not needed.
 | Materials, shading | 0013, `LIGHTING_RESEARCH.md` | 🟡 | 🟡 | ❌ | material templates/shaders | `acu_assets`, `acu_bevy` |
 | Skeleton, rig, skinning, bone modifiers | 0010, 0014–0017, 0028 | 🟡 | ✅ | ✅ modifiers gated live (0028) | runtime solver order beyond the gated set | `acu_assets`, `acu_motion` |
 | Animation clips and tracks | 0018, 0026, 0027 | 🟡 | 🟡 codec 7 open | 🟡 | codec 7, events | `acu_assets`, `acu_motion` |
-| Locomotion selection, root motion | 0019, 0022, 0025, 0029, 0032 | 🟡 | 🟡 | 🟡 `data/oracles/locomotion.json` | native graph selection; root-motion ownership | `acu_motion`, `acu_sim` |
+| Locomotion selection, root motion | 0019, 0022, 0025, 0029, 0032, 0056 | 🟡 transform = physics body pose (0056) | 🟡 | 🟡 `data/oracles/locomotion.json` | native graph selection; what drives the physics body (velocity vs clip root) | `acu_motion`, `acu_sim` |
 | Input | 0021, 0023, 0044, 0052 | ✅ heading = camera yaw + stick angle (0052) | — | ✅ `data/oracles/camera.json` move phases | action bindings; stick response curve | `acu_sim` |
 | Player entity and transform | 0044 | 🟡 Z up (one sample) | — | ✅ live chain | units (metres per 0047, unconfirmed in 0044); authoritative transform owner | `acu_sim` (axis conversion) |
 | Parkour candidates, ranking, actions | 0030, 0041–0043, 0045, 0046, 0055 | 🟡 candidates = collision ledge lips (0055) | ✅ collision (0050) | ✅ `parkour.json`, `parkour_geometry.json` | edge generator routine; per-type inclusion rules; action semantics | `acu_sim`, `acu_motion` |

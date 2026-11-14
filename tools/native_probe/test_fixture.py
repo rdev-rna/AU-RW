@@ -128,6 +128,26 @@ class FixtureTest(unittest.TestCase):
             hits = checked(pid, "STATUS")["hits"]
             time.sleep(.1)
             self.assertEqual(checked(pid, "STATUS")["hits"], hits)
+            # Data-write watch: the fixture writes ProbeFixtureCounter in ProbeFixtureTick every 20 ms.
+            self.assertFalse(command(pid, f"HOOKDATA 2 {counter+1:x} 8 misaligned")["ok"])
+            self.assertFalse(command(pid, f"HOOKDATA 2 {counter:x} 3 badlen")["ok"])
+            self.assertFalse(command(pid, f"HOOKDATA 2 {base+tick:x} 1 code")["ok"])
+            checked(pid, "EVENTS 256")
+            checked(pid, f"HOOKDATA 2 {counter:x} 8 counter_write 1 0 8")
+            time.sleep(.2)
+            writes = [e for e in checked(pid, "EVENTS 256")["events"] if e["label"] == "counter_write"]
+            self.assertGreaterEqual(len(writes), 3)
+            for e in writes:
+                self.assertEqual(int(e["probe_address"], 16), counter)
+                self.assertTrue(0 < int(e["rip"], 16) - (base+tick) < 0x100, e["rip"])  # trap is after the write
+                self.assertEqual(e["category"], "data_watch")
+                self.assertGreater(len(e["stack_hex"]), 128)  # data watches keep 512 stack bytes
+            values = [struct.unpack("<Q", bytes.fromhex(e["snapshot_hex"]))[0] for e in writes]
+            self.assertEqual(values, sorted(values))
+            checked(pid, "UNHOOK 2")
+            hits = checked(pid, "STATUS")["hits"]
+            time.sleep(.1)
+            self.assertEqual(checked(pid, "STATUS")["hits"], hits)
             with tempfile.TemporaryDirectory(dir=OUT) as tmp:
                 manifest = dump(pid, Path(tmp))
                 self.assertFalse(manifest["read_failures"])

@@ -14,14 +14,17 @@
 static HMODULE self;
 static volatile LONG stopFlag=0, gate=0, drops=0;
 static uint64_t total=0;
-struct Hook { uintptr_t address=0; std::string label; uint64_t hits=0; unsigned every=1; unsigned reg=0; int64_t offset=0; unsigned bytes=0; std::string category; unsigned revision=0; bool redirectRcx=false; uint64_t redirectFrom=0,redirectTo=0; uintptr_t redirectReturn=0;
+struct Hook { uintptr_t address=0; std::string label; uint64_t hits=0; unsigned every=1; unsigned reg=0; int64_t offset=0; unsigned bytes=0; std::string category; unsigned revision=0; unsigned dataLen=0; bool redirectRcx=false; uint64_t redirectFrom=0,redirectTo=0; uintptr_t redirectReturn=0;
  // Optional pointer-array gather: base=reg+disp (deref: base=*(u64*)base); data=*(u64*)(base+dataOff);
  // count=*(u16*)(base+countOff); element i is *(u64*)(data+8*i); copy elemBytes from each, up to gMax.
  bool gather=false,gDeref=false; unsigned gReg=0,gDataOff=0,gCountOff=0,gMax=0,gBytes=0; int64_t gDisp=0; };
 constexpr unsigned kGatherMax=16, kGatherBytes=0x300;
 static Hook hooks[4];
+static volatile LONG dataOwned[4]{};
+// DR7 bits for a data-write watch in slot i: R/W=01 (write), LEN 00/01/11/10 for 1/2/4/8 bytes.
+static uint64_t dataBits(const Hook& h,unsigned i){if(!h.dataLen)return 0;uint64_t len=h.dataLen==1?0:h.dataLen==2?1:h.dataLen==8?2:3;return (1ull<<(16+4*i))|(len<<(18+4*i));}
 static uintptr_t ownedSites[4][1024];static volatile LONG ownedCounts[4]{};
-struct Event {uint64_t sequence,ticks;DWORD tid;unsigned slot,revision;uintptr_t address,returnAddress;uint64_t rcxAfter;bool rcxRedirected;char label[65],category[65]; CONTEXT context; uint64_t stack[8];DWORD stackBytes;BYTE sample[256];DWORD sampleBytes;uintptr_t sampleAddress;
+struct Event {uint64_t sequence,ticks;DWORD tid;unsigned slot,revision;uintptr_t address,returnAddress;uint64_t rcxAfter;bool rcxRedirected;char label[65],category[65]; CONTEXT context; uint64_t stack[64];DWORD stackBytes;BYTE sample[256];DWORD sampleBytes;uintptr_t sampleAddress;
  bool gathered;bool gBaseOk;uint64_t gBase,gData;unsigned gCount,gTaken;uint64_t gPtr[kGatherMax];DWORD gGot[kGatherMax];BYTE gBuf[kGatherMax][kGatherBytes];};
 static Event events[256];static unsigned nextEvent=0,eventCount=0;
 static std::map<DWORD,std::array<DWORD64,6>> originals;
@@ -29,19 +32,20 @@ static uint64_t conflicts=0;static unsigned revision=1;static std::map<DWORD,uns
 static uint64_t regValue(const CONTEXT& c,unsigned r){const uint64_t vals[]={c.Rcx,c.Rdx,c.R8,c.R9,c.Rax,c.Rbx,c.Rsi,c.Rdi,c.Rbp,c.Rsp,c.R10,c.R11,c.R12,c.R13,c.R14,c.R15};return r<16?vals[r]:0;}
 static LONG CALLBACK handler(EXCEPTION_POINTERS* x){
  if(x->ExceptionRecord->ExceptionCode!=EXCEPTION_SINGLE_STEP)return EXCEPTION_CONTINUE_SEARCH;
- unsigned slot=4;uintptr_t site=(uintptr_t)x->ExceptionRecord->ExceptionAddress;
+ unsigned slot=4;bool data=false;uintptr_t site=(uintptr_t)x->ExceptionRecord->ExceptionAddress;
  for(unsigned i=0;i<4&&slot==4;i++)for(LONG k=0;k<ownedCounts[i];k++)if(ownedSites[i][k]==site&&(x->ContextRecord->Dr6&(1ull<<i))){slot=i;break;}
+ for(unsigned i=0;i<4&&slot==4;i++)if(dataOwned[i]&&(x->ContextRecord->Dr6&(1ull<<i))){slot=i;data=true;}
  if(slot==4)return EXCEPTION_CONTINUE_SEARCH;
- x->ContextRecord->EFlags|=0x10000; x->ContextRecord->Dr6&=~(1ull<<slot);
- if(stopFlag||hooks[slot].address!=site)return EXCEPTION_CONTINUE_EXECUTION;
+ if(!data)x->ContextRecord->EFlags|=0x10000; x->ContextRecord->Dr6&=~(1ull<<slot);
+ if(stopFlag||(data?(!hooks[slot].dataLen||!hooks[slot].address):hooks[slot].address!=site))return EXCEPTION_CONTINUE_EXECUTION;
  if(InterlockedCompareExchange(&gate,1,0)){InterlockedIncrement(&drops);return EXCEPTION_CONTINUE_EXECUTION;}
  Hook& h=hooks[slot];h.hits++;total++;
  uintptr_t callReturn=0;SIZE_T returnBytes=0;ReadProcessMemory(GetCurrentProcess(),(void*)x->ContextRecord->Rsp,&callReturn,sizeof callReturn,&returnBytes);
  bool redirect=h.redirectRcx&&returnBytes==sizeof callReturn&&x->ContextRecord->Rcx==h.redirectFrom&&callReturn==h.redirectReturn;
  uint64_t rcxAfter=redirect?h.redirectTo:x->ContextRecord->Rcx;
  if(h.hits%h.every==0){Event& e=events[nextEvent];e={};e.sequence=total;LARGE_INTEGER q;QueryPerformanceCounter(&q);e.ticks=q.QuadPart;e.tid=GetCurrentThreadId();e.slot=slot;e.revision=h.revision;e.address=h.address;e.returnAddress=callReturn;e.rcxAfter=rcxAfter;e.rcxRedirected=redirect;memcpy(e.label,h.label.data(),h.label.size());memcpy(e.category,h.category.data(),h.category.size());e.context=*x->ContextRecord;
- SIZE_T n=0;ReadProcessMemory(GetCurrentProcess(),(void*)e.context.Rsp,e.stack,sizeof e.stack,&n);e.stackBytes=(DWORD)n;
- if(h.bytes){e.sampleAddress=regValue(e.context,h.reg)+h.offset;n=0;ReadProcessMemory(GetCurrentProcess(),(void*)e.sampleAddress,e.sample,h.bytes,&n);e.sampleBytes=(DWORD)n;}
+ SIZE_T n=0;ReadProcessMemory(GetCurrentProcess(),(void*)e.context.Rsp,e.stack,h.dataLen?sizeof e.stack:64,&n);e.stackBytes=(DWORD)n;
+ if(h.bytes){e.sampleAddress=(h.dataLen?h.address:regValue(e.context,h.reg))+h.offset;n=0;ReadProcessMemory(GetCurrentProcess(),(void*)e.sampleAddress,e.sample,h.bytes,&n);e.sampleBytes=(DWORD)n;}
  if(h.gather){e.gathered=true;HANDLE proc=GetCurrentProcess();uint64_t b=regValue(e.context,h.gReg)+h.gDisp;bool ok=true;
   if(h.gDeref){n=0;ok=ReadProcessMemory(proc,(void*)b,&b,8,&n)&&n==8;}
   uint16_t count=0;if(ok){e.gBase=b;n=0;ok=ReadProcessMemory(proc,(void*)(b+h.gDataOff),&e.gData,8,&n)&&n==8;}
@@ -79,7 +83,7 @@ static void updateThreads(bool restore=false){
  if(saveOriginal)it->second={c.Dr0,c.Dr1,c.Dr2,c.Dr3,c.Dr6,c.Dr7};
  if(it!=originals.end()){for(unsigned i=0;i<4;i++){auto orig=it->second;
  if(restore||!hooks[i].address){if(*dr[i]==hooks[i].address||*dr[i]==0||((*dr[i]!=orig[i])&&!(orig[5]&(3ull<<(2*i))))){*dr[i]=orig[i];c.Dr7=(c.Dr7&~((3ull<<(2*i))|(15ull<<(16+4*i))))|(orig[5]&((3ull<<(2*i))|(15ull<<(16+4*i))));}}
- else if(orig[5]&(3ull<<(2*i))){conflicts++;}else{*dr[i]=hooks[i].address;c.Dr7=(c.Dr7&~((3ull<<(2*i))|(15ull<<(16+4*i))))|(1ull<<(2*i));}}
+ else if(orig[5]&(3ull<<(2*i))){conflicts++;}else{*dr[i]=hooks[i].address;c.Dr7=(c.Dr7&~((3ull<<(2*i))|(15ull<<(16+4*i))))|(1ull<<(2*i))|dataBits(hooks[i],i);}}
  if(SetThreadContext(t,&c))appliedIt->second=revision;}}
  ResumeThread(t);CloseHandle(t);if(saveOriginal&&!gotContext)originals.erase(it);
  }while(Thread32Next(snap,&e));CloseHandle(snap);if(!active||restore){originals.clear();applied.clear();creationTimes.clear();}
@@ -94,6 +98,7 @@ static std::string dispatch(const std::string& line){
  else if(cmd=="REGIONS"){std::string a;in>>a;uint64_t address=0;if(!a.empty()&&!number(a,address))return fail("invalid address");out<<"{\"ok\":true,\"regions\":[";MEMORY_BASIC_INFORMATION m{};unsigned count=0;while(count<256&&VirtualQuery((void*)address,&m,sizeof m)){if(count++)out<<',';out<<"{\"base\":\""<<hx((uintptr_t)m.BaseAddress)<<"\",\"size\":"<<m.RegionSize<<",\"state\":"<<m.State<<",\"protect\":"<<m.Protect<<",\"type\":"<<m.Type<<"}";uint64_t next=(uintptr_t)m.BaseAddress+m.RegionSize;if(next<=address)break;address=next;}out<<"],\"next\":\""<<hx(address)<<"\"}";}
  else if(cmd=="READ"){std::string a,b;in>>a>>b;uint64_t address,n;std::vector<BYTE>d;if(!number(a,address)||!number(b,n,10)||!readable(address,(size_t)n,d))return fail("READ requires readable address and decimal length 1..65536");out<<"{\"ok\":true,\"address\":\""<<hx(address)<<"\",\"hex\":\""<<hexbytes(d.data(),d.size())<<"\"}";}
  else if(cmd=="HOOK"||cmd=="HOOKVA"){unsigned slot,every=1,reg=0,bytes=0;int64_t offset=0;std::string rva,expected,label,category="unknown";in>>slot>>rva>>expected>>label;if(!in||slot>=4||label.size()>64)return fail("HOOK slot rva expected_hex label [every reg_index signed_offset bytes]");if(in>>every){if(!(in>>reg>>offset>>bytes)||!every||reg>=16||bytes>256)return fail("invalid sampling config");in>>category;if(category.size()>64)return fail("category too long");}if(cmd=="HOOKVA")base=0;uint64_t r; if(!number(rva,r)||r>0x7fffffffffff-base||expected.empty()||expected.size()>64||expected.size()%2)return fail("invalid RVA/expected bytes");std::vector<BYTE>d;if(!readable(base+r,expected.size()/2,d)||hexbytes(d.data(),d.size())!=expected)return fail("expected bytes mismatch/unreadable");MEMORY_BASIC_INFORMATION m{};VirtualQuery((void*)(base+r),&m,sizeof m);if(!(m.Protect&(PAGE_EXECUTE|PAGE_EXECUTE_READ|PAGE_EXECUTE_READWRITE|PAGE_EXECUTE_WRITECOPY)))return fail("address is not executable");if(IsDebuggerPresent())return fail("hardware probes unavailable with debugger attached");bool known=false;for(LONG k=0;k<ownedCounts[slot];k++)known|=ownedSites[slot][k]==base+r;if(!known){if(ownedCounts[slot]>=1024)return fail("owned-site limit reached; restart process");ownedSites[slot][ownedCounts[slot]]=base+r;InterlockedIncrement(&ownedCounts[slot]);}lock();hooks[slot]={base+r,label,0,every,reg,offset,bytes,category,++revision};unlock();updateThreads();out<<"{\"ok\":true,\"address\":\""<<hx(base+r)<<"\"}";}
+ else if(cmd=="HOOKDATA"){unsigned slot,len,every=1,bytes=0;int64_t offset=0;std::string a,label,category="data_watch";in>>slot>>a>>len>>label;uint64_t addr;if(!in||slot>=4||label.size()>64||!number(a,addr)||!(len==1||len==2||len==4||len==8)||(addr%len))return fail("HOOKDATA slot hex_address length(1,2,4,8; aligned) label [every signed_offset bytes category]");if(in>>every){if(!(in>>offset>>bytes)||!every||bytes>256)return fail("invalid sampling config");in>>category;if(category.size()>64)return fail("category too long");}std::vector<BYTE>d;if(!readable(addr,len,d))return fail("watched address unreadable");MEMORY_BASIC_INFORMATION m{};VirtualQuery((void*)addr,&m,sizeof m);if(m.Protect&(PAGE_EXECUTE|PAGE_EXECUTE_READ|PAGE_EXECUTE_READWRITE|PAGE_EXECUTE_WRITECOPY))return fail("data watch on executable memory");if(IsDebuggerPresent())return fail("hardware probes unavailable with debugger attached");lock();hooks[slot]={addr,label,0,every,0,offset,bytes,category,++revision};hooks[slot].dataLen=len;InterlockedExchange(&dataOwned[slot],1);unlock();updateThreads();out<<"{\"ok\":true,\"address\":\""<<hx(addr)<<"\",\"length\":"<<len<<"}";}
  else if(cmd=="REDIRECT"){unsigned slot;std::string fromText,toText,returnText;uint64_t from,to,returnAddress;in>>slot>>fromText>>toText>>returnText;if(!in||slot>=4||!number(fromText,from)||!number(toText,to)||!number(returnText,returnAddress)||!returnAddress)return fail("REDIRECT slot hex-from hex-to hex-return-address");lock();if(!hooks[slot].address){unlock();return fail("REDIRECT requires an active hook in that slot");}hooks[slot].redirectRcx=true;hooks[slot].redirectFrom=from;hooks[slot].redirectTo=to;hooks[slot].redirectReturn=(uintptr_t)returnAddress;unlock();out<<"{\"ok\":true,\"slot\":"<<slot<<",\"from\":\""<<hx(from)<<"\",\"to\":\""<<hx(to)<<"\",\"return_address\":\""<<hx(returnAddress)<<"\"}";}
  else if(cmd=="GATHER"){unsigned slot,reg,deref,dataOff,countOff,maxElems,elemBytes;int64_t disp;in>>slot>>reg>>disp>>deref>>dataOff>>countOff>>maxElems>>elemBytes;
   if(!in||slot>=4||reg>=16||deref>1||dataOff>4096||countOff>4096||!maxElems||maxElems>kGatherMax||!elemBytes||elemBytes>kGatherBytes)return fail("GATHER slot reg_index signed_disp deref(0|1) data_offset count_offset max_elements(1..16) element_bytes(1..768)");
