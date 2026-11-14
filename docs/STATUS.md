@@ -1,5 +1,15 @@
 # Project status
 
+Latest (2026-11-14, window graph parameter sources): [ACU-RE-0064](findings/ACU-RE-0064-window-graph-parameter-sources.md).
+- Static, from the binary:
+  - `SyncB_TargetHeight` = `TargetHeight` = P.z − character.z;
+  - `HeightDifferential` = P.z − Q.z;
+  - `Direction` comes from a mode: 0 → 2 (Up, at character state codes 32–34),
+    1 → 3 (Dn, character at or above the probed point), and a horizontal side test giving
+    mode 3 → 1 or mode 2 → 0;
+  - the clip flag is the playback mirror bit.
+- Open: what the target descriptor's P, Q and n are physically (parkour target scan).
+
 Latest (2026-11-14, NewDemo window selection): [ACU-RE-0063](findings/ACU-RE-0063-newdemo-window-selection.md).
 - `tools/atomgraph.py` decodes AtomGraph state machines into rules: states, entry conditions,
   If / interval / AxialBlend nodes, and clips. Operator, If, interval and AND/OR semantics come

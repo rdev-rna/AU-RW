@@ -183,10 +183,10 @@ class Machines(unittest.TestCase):
         self.assertEqual([s["entry"] for s in out], ["Direction == 0", "Direction == 1"])
         sel = out[0]["output"][0]
         self.assertEqual(sel["select_by"], {"param": "Height"})
-        self.assertEqual(sel["below"], [{"threshold": -1.0, "value": "ClipA [flag=1]"}])
+        self.assertEqual(sel["below"], [{"threshold": -1.0, "value": "ClipA [mirror=1]"}])
         self.assertEqual(sel["otherwise"], {"if": {"condition": "Height >= 0.2"},
-                                            "then": "ClipB [flag=1]", "else": "ClipA [flag=1]"})
-        self.assertEqual(out[1]["output"][0]["otherwise"]["then"], "ClipB [flag=0]")
+                                            "then": "ClipB [mirror=1]", "else": "ClipA [mirror=1]"})
+        self.assertEqual(out[1]["output"][0]["otherwise"]["then"], "ClipB [mirror=0]")
 
     def test_rules_for_an_enclosing_machine_are_left_to_it(self):
         pre = params_block()
@@ -243,8 +243,8 @@ class NewDemoWindowClimb(unittest.TestCase):
         self.assertEqual(sel["select_by"], {"param": "SyncB_TargetHeight"})
         self.assertEqual([x["threshold"] for x in sel["below"]], [-2.0, -1.25, -0.3])
         self.assertEqual(sel["below"][1]["value"]["if"], {"condition": "HeightDifferential >= 0.2"})
-        self.assertEqual(sel["below"][1]["value"]["then"], "00000029595e4e0e [flag=1]")
-        self.assertEqual(json.dumps(out[3]).count("[flag=1]"), 0)
+        self.assertEqual(sel["below"][1]["value"]["then"], "00000029595e4e0e [mirror=1]")
+        self.assertEqual(json.dumps(out[3]).count("[mirror=1]"), 0)
 
 
 if __name__ == "__main__":

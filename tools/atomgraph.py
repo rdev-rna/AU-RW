@@ -25,7 +25,8 @@ the runtime evaluators in ACU.exe (base 0x140000000):
 - AtomIfNode: ports (condition, value if true, value if false) (0x1400EB790).
 - AtomSelectFromIntervalNode: ports (input, opt0, thr0, opt1, thr1, ..., optN). It picks the
   first k with input < thr_k, else optN (0x1400ECF70 -> 0x1400A0730).
-- AtomAnimationDataNode: clip file ID, u64 at +293.
+- AtomAnimationDataNode: clip file ID, u64 at +293. Input port 2 is the mirror flag
+  (0x1400E1050 writes it to bit 0 of playback+0x37E).
 - AtomInitialState: an AtomConditionExpression (u32, u32, u32 condition count, conditions),
   then a u32 that we read as the target state index (inference; see the finding).
 """
@@ -347,8 +348,8 @@ def describe(states: list[State], names: dict[int, str], clips: dict[str, str]) 
             if n.cls == "AtomAnimationDataNode":
                 name = clips.get(n.clip, n.clip)
                 flag = n.ports[2] if len(n.ports) == 4 and n.ports[2].get("kind") == 2 else None
-                # port 2 is a kind-2 constant (0/1); reading it as "mirror" is an inference
-                return f"{name} [flag={flag['data']}]" if flag else name
+                # port 2 is the playback mirror bit: 0x1400E1050 stores it in bit 0 of playback+0x37E
+                return f"{name} [mirror={flag['data']}]" if flag else name
             if n.cls == "AtomCacheValueNode":
                 p = n.ports[0] if n.ports else {}
                 return {"param": names.get(p.get("param"), p)}

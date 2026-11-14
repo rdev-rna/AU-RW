@@ -128,7 +128,8 @@ for what the parameter measures.
     which belong to the enclosing machine.
 
   The tool assigns rules on that basis and fails on a conflict.
-- **Mirror flag.** Clip-node port 2 (0/1) is probably the mirror flag:
+- **Mirror flag.** Now confirmed in the binary ([ACU-RE-0064](ACU-RE-0064-window-graph-parameter-sources.md),
+  `0x1400E1050`). The original reasoning was: clip-node port 2 (0/1) is probably the mirror flag:
   - it is the only difference between the two Lt states;
   - in the run-in it flips with the sign of `TargetAngle`.
 

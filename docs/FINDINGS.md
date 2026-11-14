@@ -51,6 +51,9 @@ Window selection: [ACU-RE-0063](findings/ACU-RE-0063-newdemo-window-selection.md
 AtomGraph `NewDemo` machines that pick window-entry clips. `Direction` picks the state;
 parameter thresholds pick the height band and the grating variant. `tools/atomgraph.py` turns
 them into rules.
+Parameter sources: [ACU-RE-0064](findings/ACU-RE-0064-window-graph-parameter-sources.md) finds the
+code that writes those parameters (the CRC-32 name hashes are immediates) and confirms the clip
+flag is the mirror bit.
 
 Use `docs/templates/FINDING.md`; store durable findings under `docs/findings/`.
 Link bulky raw evidence in ignored `outputs/` with identity and reproduction steps.
