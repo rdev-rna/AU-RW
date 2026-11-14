@@ -37,6 +37,37 @@ This was reviewed read-only in a scratch copy and never built or run.
   Nexus page describes is presumably in the distributed binary or the launcher build, which was
   not downloaded or inspected.
 
+## What the Nexus package contains (inspected 2026-11-14)
+
+- **Package:** `Unity-Mod 253 1.1` zip, SHA-256 `cfe73ff33c064283…72a779`, 9,730,701 bytes. It was
+  listed in memory. Only the JSON, ini and forge files were copied out to a scratch folder; the
+  DLL and ASI were never extracted or run.
+  - 93 clip JSON files, named `<n>_-_<ACU animation name>.json`: parkour, climb, hang-free,
+    swing, wall eject, assassination and throw clips.
+  - `DataPC_extra_patch_02.forge` (851,968 bytes).
+  - `winmm.dll` (7.4 MB; presumably an ASI loader, not inspected).
+  - `Unity.asi` (185,856 bytes, SHA-256 `912f12e94b1642d9…11038ec`).
+  - `mod_config.ini`: the hotkeys for each move.
+- **Clip JSON:** per clip, the length plus every track with its ID, a `codec` byte, an `infotype`
+  and keyframes (frame plus position, rotation, raw or int values). These are the clips' own
+  tracks:
+  - Frames are on the 60/s key grid.
+  - `codec` equals our per-track type byte `t`, with codec = t / 3 (ACU-RE-0018).
+  - Spot check: the root translation of `xx_Parkour_Leaping_Fd350cm-Dn200cm` (ACU file ID
+    `000000083293199c`) matches `animation::parse_root` key for key (frames 0, 8, 24, 28 and
+    38 = 0, 0.133, 0.4, 0.467 and 0.633 s; end at (0, 3.4961, −1.9978)).
+- **The JSON decodes codecs our parser rejects:**
+  - codec 7 (t = 21–23): 159 tracks;
+  - codec 8 (t = 24, 26): 277 tracks;
+  - plus codecs 6, 11, 13 (raw), 16 (frame-only) and 19 (int).
+- **What `Unity.asi` does (string scan only, no disassembly):** it embeds the clip file names and
+  logs lines such as `anim worker start base=…` and `leap[%d] tracks=%zu max=%u` for named slot
+  groups (leap, eject, vault, vault down 300/800, hang-free…). The likely mechanism is that it
+  reads the JSON and overwrites the tracks of existing Mirage clips in memory, while the patches
+  above force Mirage's branches. So the "port" is Unity clips running on Mirage's parkour logic.
+- **Not decompiled.** It is a JSON reader and a Mirage memory writer. The codec decoding happened
+  wherever the JSON was exported, so decompiling the ASI would teach us nothing about `ACU.exe`.
+
 ## Relevance to AU-RW
 
 - **Different goal.** It makes Mirage's engine play Unity-style moves, and possibly Unity data. It
@@ -50,5 +81,11 @@ This was reviewed read-only in a scratch copy and never built or run.
 - **Usable as a checklist.** The move list above names Unity actions to cover in variant capture
   and in the controls map. Check each one against ACU's own clips and input handling before using
   it.
+- **A cross-check for codecs 7 and 8.** The JSON holds decoded values for codec 7/8 tracks of
+  ACU clips. These are the codecs that block full pose decoding of 339 of the 590 played clips
+  (ACU-RE-0059). Derive the decoder from `ACU.exe` (its samplers), then compare its output with
+  these values as an independent expected result.
+  - The JSON is Ubisoft-derived data from a third party. It stays local, is passed to a tool by
+    path, and is never committed or quoted beyond a few spot values.
 - **Reuse:** the code is MIT-licensed. Reuse needs attribution, and none is planned: its patches
   target another game.
