@@ -435,15 +435,31 @@ fn graph_body(s: &Obj) -> Result<Body, String> {
 #[derive(Clone, Debug)]
 pub struct ClipInfo {
     pub duration: f32,
+    /// Event intervals of the `0xFFFFFFE0` tracks (the live list, ACU-RE-0068).
     pub events: Vec<(u32, f32, f32)>,
+    /// The same from the `0xFFFFFFE3` tracks, used when the clip node mirrors the clip.
+    pub mirrored_events: Vec<(u32, f32, f32)>,
+    /// Sync-track keys (`0xFFFFFFE2`): (clip seconds, marker value), see `sync`.
+    pub sync_keys: Vec<(f32, u32)>,
 }
 
+/// Track hashes of the integer tracks (ACU-RE-0069): events, sync markers, mirrored events.
+const EVENT_TRACK: u32 = 0xFFFF_FFE0;
+const SYNC_TRACK: u32 = 0xFFFF_FFE2;
+const MIRRORED_EVENT_TRACK: u32 = 0xFFFF_FFE3;
+
 impl ClipInfo {
-    /// Build from decoded integer event tracks (codec 18/19): each key's id holds until the
-    /// next key, the last until the clip end, plus the runtime end marker `0x80000002`.
+    /// Build from decoded integer tracks (codec 18/19). Each event key's id holds until the
+    /// next key, the last until the clip end; id 0 keys carry no interval (the live stop list
+    /// has none); the runtime end marker `0x80000002` closes each list.
     pub fn from_clip(clip: &acu_assets::animation::Clip) -> Self {
         let d = clip.duration;
-        let mut events = Vec::new();
+        let mut info = ClipInfo {
+            duration: d,
+            events: Vec::new(),
+            mirrored_events: Vec::new(),
+            sync_keys: Vec::new(),
+        };
         for t in clip
             .tracks
             .iter()
@@ -456,17 +472,30 @@ impl ClipInfo {
                 .iter()
                 .map(|c| u32::from_le_bytes(*c))
                 .collect();
+            let list = match t.hash {
+                EVENT_TRACK => &mut info.events,
+                MIRRORED_EVENT_TRACK => &mut info.mirrored_events,
+                SYNC_TRACK => {
+                    for (k, &v) in ids.iter().enumerate() {
+                        info.sync_keys
+                            .push((t.times.get(k).copied().unwrap_or(0.0), v));
+                    }
+                    continue;
+                }
+                _ => continue,
+            };
             for (k, &id) in ids.iter().enumerate() {
+                if id == 0 {
+                    continue;
+                }
                 let s = t.times.get(k).copied().unwrap_or(0.0);
                 let e = t.times.get(k + 1).copied().unwrap_or(d);
-                events.push((id, s, e));
+                list.push((id, s, e));
             }
         }
-        events.push((0x8000_0002, d, d));
-        ClipInfo {
-            duration: d,
-            events,
-        }
+        info.events.push((0x8000_0002, d, d));
+        info.mirrored_events.push((0x8000_0002, d, d));
+        info
     }
 }
 
@@ -494,6 +523,10 @@ pub struct Leaf {
     pub weight: f32,
     pub time: f32,
     pub rate: f32,
+    /// Clip seconds advanced this step.
+    pub advance: f32,
+    /// Clip node port 2 (mirror, `0x1400E1050`).
+    pub mirror: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -829,6 +862,10 @@ impl Player {
     }
 
     /// Advance one step of `dt` seconds and rebuild [`Player::leaves`].
+    /// The previous step's event list: (state, id, start, end) in graph time.
+    pub fn events(&self) -> &[(usize, u32, f32, f32)] {
+        &self.events
+    }
     pub fn step(&mut self, dt: f32) {
         let mut rt = std::mem::replace(&mut self.rt, StateRt::Empty);
         let events = std::mem::take(&mut self.events);
@@ -872,9 +909,18 @@ impl Player {
                 continue;
             };
             let c1 = l.time;
-            let c0 = c1 - l.rate * dt;
-            for &(id, s, e) in &info.events {
+            let c0 = c1 - l.advance;
+            let list = if l.mirror {
+                &info.mirrored_events
+            } else {
+                &info.events
+            };
+            for &(id, s, e) in list {
+                // The previous cycle is consulted only when this step's window wraps.
                 for shift in [-info.duration, 0.0] {
+                    if shift < 0.0 && c0 >= 0.0 {
+                        continue;
+                    }
                     let (s, e) = (s + shift, e + shift);
                     if e + EPS >= c0 && s - EPS <= c1 {
                         let map = |c: f32| {
@@ -1090,13 +1136,15 @@ fn graph_leaves(ctx: &mut Ctx, s: usize, g: &mut GraphRt, w: f32, dt: f32, out: 
     if pose.duration <= EPS {
         return;
     }
-    if g.started {
-        g.phase += dt / pose.duration;
-    }
+    // A graph entered this frame advances over the frame from phase 0, so its first event
+    // window is [0, dt] in clip time, not a wrap from a previous cycle.
+    let step = dt / pose.duration;
+    g.phase += step;
     g.started = true;
     let phase = g.phase;
     for (n, lw) in pose.leaves {
         let clip = nodes[n].clip.unwrap_or(0);
+        let mirror = nodes[n].inputs.get(2).cloned().is_some_and(|p| ev.flag(&p));
         let d = ev.ctx.clips.get(&clip).map(|c| c.duration).unwrap_or(0.0);
         // CHOICE: every clip loops at the shared normalized phase.
         let time = (phase * d).rem_euclid(d.max(EPS));
@@ -1107,6 +1155,8 @@ fn graph_leaves(ctx: &mut Ctx, s: usize, g: &mut GraphRt, w: f32, dt: f32, out: 
             weight: w * lw,
             time,
             rate: d / pose.duration,
+            advance: step * d,
+            mirror,
         });
     }
 }
@@ -1322,6 +1372,14 @@ impl Eval<'_, '_> {
                     }
                 };
                 let p = self.nodes[n].inputs.get(k).cloned();
+                p.map(|p| self.pose(&p)).unwrap_or_default()
+            }
+            "AtomSelectBestMatchingTagsNode" => {
+                // sub_1400ECD90: the child index latched at activation (sub_1400D7640) is used;
+                // the marker-cost search (sub_1400E01F0 / sub_1400CDE10) runs only with a sync
+                // source. Graph-state activation (sub_1400E7C00) passes none, so the latch is
+                // the first child, port 2.
+                let p = self.nodes[n].inputs.get(2).cloned();
                 p.map(|p| self.pose(&p)).unwrap_or_default()
             }
             "AtomTimeScaleNode" => {

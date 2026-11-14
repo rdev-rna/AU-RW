@@ -77,6 +77,19 @@ fn replay_live_parameters() {
         );
     }
 
+    if let Ok(want) = std::env::var("ACU_CLIP_EVENTS") {
+        for (id, n) in &names {
+            if want.split(',').any(|w| w == n) {
+                let c = &clips[id];
+                let ev: Vec<String> = c
+                    .events
+                    .iter()
+                    .map(|e| format!("{:08x}[{:.3},{:.3}]", e.0, e.1, e.2))
+                    .collect();
+                println!("clip {n} {id:016x} d={:.3} {}", c.duration, ev.join(" "));
+            }
+        }
+    }
     let mut player = Player::new(graph, hub, clips).unwrap();
     let mut started = false;
     // Parkour reads 11 between frames; the per-frame value (0 idle, 1 moving, 21 free run)
@@ -124,7 +137,53 @@ fn replay_live_parameters() {
             player.start_in(&[1, 5]);
             started = true;
         }
+        let seen = player.diag.transitions.len();
         player.step(dt);
+        let tsec = qpc as f64 / 1e7;
+        let trace = std::env::var("ACU_TRACE")
+            .ok()
+            .and_then(|v| {
+                let (a, b) = v.split_once(',')?;
+                Some((a.parse::<f64>().ok()?, b.parse::<f64>().ok()?))
+            })
+            .is_some_and(|(a, b)| tsec >= a && tsec <= b);
+        if trace {
+            for t in &player.diag.transitions[seen..] {
+                println!("    transition {t:?}");
+            }
+            let at: Vec<usize> = player
+                .path()
+                .iter()
+                .map(|&s| player.graph.states[s].at)
+                .collect();
+            let leaves: Vec<String> = player
+                .leaves
+                .iter()
+                .filter(|l| l.weight > 0.01)
+                .map(|l| {
+                    format!(
+                        "{}:{:.2}@{:.2}",
+                        names.get(&l.clip).map(String::as_str).unwrap_or("?"),
+                        l.weight,
+                        l.time
+                    )
+                })
+                .collect();
+            let keys: Vec<String> = std::env::var("ACU_TRACE_KEYS")
+                .unwrap_or("MovementSpeed,Parkour,TargetAngle,HighProfile".into())
+                .split(',')
+                .map(|k| format!("{k}={}", p["v"].get(k).unwrap_or(&serde_json::Value::Null)))
+                .collect();
+            println!("  {tsec:.3} path {at:?} {leaves:?} {}", keys.join(" "));
+            if std::env::var_os("ACU_TRACE_EVENTS").is_some() {
+                let ev: Vec<String> = player
+                    .events()
+                    .iter()
+                    .map(|e| format!("{}:{:08x}", player.graph.states[e.0].at, e.1))
+                    .collect();
+                println!("    events {}", ev.join(" "));
+            }
+        }
         if total < 3 {
             let at: Vec<usize> = player
                 .path()
