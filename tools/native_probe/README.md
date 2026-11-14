@@ -215,7 +215,15 @@ python tools/native_probe/focus.py activate <pid>   # posts activation messages 
   keep 512 stack bytes. `position_writers.py PID OUT` watches the player transform
   (ACU-RE-0056). `root_motion_link.py PID OUT [--stick X Y] [--body]` watches the skeleton's
   root delta, the BipedComponent velocity request and, with `--body`, the position target and
-  body translation (ACU-RE-0057). Never put an execute hook on hot routines such as `0x1420F6F70` (~11k calls/s);
+  body translation (ACU-RE-0057). `root_delta_capture.py PID OUT` records the root delta per
+  frame with the playing leaves, for `tools/root_delta_compare.py` (ACU-RE-0058). Never watch a
+  job-worker stack slot (~49k traps/s).
+- **Stale debug registers (fixed 2026-11-14, build `d7b69cca…`):** `SetThreadContext` on a thread
+  inside the trap handler is undone when the handler returns its saved context, so one thread can
+  keep an old watch after `UNHOOK`. That crashed ACU once (unhandled single step in d3d11). The
+  handler now re-syncs DR0-3/DR7 on every trap and claims traps on any address the probe armed;
+  `STATUS` shows `stray_traps`. Previous build: `local/native-probe/acu_probe_pre-drsync.dll`
+  (copy back to `acu_probe.dll` to restore). Never put an execute hook on hot routines such as `0x1420F6F70` (~11k calls/s);
   arming it stalled the client.
 - **Always launch with an explicit frame cap** (`--fps-cap 30..240`; nothing above 300 is needed).
   Never `--fps-cap 0`: an uncapped run on 2026-11-14 stalled the user's whole PC.

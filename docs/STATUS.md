@@ -1,5 +1,17 @@
 # Project status
 
+Latest (2026-11-14, root-delta extraction): the animation graph's root delta is decoded
+([ACU-RE-0058](findings/ACU-RE-0058-root-delta-extraction.md)).
+- Each playback leaf samples the clip's root tracks (track 0 translation, track 1 rotation, named
+  by the clip descriptor) at the previous and new time. The delta is R(Q(A))⁻¹(T(B) − T(A)) and
+  Q(A)⁻¹Q(B); mirroring negates x.
+- Live, for a single clip at weight 1, it matches the decoded tracks to within 0.003–0.018 mm.
+- In a start-to-loop transition, root motion follows the incoming clip, not the pose weights.
+- New tools: `acu-root-tracks`, `tools/native_probe/root_delta_capture.py`,
+  `tools/root_delta_compare.py`.
+- Probe fix: the trap handler re-syncs debug registers. A stale watch on one worker thread had
+  crashed ACU (an unhandled single step); the previous build is kept.
+
 Latest (2026-11-14, body velocity source): animation root motion drives the player.
 - Write watches on the live player follow one chain each frame
   ([ACU-RE-0057](findings/ACU-RE-0057-body-velocity-from-root-motion.md)): the AtomAnimComponent

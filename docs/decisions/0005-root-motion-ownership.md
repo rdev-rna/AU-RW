@@ -7,7 +7,7 @@ motion (ACU-RE-0057).
 Related task / findings: ACU-RE-0022, 0026, 0027 (pose, graph binding; root motion open),
 ACU-RE-0032 (translation correction kernel), ACU-RE-0044 (player transform), ACU-RE-0046
 (teleport), ACU-RE-0052 (camera-relative heading), ACU-RE-0056 (transform writer), ACU-RE-0057
-(body velocity from root motion), ADR-0004 (tick).
+(body velocity from root motion), ACU-RE-0058 (root-delta extraction), ADR-0004 (tick).
 
 Context and constraints:
 - **Native observation (ACU-RE-0056, 2026-11-14):** the player's matrix has a single writer, the
@@ -74,8 +74,12 @@ Validation:
   ADR-0005 model holds, with the character body as the single authoritative transform.
 - Done: write watches on the skeleton's root delta, the velocity request and the body
   translation (ACU-RE-0057) show `clip_root` for locomotion.
-- Next: decode the root-delta extraction in `0x1400FA080` (clip root track, blend), then compare
-  `acu_motion`'s per-frame root delta with the native one for the same clip and time.
+- Done: the root-delta extraction (ACU-RE-0058).
+  - Per clip: delta_t = R(Q(A))⁻¹ (T(B) − T(A)) and delta_q = Q(A)⁻¹ Q(B), from tracks 0/1. This
+    matches live to within 0.02 mm.
+  - In a clip-to-clip transition, root motion comes from the incoming clip, not the pose blend.
+- Next: implement it in `acu_motion` and check it with `tools/root_delta_compare.py`. Then test
+  rotating roots and directional blends live.
 
 Revisit trigger: a state found to be driven by `0x141A51F70`'s position target or by
 `0x14007CD80` (skeleton flag `0x20`), or combat or scripted actions showing a different source.
