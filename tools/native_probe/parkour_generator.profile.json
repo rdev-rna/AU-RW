@@ -1,0 +1,9 @@
+{
+  "description": "Parkour candidate generator (ACU-RE-0055 plan). ACU.exe 748abdc6...7e40, base 0x140000000; guards from mapped image 9a1124f1...0520. 0x1401B1770 = fancy-table slot 1 (writes a candidate from a record): entry snapshot r9 (record, 256 B), return address names the generator. 0x1401B1783: rcx+0x50 (span ends already set?). 0x1401B18E9 (subps xmm6,[rdi]): rdi = reference point for +0xC0..+0xC8. register_index: 0=rcx 1=rdx 2=r8 3=r9 7=rdi.",
+  "rotation_seconds": 600,
+  "probes": [
+    {"label": "candidate_from_record", "rva": "1b1770", "expected_hex": "48895c24084889742410574883ec4041", "category": "parkour", "register_index": 3, "offset": 0, "bytes": 256},
+    {"label": "candidate_span_before", "rva": "1b1783", "expected_hex": "488bfa488bf10f294110410f28491049", "category": "parkour", "register_index": 0, "offset": 80, "bytes": 32},
+    {"label": "candidate_reference_point", "rva": "1b18e9", "expected_hex": "0f5c370f28c60f28ce0fc6c6aaf30f11", "category": "parkour", "register_index": 7, "offset": 0, "bytes": 16}
+  ]
+}

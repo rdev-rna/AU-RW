@@ -207,6 +207,11 @@ python tools/native_probe/focus.py activate <pid>   # posts activation messages 
   hung after the shim was removed took over the user's mouse and keyboard and stalled their PC.
   Never hot-swap the shim (`remove` then `install`) on a running game either: a swap loop to
   change the fps cap grabbed the user's mouse the same day. Choose the build and cap at launch.
+- **Always launch with an explicit frame cap** (`--fps-cap 30..240`; nothing above 300 is needed).
+  Never `--fps-cap 0`: an uncapped run on 2026-11-14 stalled the user's whole PC.
+- After a teleport, menus and the map ignore Back/Start/M until Arno moves; walk 1 s first. On
+  the map the cursor sits at the screen centre and short WASD taps (0.045-0.065 s through
+  `InProcessKeys`) step it between nearby icons; F1/F3 cycle filters (ACU-RE-0054).
 - Travel guard (shim build t8+, the default `acu_focus.dll` since 2026-11-14; the previous default
   t4 is kept as `acu_focus_t4.dll`, copy it back to restore): teleport and flag requests answer
   `-5` while the travel manager `[0x145219860]+644` is not 0, and `-6` when the entity is not the

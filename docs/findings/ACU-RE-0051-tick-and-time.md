@@ -2,7 +2,7 @@
 
 Date: 2026-11-14. Related: [ACU-RE-0044](ACU-RE-0044-player-state-and-repeatable-start.md),
 [ACU-RE-0049](ACU-RE-0049-world-travel.md), REWRITE_READINESS backlog item 2.
-State: **live-verified at 30, 60 and 100 fps caps (runs tick-1, tick-100); uncapped open.** The static part is read from the
+State: **live-verified at 30, 60 and 100 fps caps (runs tick-1, tick-100); above 100 fps open (explicit caps only).** The static part is read from the
 pseudocode corpus and the mapped image; the live part (section "Live result") is from probe
 sessions on the running game. Uncapped is still open. Oracle: `data/oracles/tick.json`.
 
@@ -120,7 +120,7 @@ sessions on the running game. Uncapped is still open. Oracle: `data/oracles/tick
 
 Probe register index: 0 = rcx, 1 = rdx, 2 = r8, 3 = r9 (`probe.cpp` `regValue`); every hit also
 records QPC, return address, 64 stack bytes and xmm0–xmm5. Profile:
-`tools/native_probe/tick_time.profile.json`. Run each at 30 / 60 / uncapped with the shim frame
+`tools/native_probe/tick_time.profile.json`. Run each at 30 / 60 / 100+ (always an explicit cap, never 0) with the shim frame
 cap, standing still and while moving.
 
 | # | Label | VA (RVA) | First 16 bytes | Snapshot | Confirms if | Falsified if |
@@ -189,7 +189,11 @@ reads). Export: `python tools/oracle_export.py tick` → `data/oracles/tick.json
     checked: physics consumers of `+0x10F4` advance about 1.67× faster than wall time at this
     frame rate, unless they rescale by `+0x10F8`.
 
-Open: uncapped (rates above 120 Hz); whether the 1/60 step at 100 fps really speeds up physics; the
+An uncapped launch (run tick-uncapped, `--fps-cap 0`) stalled the user's PC and was closed before
+any measurement; it will not be repeated. Rates above 100 fps should be measured with an explicit
+cap (144 or 240), never uncapped.
+
+Open: rates above 120 Hz (with an explicit cap); whether the 1/60 step at 100 fps really speeds up physics; the
 bucket table in `0x1425FB720` and its thresholds; pause behaviour.
 
 ## Implementation implications
@@ -209,7 +213,7 @@ bucket table in `0x1425FB720` and its thresholds; pause behaviour.
   (60 Hz at 60 fps, 30 Hz at 30 fps).
 - **For the port:** a deterministic fixed tick is still an implementation choice (AGENTS.md). Record
   in `DECISIONS.md` that the native game is variable-step, and test parity at the 1/60 and 1/30
-  buckets, which are the native steps at those caps. Do not claim parity at other rates until 100
-  fps and uncapped are measured.
+  buckets, which are the native steps at those caps. Do not claim parity above 100 fps until it is
+  measured with an explicit cap (144 or 240).
 - **Oracle:** `data/oracles/tick.json` (`acu-oracle/tick/1`). Regenerate it with a tick_time
   probe session per cap, then `python tools/oracle_export.py tick`.

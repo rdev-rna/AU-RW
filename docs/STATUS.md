@@ -1,5 +1,21 @@
 # Project status
 
+Latest (2026-11-14, research backlog stack): all seven critical-path research items of
+[REWRITE_READINESS.md](REWRITE_READINESS.md) now have a live- or decode-backed result and a
+portable oracle. Collision triangles and the ground rule are decoded (3.5 mm median against live;
+[ACU-RE-0050](findings/ACU-RE-0050-world-collision-ground.md)). The native tick is variable-step
+with physics rate buckets ([0051](findings/ACU-RE-0051-tick-and-time.md)). The live camera is the
+player's ACUPlayerCameraComponent, and move heading = camera yaw + stick
+([0052](findings/ACU-RE-0052-camera.md)). Patch precedence is front-insert
+([0053](findings/ACU-RE-0053-patch-precedence.md)). The travel-state setter chain and the
+arrival sequence are observed live ([0054](findings/ACU-RE-0054-travel-setter-and-player-spawn.md)).
+Parkour candidates are ledge lips of the decoded mesh
+([0055](findings/ACU-RE-0055-parkour-candidate-geometry.md)). New fixtures: `camera.json`,
+`tick.json`, `ground_*.json`, `parkour_geometry.json`. Safety: always launch with an explicit
+frame cap (an uncapped run stalled the user's PC). Open on the critical path: player-entity
+creator, candidate generator routine, primitive collision shapes and navmesh, and the
+DECISIONS.md entries for units, tick and root motion.
+
 Latest (2026-11-14, rewrite readiness, world travel): preparation before any new port code.
 [REWRITE_READINESS.md](REWRITE_READINESS.md) maps every system to spec / data / oracle / open
 unknowns and orders the remaining research by the roadmap. The research holes on the critical path

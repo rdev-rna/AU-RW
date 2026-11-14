@@ -13,7 +13,7 @@ port is transcription plus a diff, never a guess:
    recorded in `DECISIONS.md` as an explicit, labelled implementation choice.
 
 This page is the map: per system, how far each of the four is. Update it with every finding or
-slice. Last full review: 2026-11-14.
+slice. Last full review: 2026-11-14 (after the research backlog stack).
 
 ## What we have, and how much it helps
 
@@ -34,22 +34,22 @@ Legend: ✅ ready · 🟡 partial · ❌ missing · — not needed.
 
 | System | Findings | Spec | Data | Oracle | Critical unknowns | Home |
 | --- | --- | --- | --- | --- | --- | --- |
-| Archives, frames, controls, prefetch | 0001, 0002, 0004, 0006, 0038 | ✅ | ✅ | ✅ native-library frame oracle | patch precedence (#35) | `acu_assets` |
+| Archives, frames, controls, prefetch | 0001, 0002, 0004, 0006, 0038, 0053 | ✅ | ✅ | ✅ native-library frame oracle | patch precedence: front-insert mount order (0053, 672 live reads agree); mount order not observed live | `acu_assets` |
 | Textures | 0003, 0005, 0007 | ✅ | 🟡 inline only | 🟡 | external/streamed variants | `acu_assets` |
 | Meshes, vertices, clusters | 0008, 0011, 0012 | ✅ | ✅ | 🟡 stored boxes | cluster bit-mask semantics | `acu_assets` |
 | Materials, shading | 0013, `LIGHTING_RESEARCH.md` | 🟡 | 🟡 | ❌ | material templates/shaders | `acu_assets`, `acu_bevy` |
 | Skeleton, rig, skinning, bone modifiers | 0010, 0014–0017, 0028 | 🟡 | ✅ | ✅ modifiers gated live (0028) | runtime solver order beyond the gated set | `acu_assets`, `acu_motion` |
 | Animation clips and tracks | 0018, 0026, 0027 | 🟡 | 🟡 codec 7 open | 🟡 | codec 7, events | `acu_assets`, `acu_motion` |
-| Locomotion selection, root motion | 0019, 0022, 0025, 0029, 0032 | 🟡 | 🟡 | 🟡 live root/pose captures (not exported) | native graph selection; root-motion ownership | `acu_motion`, `acu_sim` |
-| Input | 0021, 0023, 0044 | 🟡 stick is camera-relative | — | 🟡 | action bindings; camera yaw source | `acu_sim` |
+| Locomotion selection, root motion | 0019, 0022, 0025, 0029, 0032 | 🟡 | 🟡 | 🟡 `data/oracles/locomotion.json` | native graph selection; root-motion ownership | `acu_motion`, `acu_sim` |
+| Input | 0021, 0023, 0044, 0052 | ✅ heading = camera yaw + stick angle (0052) | — | ✅ `data/oracles/camera.json` move phases | action bindings; stick response curve | `acu_sim` |
 | Player entity and transform | 0044 | 🟡 Z up (one sample) | — | ✅ live chain | units (metres per 0047, unconfirmed in 0044); authoritative transform owner | `acu_sim` (axis conversion) |
-| Parkour candidates, ranking, actions | 0030, 0041–0043, 0045, 0046 | 🟡 | ❌ scanner input geometry | 🟡 traces (not exported) | where candidates come from; action semantics | `acu_sim`, `acu_motion` |
+| Parkour candidates, ranking, actions | 0030, 0041–0043, 0045, 0046, 0055 | 🟡 candidates = collision ledge lips (0055) | ✅ collision (0050) | ✅ `parkour.json`, `parkour_geometry.json` | edge generator routine; per-type inclusion rules; action semantics | `acu_sim`, `acu_motion` |
 | World cells and placements | 0035, 0036, 0047 | ✅ Paris + Versailles | ✅ | ✅ 1 mm vs live | EntityGroup nesting (prefabs); streaming policy | `acu_assets` |
-| **Collision, physics, navmesh** | 0034 (type names only), 0047 | ❌ | ❌ | ❌ | **all of it** | `acu_assets`, `acu_sim` |
-| World lifecycle and travel | 0049 | ✅ lifecycle observed | ✅ world/portal IDs | ✅ `data/oracles/world_travel.json` | who sets travel state; what the player is spawned from | `acu_sim` |
+| Collision, physics, navmesh | 0034, 0047, 0050 | 🟡 MeshShape triangles + ground rule | 🟡 meshes ✅; primitives, navmesh ❌ | ✅ `ground_versailles.json`, `ground_paris.json` (3.5 mm median) | primitive shapes; DataLayer switching; navmesh; runtime ground routine | `acu_assets`, `acu_sim` |
+| World lifecycle and travel | 0049, 0054 | ✅ request chain + arrival sequence live | ✅ world/portal IDs | ✅ `data/oracles/world_travel.json` | the routine that creates the player entity (port: spawn at the destination portal) | `acu_sim` |
 | Outfit / gear | 0048 | 🟡 | 🟡 | ❌ | appearance refresh; persistence across worlds | `acu_sim`, `acu_bevy` |
-| **Camera** | none | ❌ | ❌ | ❌ | everything (needed for camera-relative input) | `acu_sim`, `acu_bevy` |
-| **Simulation tick and time** | none | ❌ | — | ❌ | native update rate, fixed or variable step | `acu_sim` |
+| Camera | 0052 | ✅ live view = player's ACUPlayerCameraComponent | — | ✅ `data/oracles/camera.json` | collision/distance policy; easing constants; frame-rate dependence | `acu_sim`, `acu_bevy` |
+| Simulation tick and time | 0051 | ✅ variable step, physics rate buckets | — | ✅ `data/oracles/tick.json` (30/60/100 fps) | above 100 fps; record the port's fixed-tick choice in DECISIONS.md | `acu_sim` |
 | Combat, AI, stealth, missions, UI, audio, saves | none | ❌ | ❌ | ❌ | M5 scope; not on the near path | later |
 
 ## Research backlog for the critical path
@@ -79,6 +79,21 @@ oracle, so it ends in a fixture, not only a write-up.
    ACU-RE-0049 obs. 15) and the player spawn source. Lower priority: the lifecycle oracle exists.
 7. **Patch precedence (#35).** Which duplicate resource the game loads, observed live (hook the
    resource load for one known duplicate). Affects every decoder's choice.
+
+### Backlog status (2026-11-14)
+
+| # | Item | Result | Oracle | Still open |
+| --- | --- | --- | --- | --- |
+| 1 | Ground and collision | MeshShape triangles from ShadowRigidBody / ReferenceListShape / RigidBody decoded; ground = highest surface at or below z + 0.5 m (ACU-RE-0050) | `ground_versailles.json`, `ground_paris.json` | primitive shapes, navmesh, DataLayer |
+| 2 | Tick | one frame = one sim step, variable dt; physics one step at a rate bucket (ACU-RE-0051) | `tick.json` | above 100 fps (explicit cap only) |
+| 3 | Camera | live view found; heading = camera yaw + stick; rates, pitch range, follow (ACU-RE-0052) | `camera.json` | collision/distance policy, curve |
+| 4 | Locomotion | oracle exported (earlier); camera-relative heading now pinned by `camera.json` | `locomotion.json` | native clip selection, root-motion ownership |
+| 5 | Parkour scanner inputs | candidates are ledge lips of the decoded mesh (92 % within 5 cm) (ACU-RE-0055) | `parkour_geometry.json` | generator routine (live probe got 0 hits in Paris), inclusion rules |
+| 6 | World travel remainder | setter chain and arrival sequence observed live (ACU-RE-0054) | `world_travel.json` | player-entity creator (write watch on World +0xD8) |
+| 7 | Patch precedence | front-insert mount, first-match lookup; live reads agree (ACU-RE-0053) | — | mount order observed live |
+
+Next before the first port slice: record the coordinate/unit convention, the tick policy and
+root-motion ownership in `DECISIONS.md`.
 
 ## Preparation that is not research
 

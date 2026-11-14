@@ -207,6 +207,23 @@ rows) has a decoded edge within 5 cm that is parallel to it within 10°. A wrong
 2. `python tools/parkour_geometry.py fields`, then `analyze --write data/oracles/parkour_geometry.json`.
 3. `python -m unittest tools/test_parkour_geometry.py`.
 
+### Live attempt (run parkour-generator-1, 2026-11-14): no hits
+
+Profile `tools/native_probe/parkour_generator.profile.json` (slots 0–2 of the plan below, guards
+matched and armed) ran for 24 s in **Paris** (pid 122760, 100 fps cap). Arno started at
+(768.55, −46.65) and was driven by the in-process pad with RT + A held and the left stick
+swept through four directions. He free-ran and climbed a Seine quay wall (screenshot), ending at
+(743.54, −78.87, −5.21). **All three probes recorded 0 hits.** So `0x1401B1770` was not called
+during this free-run/climb, although Arno traversed climbable geometry. Possible reasons, not
+yet separated:
+- slot 1 runs only inside the scripted decision path of the original traces (ACU-RE-0042:
+  17 of 944 decisions selected);
+- climbing in Paris uses the alternate writer `0x14019F920` (slot 0x47);
+- a different code path for walls versus the Versailles hedge and ledge cases.
+
+Next: repeat in Versailles with the ACU-RE-0045 move script, and add `0x14019F920` (guard from
+the mapped image) as a fourth probe.
+
 ## Live probe that would close the generator gap (plan only, not run)
 
 The probe uses `tools/native_probe/probe.cpp` hardware breakpoints. Its register indices are
