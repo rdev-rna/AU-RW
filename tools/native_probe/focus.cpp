@@ -305,6 +305,25 @@ static void* stubTarget(const char* name) {
     return *(void**)(stub + 6 + rel);
 }
 
+// Shared virtual-keyboard state written by the runner (Local\acu-keys-<pid>): '<III256B', 268 bytes.
+// keys[DIK scancode] != 0 means held. Held keys are ORed into DirectInput keyboard GetDeviceState
+// (256-byte reads), and each change is queued as a buffered GetDeviceData event for the devices
+// that made 256-byte reads (the keyboard). The user's real keys stay blanked while blocking.
+struct KeyShared { uint32_t magic, enabled, sequence; uint8_t keys[256]; };
+static_assert(sizeof(KeyShared) == 268, "key layout");
+constexpr uint32_t kKeyMagic = 0x4B554341;  // "ACUK"
+static volatile KeyShared* keyboard = nullptr;
+static void* keyboardDevices[4] = {};
+static uint8_t keyLast[4][256] = {};
+static volatile LONG keyInjectedStates = 0, keyInjectedEvents = 0;
+static bool keysActive() { return keyboard && keyboard->magic == kKeyMagic && keyboard->enabled; }
+static int keyboardSlot(void* device, bool add) {
+    for (int i = 0; i < 4; i++) if (keyboardDevices[i] == device) return i;
+    if (!add) return -1;
+    for (int i = 0; i < 4; i++) if (!keyboardDevices[i]) { keyboardDevices[i] = device; return i; }
+    return -1;
+}
+
 // DirectInput device methods 9 (GetDeviceState) and 10 (GetDeviceData); same signature for A and W.
 using GetDeviceStateFn = HRESULT(STDMETHODCALLTYPE*)(void*, DWORD, LPVOID);
 using GetDeviceDataFn = HRESULT(STDMETHODCALLTYPE*)(void*, DWORD, LPDIDEVICEOBJECTDATA, LPDWORD, DWORD);
@@ -320,14 +339,40 @@ static HRESULT STDMETHODCALLTYPE getDeviceStateFake(void* device, DWORD size, LP
     if (i < 0) return DIERR_GENERIC;
     HRESULT hr = vtables[i].state(device, size, data);
     if (SUCCEEDED(hr) && data && blockUser()) { memset(data, 0, size); InterlockedIncrement(&blankedDeviceState); }
+    if (SUCCEEDED(hr) && data && size == 256) {
+        keyboardSlot(device, true);
+        if (keysActive()) {
+            bool any = false;
+            for (int k = 0; k < 256; k++) if (keyboard->keys[k]) { ((BYTE*)data)[k] |= 0x80; any = true; }
+            if (any) InterlockedIncrement(&keyInjectedStates);
+        }
+    }
     return hr;
 }
 static HRESULT STDMETHODCALLTYPE getDeviceDataFake(void* device, DWORD objectSize, LPDIDEVICEOBJECTDATA items,
                                                    LPDWORD count, DWORD flags) {
     int i = vtableIndex(device);
     if (i < 0) return DIERR_GENERIC;
+    DWORD capacity = count ? *count : 0;
     HRESULT hr = vtables[i].data(device, objectSize, items, count, flags);
     if (SUCCEEDED(hr) && count && *count && blockUser()) { *count = 0; InterlockedIncrement(&blankedDeviceData); }
+    int slot = keyboardSlot(device, false);
+    // Append one event per changed key (never on DIGDD_PEEK, which must not consume anything).
+    if (SUCCEEDED(hr) && count && slot >= 0 && keysActive() && !(flags & DIGDD_PEEK) && items &&
+        objectSize >= sizeof(DIDEVICEOBJECTDATA)) {
+        for (int k = 0; k < 256 && *count < capacity; k++) {
+            uint8_t now = keyboard->keys[k] ? 0x80 : 0;
+            if (now == keyLast[slot][k]) continue;
+            auto* item = (DIDEVICEOBJECTDATA*)((BYTE*)items + (size_t)objectSize * *count);
+            memset(item, 0, objectSize);
+            item->dwOfs = (DWORD)k;
+            item->dwData = now;
+            item->dwTimeStamp = GetTickCount();
+            item->dwSequence = (DWORD)InterlockedIncrement(&keyInjectedEvents);
+            keyLast[slot][k] = now;
+            ++*count;
+        }
+    }
     return hr;
 }
 
@@ -589,6 +634,11 @@ static void writeStatus(const char* state, const char* error) {
     s += buf;
     sprintf_s(buf, ",\"teleport\":{\"mapped\":%s,\"serviced\":%ld}", teleport ? "true" : "false", teleports);
     s += buf;
+    sprintf_s(buf, ",\"keys\":{\"mapped\":%s,\"states\":%ld,\"events\":%ld,\"devices\":%d}", keyboard ? "true" : "false",
+              keyInjectedStates, keyInjectedEvents,
+              (keyboardDevices[0] != nullptr) + (keyboardDevices[1] != nullptr) + (keyboardDevices[2] != nullptr) +
+              (keyboardDevices[3] != nullptr));
+    s += buf;
     s += ",\"patches\":[";
     for (int i = 0; i < patchCount; i++) {
         sprintf_s(buf, "%s{\"module\":\"%s\",\"name\":\"%s\",\"address\":\"%016llx\",\"active\":%s}", i ? "," : "",
@@ -628,6 +678,9 @@ static DWORD WINAPI worker(void*) {
     swprintf_s(padName, L"Local\\acu-pad-%lu", GetCurrentProcessId());
     if (HANDLE section = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, sizeof(PadShared), padName))
         pad = (volatile PadShared*)MapViewOfFile(section, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(PadShared));
+    swprintf_s(padName, L"Local\\acu-keys-%lu", GetCurrentProcessId());
+    if (HANDLE section = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, sizeof(KeyShared), padName))
+        keyboard = (volatile KeyShared*)MapViewOfFile(section, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(KeyShared));
     swprintf_s(padName, L"Local\\acu-teleport-%lu", GetCurrentProcessId());
     if (HANDLE section = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, sizeof(TeleportShared), padName))
         teleport = (volatile TeleportShared*)MapViewOfFile(section, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(TeleportShared));

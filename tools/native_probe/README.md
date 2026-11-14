@@ -198,7 +198,14 @@ has focus, so captures need no attention from the user:
 python tools/native_probe/focus.py install <pid>    # copy + inject; waits for focus-<pid>.json
 python tools/native_probe/focus.py status <pid>
 python tools/native_probe/focus.py remove <pid>     # restores everything listed below
+python tools/native_probe/focus.py activate <pid>   # posts activation messages so Start/Back menus open
 ```
+
+- Keyboard (shim build t7+): `focus.InProcessKeys(pid)` writes `Localcu-keys-<pid>`
+  (`<III256B`: magic `ACUK`, enabled, sequence, one held flag per DirectInput scancode). Held keys
+  are ORed into the game's DirectInput keyboard `GetDeviceState` reads, and each change is queued
+  as a buffered `GetDeviceData` event. Use it for menu actions that only show keyboard prompts
+  (map fast travel: F, then Enter). `tap("F")`, `hold(["LSHIFT", "W"])`, names in `focus.DIK`.
 
 - Window: the game's top-level window is subclassed and deactivation messages are dropped;
   `GetForegroundWindow`/`GetActiveWindow`/`GetFocus` return the game window inside ACU, and

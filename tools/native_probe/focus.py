@@ -3,6 +3,7 @@
     python tools/native_probe/focus.py install PID
     python tools/native_probe/focus.py status PID
     python tools/native_probe/focus.py remove PID
+    python tools/native_probe/focus.py activate PID   # let in-game menus (Start/Back) open
 
 The shim keeps the game running and reading the controller while another window is focused,
 neutralises mouse/keyboard while the game is really in the background, and serves a scripted
@@ -189,15 +190,91 @@ class InProcessPad:
         self.close()
 
 
+KEY_FORMAT = "<III256B"     # magic, enabled, sequence, held flag per DirectInput scancode
+KEY_MAGIC = 0x4B554341      # "ACUK"
+DIK = {"ESCAPE": 0x01, "1": 0x02, "2": 0x03, "3": 0x04, "4": 0x05, "TAB": 0x0F, "Q": 0x10, "W": 0x11,
+       "E": 0x12, "R": 0x13, "T": 0x14, "Y": 0x15, "U": 0x16, "I": 0x17, "O": 0x18, "P": 0x19,
+       "RETURN": 0x1C, "LCONTROL": 0x1D, "A": 0x1E, "S": 0x1F, "D": 0x20, "F": 0x21, "G": 0x22, "H": 0x23,
+       "J": 0x24, "K": 0x25, "L": 0x26, "LSHIFT": 0x2A, "Z": 0x2C, "X": 0x2D, "C": 0x2E, "V": 0x2F,
+       "B": 0x30, "N": 0x31, "M": 0x32, "SPACE": 0x39, "F1": 0x3B, "F2": 0x3C, "F3": 0x3D, "F4": 0x3E,
+       "UP": 0xC8, "LEFT": 0xCB, "RIGHT": 0xCD, "DOWN": 0xD0}
+
+
+class InProcessKeys:
+    """Keyboard served by the shim inside the game (DirectInput keyboard reads); shim build t7 or later."""
+
+    def __init__(self, pid: int):
+        if not live(pid):
+            raise RuntimeError("focus shim is not installed in the target; run focus.py install PID")
+        self.sequence = 0
+        self.handle = K.OpenFileMappingW(0x0002 | 0x0004, False, f"Local{BACKSLASH}acu-keys-{pid}")
+        if not self.handle:
+            raise RuntimeError("the shim's key section is missing; install shim build t7 or later")
+        self.view = K.MapViewOfFile(self.handle, 0x0002 | 0x0004, 0, 0, struct.calcsize(KEY_FORMAT))
+        if not self.view:
+            K.CloseHandle(self.handle)
+            raise RuntimeError("cannot map the shim's key section")
+        self.hold([])
+
+    def hold(self, names: list[str], enabled: int = 1) -> None:
+        keys = [0] * 256
+        for n in names:
+            keys[DIK[n]] = 1
+        self.sequence += 1
+        data = struct.pack(KEY_FORMAT, KEY_MAGIC, enabled, self.sequence, *keys)
+        C.memmove(self.view, data, len(data))
+
+    def tap(self, name: str, seconds: float = 0.15) -> None:
+        self.hold([name])
+        time.sleep(seconds)
+        self.hold([])
+
+    def close(self) -> None:
+        if getattr(self, "view", None):
+            self.hold([], enabled=0)
+            K.UnmapViewOfFile(self.view)
+            self.view = None
+        if getattr(self, "handle", None):
+            K.CloseHandle(self.handle)
+            self.handle = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_):
+        self.close()
+
+
+def activate(pid: int) -> dict:
+    """Post WM_ACTIVATEAPP(TRUE), WM_ACTIVATE(WA_ACTIVE) and WM_SETFOCUS to the game window only.
+
+    A game launched in the background never receives these, and its in-game menus (Start = menu,
+    Back = map) then ignore the pad although gameplay input works; observed 2026-11-14 (run
+    map-travel-1). Nothing else on the desktop changes: the window is not brought to the front.
+    """
+    st = live(pid)
+    if not st:
+        raise RuntimeError("focus shim is not installed in the target; run focus.py install PID")
+    user = C.WinDLL("user32", use_last_error=True)
+    user.PostMessageW.argtypes = [W.HWND, W.UINT, W.WPARAM, W.LPARAM]
+    hwnd = int(st["window"], 16)
+    posted = {name: bool(user.PostMessageW(hwnd, msg, wp, 0))
+              for name, msg, wp in (("WM_ACTIVATEAPP", 0x1C, 1), ("WM_ACTIVATE", 0x06, 1), ("WM_SETFOCUS", 0x07, 0))}
+    return {"pid": pid, "window": st["window"], "posted": posted}
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("mode", choices=("install", "status", "remove"))
+    ap.add_argument("mode", choices=("install", "status", "remove", "activate"))
     ap.add_argument("pid", type=int)
     ap.add_argument("--dll", type=Path, default=OUT / "acu_focus.dll")
     ap.add_argument("--fps-cap", type=int, default=0, help="frame limiter for install (0 = off)")
     ap.add_argument("--block-user-input", action="store_true",
                     help="install: the user's mouse/keyboard never reach the game, even when it is focused")
     a = ap.parse_args()
+    if a.mode == "activate":
+        print(json.dumps(activate(a.pid), indent=2))
+        return
     result = install(a.pid, a.dll, fps_cap=a.fps_cap, block_user_input=a.block_user_input) if a.mode == "install" else remove(a.pid) if a.mode == "remove" else status(a.pid)
     print(json.dumps(result, indent=2))
 

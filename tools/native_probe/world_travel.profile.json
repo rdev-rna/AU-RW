@@ -1,0 +1,42 @@
+{
+  "description": "World travel trail (ACU-RE-0049). ACU.exe 748abdc6...7e40, base 0x140000000. Entry probes on the travel manager 0x141D60C90(mgr, &worldHandle, &destHandle), load-world 0x141CD8A40(holder, worldId, ...), world-change 0x141CE1840(holder, &worldHandle, flag, delay) and world start 0x141D5E520(world, &startHandle). Snapshot: 64 bytes at the pointer argument shown. Stack copies give the callers (return addresses).",
+  "rotation_seconds": 600,
+  "probes": [
+    {
+      "label": "travel_manager_travel",
+      "rva": "1d60c90",
+      "expected_hex": "48895c24104889742418574156415748",
+      "category": "world_travel",
+      "register_index": 2,
+      "offset": 0,
+      "bytes": 64
+    },
+    {
+      "label": "load_world_cmd8",
+      "rva": "1cd8a40",
+      "expected_hex": "488bc45557488bec4883ec7848897010",
+      "category": "world_travel",
+      "register_index": 1,
+      "offset": 0,
+      "bytes": 64
+    },
+    {
+      "label": "world_change_cmd5",
+      "rva": "1ce1840",
+      "expected_hex": "48895c240855488bec4883ec60488b02",
+      "category": "world_travel",
+      "register_index": 2,
+      "offset": 0,
+      "bytes": 64
+    },
+    {
+      "label": "world_start",
+      "rva": "1d5e520",
+      "expected_hex": "48895c2420564883ec2080b9600a0000",
+      "category": "world_travel",
+      "register_index": 1,
+      "offset": 0,
+      "bytes": 64
+    }
+  ]
+}

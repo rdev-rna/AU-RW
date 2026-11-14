@@ -1,0 +1,42 @@
+{
+  "description": "World travel setter search (ACU-RE-0049 obs. 14 follow-up). ACU.exe 748abdc6...7e40, base 0x140000000. Entry probes on 0x141E42C00 (mission-history travel request, only caller of 0x141D60C90), 0x141C5D3C0 (its only caller, NetMissionChannel.MissionHistory handler), 0x141D60C90 (travel manager travel) and 0x1413EAEF0 (player start request).",
+  "rotation_seconds": 600,
+  "probes": [
+    {
+      "label": "mission_history_travel",
+      "rva": "1e42c00",
+      "expected_hex": "40574883ec40488b0503763d03488b51",
+      "category": "world_travel",
+      "register_index": 1,
+      "offset": 0,
+      "bytes": 64
+    },
+    {
+      "label": "mission_channel_message",
+      "rva": "1c5d3c0",
+      "expected_hex": "48895424105553574155488d6c24c148",
+      "category": "world_travel",
+      "register_index": 1,
+      "offset": 0,
+      "bytes": 64
+    },
+    {
+      "label": "travel_manager_travel",
+      "rva": "1d60c90",
+      "expected_hex": "48895c24104889742418574156415748",
+      "category": "world_travel",
+      "register_index": 2,
+      "offset": 0,
+      "bytes": 64
+    },
+    {
+      "label": "player_start_request",
+      "rva": "13eaef0",
+      "expected_hex": "48895c24205556574883ec20488d9970",
+      "category": "world_travel",
+      "register_index": 1,
+      "offset": 0,
+      "bytes": 64
+    }
+  ]
+}

@@ -2,7 +2,8 @@
 
 Date: 2026-11-14. Related: [ACU-RE-0044](ACU-RE-0044-player-state-and-repeatable-start.md),
 [ACU-RE-0046](ACU-RE-0046-player-teleport-and-vault-scan.md).
-State: partially established. The Paris World loads on request through the game's own
+State: partially established. Fast travel to Paris through the in-game map works and is traced
+(observation 14). The Paris World also loads on request through the game's own
 load-world command (observation 10); the player is not yet brought into it. Calling the travel
 manager's last step alone crashed the game (observation 7).
 
@@ -80,6 +81,52 @@ Inference: a real fast travel first puts the game in a state where gameplay syst
     `0x141D57AD0` also calls the destination's vtable `+152` first; for the default start object
     (vtable `0x143024080`) that slot is the shared stub `0x141E6D4E0`.
 12. Saves were restored from the run snapshot after closing the game.
+13. **In-game map, pinned save (run `map-travel-1`, pid 98004).**
+    - Launched in the background, the game takes gameplay pad input but ignores Start and Back.
+    - Posting `WM_ACTIVATEAPP(1)`, `WM_ACTIVATE(WA_ACTIVE)` and `WM_SETFOCUS` to the game window only
+      (`focus.py activate PID`) made Start open the in-game menu and Back open the map.
+    - The map shows the Saint-Louis and Recollets districts unfogged, the rest fogged. I missed
+      the black **P** pin inside Saint-Louis; the user pointed it out. It is the Paris route (14).
+    - The filter tabs and legend did not respond to RB or the left-stick click.
+    - Probe entry hooks on `0x141D60C90`, `0x141CD8A40`, `0x141CE1840` and `0x141D5E520`
+      (`tools/native_probe/world_travel.profile.json`, expected bytes checked) recorded 0 hits
+      while browsing the map.
+    - Saves were put back and match the pin.
+14. **Fast travel to Paris through the map (run `map-travel-2`, pid 115844, pinned save).**
+    - Hovering the P pin shows "Île Saint-Louis — [F] Fast Travel". Pad A, X, Y and a held A did
+      nothing; the prompts are keyboard glyphs. F through the shim's new in-process keyboard
+      (build t7, `focus.InProcessKeys`) opened "Confirm Fast Travel"; Enter confirmed.
+    - Sampler every 50 ms (`world-samples.jsonl`); times from the confirm (s):
+
+      | t | Change |
+      | --- | --- |
+      | 0.0 | travel manager `[0x145219860]`: `+592` = ACU_Paris handle, `+600` = `0000001770d432be` `PlayerPortal to Paris` (type `7c00f6af` WorldTransitionPortal, crc-name), `+644` = 1 |
+      | 1.5 | holder queue count 2 |
+      | 1.6 | holder `+0x90` = null handle `0x14525BB58`, `+0x98` World = 0 (transition) |
+      | 4.5 | holder `+0x90` = ACU_Paris, World = `0x15CD7C850`, World `+0xD8` = 0 |
+      | 23.8 | World `+0xD8` = `0x171947710`, a **new** player entity (was `0x160FD3A70`), `[E+0x60]` = new World, position (768.55, −46.65, −0.44) |
+      | 28.3 | manager `+592` = null handle, `+644` = 0 (travel finished) |
+
+    - Probe hits (return address → containing function, corpus file boundaries), in order:
+      1. `0x141CE1840` (command 5) from `0x141D57C09` in `0x141D57AD0` (manager update), with
+         `rdx = 0x1450A9600` (the transition world).
+      2. `0x141CD8A40` (command 8) from `0x141CD8A32` in `0x141CD8A00`: `rdx` = ACU_Paris
+         `0000000f18b7e1cf`, `r9`-side destination `0000001770d432be`.
+      3. +2.73 s: `0x141D5E520(newWorld, …)` from `0x141D52391` in `0x141D522C0` (which calls it at
+         corpus line 236).
+      4. +2.98 s: `0x141D5E520` from `0x141CCF98A` and `0x141CE1840` from `0x141CCF9BE`, both in
+         `0x141CCF930` (command 9 chaining into the switch).
+      5. +4.40 s: `0x141D5E520(newWorld, …)` from `0x1413EAF8E` in `0x1413EAEF0`. That function
+         gets a start handle (`0x1413E2A40`), then calls `0x141D5D320(0x141D4EC80(), owner, &start)`.
+    - **`0x141D60C90` was not hit.** Yet the manager's `+592`/`+600`/`+644 = 1` were set, and the
+      update `0x141D57AD0` did the transition and load (its `+644 == 1` branch). The image's only
+      reference to `0x141D60C90` is the call at `0x141E42DC8` (in `0x141E42C00`); `0x141D57AD0` is
+      reached by a jump at `0x141D54560`. Who set the state is unresolved: an unhooked thread, or
+      a writer the `+ 644) = 1` search misses.
+    - Inference: the player is not moved between Worlds. The new World gets a new player entity
+      about 19 s after `0x1413EAEF0` asks for the start through the travel manager. This explains
+      observation 10: a bare command 8 loads Paris but sets no manager state, so no player is made.
+    - Saves were put back and match the pin.
 
 ## Next
 
@@ -88,3 +135,9 @@ travel manager's state machine `+644` does between the transition world and the 
 debug manager wiring (ACU-RE-0046, `0x140ED6770` via vtable `+192`) shows the player component is
 re-bound per world, so a world-level "player created/attached" event is the likely missing step.
 Do not repeat the bare `0x141D60C90` call (observation 7).
+Route that works (observation 14): `focus.py activate PID`, Back opens the map, move to the P pin
+in Île Saint-Louis, then keyboard F and Enter through `focus.InProcessKeys` (shim t7).
+Still open:
+- Find who sets the manager's `+644 = 1` on the map path. Hook `0x141E42C00` and `0x141C5D3C0`,
+  or a code path that the UI's confirm reaches.
+- Decode `0x1413EAEF0` / `0x141D5D320` (what creates the new player entity).
