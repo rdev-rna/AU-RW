@@ -1,5 +1,16 @@
 # Project status
 
+Latest (2026-11-14, automated window entries): [ACU-RE-0062](findings/ACU-RE-0062-automated-window-entries.md).
+- Open windows are `FRV_Interior_*_WD*_Open` placements (`traversal_targets.py`).
+- `traversal_driver.py` entered ground-floor windows by free running (RT only) along the
+  placement normal: 2 of 4 runs.
+- A wall side entry (`WindowGratingEntry_Climb_Lt-High`) replays deterministically with
+  `window_replay.py`, landing identically to the millimetre. A position and frame check runs
+  before the push.
+- The clip is linked (candidate) from AtomGraph `NewDemo`, so the variant is probably chosen in
+  graph data. Next: decode `NewDemo` around the window clips.
+- Headless tests: `python -m unittest tools/native_probe/test_traversal.py` (11, simulated game).
+
 Latest (2026-11-14, animation codecs 3/7/8): [ACU-RE-0061](findings/ACU-RE-0061-animation-codecs-3-7-8.md).
 `animation::parse` now decodes key codecs 3 (10-bit smallest three), 7 (15-bit single axis) and
 8 (float smallest three, flag bits). These were read from the per-type sampler table at
