@@ -1,6 +1,9 @@
 //! Synthetic deterministic-input test arena. No native gameplay constants.
+pub mod block;
 pub mod skin;
+mod traverse;
 use glam::{Vec2, Vec3};
+pub use traverse::{BlockTuning, Mode};
 
 pub const DT: f32 = 1.0 / 60.0;
 pub const RADIUS: f32 = 0.28;
@@ -50,6 +53,8 @@ pub struct Player {
     pub distance: f32,
     pub grounded: bool,
     pub tick: u64,
+    /// Traversal state; only [`Player::step_in_block`] leaves `Mode::Ground`.
+    pub mode: Mode,
 }
 
 fn blocked(p: Vec3) -> bool {

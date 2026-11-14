@@ -604,12 +604,18 @@ fn cell_children(bytes: &[u8]) -> Result<Vec<u64>> {
     }
     let count = u32::from_le_bytes(bytes[13..17].try_into().unwrap()) as usize;
     if count > 100_000 || 17 + count * 10 + 12 != bytes.len() {
-        return Err(format!("cell child count {count} does not fit {len} bytes", len = bytes.len()).into());
+        return Err(format!(
+            "cell child count {count} does not fit {len} bytes",
+            len = bytes.len()
+        )
+        .into());
     }
     let mut children = Vec::with_capacity(count);
     for index in 0..count {
         let at = 17 + index * 10;
-        children.push(u64::from_le_bytes(bytes[at + 2..at + 10].try_into().unwrap()));
+        children.push(u64::from_le_bytes(
+            bytes[at + 2..at + 10].try_into().unwrap(),
+        ));
     }
     Ok(children)
 }
@@ -656,10 +662,9 @@ fn read_index(name: &str) -> Result<HashMap<u64, usize>> {
         PathBuf::from("..").join(name),
         PathBuf::from("../..").join(name),
     ];
-    let path = candidates
-        .iter()
-        .find(|p| p.exists())
-        .ok_or_else(|| format!("resource index {name} not found; run tools/build_resource_index.py"))?;
+    let path = candidates.iter().find(|p| p.exists()).ok_or_else(|| {
+        format!("resource index {name} not found; run tools/build_resource_index.py")
+    })?;
     let bytes = std::fs::read(path)?;
     if bytes.len() < 12 || &bytes[0..8] != b"ACUSEL01" {
         return Err(format!("{}: not an ACUSEL01 index", path.display()).into());
@@ -769,7 +774,9 @@ pub fn load_map(options: &Options, loader: &mut Loader) -> Result<Vec<LoadedPiec
                 // fallback, because a bare id match elsewhere in the payload collides
                 // with unrelated selectors.
                 let fixed = if entity_bytes.len() >= 108 {
-                    Some(u64::from_le_bytes(entity_bytes[100..108].try_into().unwrap()))
+                    Some(u64::from_le_bytes(
+                        entity_bytes[100..108].try_into().unwrap(),
+                    ))
                 } else {
                     None
                 };

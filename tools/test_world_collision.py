@@ -210,5 +210,44 @@ class DumpTests(unittest.TestCase):
             list(wc.read_dump(b"XXXXXXXX"))
 
 
+class _StubWorld:
+    """Just the parts of World that block_triangles uses: two placements of one shape."""
+
+    def __init__(self, placements):
+        tri = {"vertices": [(0.0, 0.0, 0.0), (1.0, 0.0, 0.0), (0.0, 1.0, 0.0)], "triangles": [(0, 1, 2)]}
+        self.instances = [dict(source="ShadowRigidBody", body=0x10 + i, shape=0x34, matrix=m,
+                               lo=[m[12], m[13], m[14]], hi=[m[12] + 1, m[13] + 1, m[14]])
+                          for i, m in enumerate(placements)]
+        self._shape = tri
+        self.shape_source = {0x34: ("DataPC_ACU_Paris_assets", 7, "Test_MeshShape")}
+        self.stats, self.failures = __import__("collections").Counter(), []
+
+    def shape(self, fid):
+        return self._shape
+
+
+class BlockTests(unittest.TestCase):
+    def test_block_keeps_overlapping_and_drops_duplicate_placements(self):
+        world = _StubWorld([translate(0, 0, 0), translate(0, 0, 0), translate(50, 50, 0), translate(2, 2, 3)])
+        tris, rows = wc.block_triangles(world, (-1, -1, 5, 5))
+        self.assertEqual(len(tris), 2)  # duplicate at the origin dropped, (50, 50) outside
+        self.assertEqual(world.stats["block duplicate placements dropped"], 1)
+        self.assertEqual([r["body"] for r in rows], ["0000000000000010", "0000000000000013"])
+        self.assertEqual(tris[1][0], (2.0, 2.0, 3.0))
+        tris, _ = wc.block_triangles(world, (-1, -1, 5, 5), zrange=(-1, 1))
+        self.assertEqual(len(tris), 1)
+
+    def test_write_block_layout(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "b.bin"
+            data = wc.write_block(path, (10.0, 20.0, 1.0), [((10, 20, 1), (11, 20, 1), (10, 21, 2), 3)])
+            self.assertEqual(path.read_bytes(), data)
+        self.assertEqual(data[:8], wc.BLOCK_MAGIC)
+        self.assertEqual(struct.unpack_from("<3dI", data, 8), (10.0, 20.0, 1.0, 1))
+        self.assertEqual(struct.unpack_from("<9fI", data, 36), (0, 0, 0, 1, 0, 0, 0, 1, 1, 3))
+        self.assertEqual(len(data), 36 + 40)
+
+
 if __name__ == "__main__":
     unittest.main()

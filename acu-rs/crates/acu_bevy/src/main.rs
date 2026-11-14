@@ -83,7 +83,7 @@ fn inspect_camera(
             + (axis(KeyCode::ArrowUp, KeyCode::ArrowDown) - controller.look.y * 1.8) * dt)
             .clamp(-0.1, 1.4);
         orbit.distance =
-            (orbit.distance * (axis(KeyCode::KeyE, KeyCode::KeyQ) * dt).exp()).clamp(0.4, 20.0);
+            (orbit.distance * (axis(KeyCode::KeyE, KeyCode::KeyQ) * dt).exp()).clamp(0.4, 60.0);
         let direction = Vec3::new(
             orbit.azimuth.sin() * orbit.elevation.cos(),
             orbit.elevation.sin(),
@@ -162,6 +162,7 @@ fn main() {
             .run_if(resource_exists::<player::State>),
     );
     app.add_systems(Update, inspect_camera.after(player::follow));
+    app.add_systems(Update, draw_ledges.run_if(resource_exists::<BlockView>));
     if !headless {
         println!(
             "Controller: left stick walk; hold RT/R2 sprint; RT+X (South/A) upward priority; RT+Circle (East/B) downward priority; right stick camera yaw/pitch. Keyboard: WASD walk; Shift sprint; Shift+Space up; Shift+C down; Space jump; R reset. Arrows camera; Q/E zoom; F2 bind; F3 freeze; Esc exit. Original navigation clips; synthetic arena traversal."
@@ -202,10 +203,41 @@ fn setup_world(
     let mut library = options
         .rigged
         .then(|| rig::load(&options.game_dir).expect("load original rig candidates"));
+    let arena_block = options.block.as_ref().map(|path| {
+        let bytes = std::fs::read(path).unwrap_or_else(|e| {
+            eprintln!(
+                "unavailable: block {}: {e} (export one with tools/world_collision.py block)",
+                path.display()
+            );
+            std::process::exit(3);
+        });
+        let block = acu_sim::block::Block::parse(&bytes).unwrap_or_else(|e| {
+            eprintln!("block {}: {e}", path.display());
+            std::process::exit(3);
+        });
+        let (x, z) = options.spawn.unwrap_or((0.0, 0.0));
+        let y = block
+            .support(x, z, 0.0, 0.5)
+            .or_else(|| block.column(x, z).first().map(|h| h.0))
+            .unwrap_or(0.0);
+        println!(
+            "block {}: origin {:?} (native), {} triangles, {} ledge edges, spawn ({x}, {y}, {z})",
+            path.display(),
+            block.origin,
+            block.triangles.len(),
+            block.ledges.len()
+        );
+        player::ArenaBlock {
+            block: std::sync::Arc::new(block),
+            tuning: acu_sim::BlockTuning::default(),
+            spawn: Vec3::new(x, y, z),
+        }
+    });
+    let block_view = arena_block.as_ref().map(|a| a.block.clone());
     let mut state = library.as_ref().map(|library| {
         let (matcher, report) =
             motion::load(&options.game_dir, library).expect("decode original navigation tracks");
-        player::State::new(&options, matcher, report)
+        player::State::new(&options, matcher, report, arena_block)
     });
     let texture_handles: Vec<_> = loaded
         .scene
@@ -378,17 +410,33 @@ fn setup_world(
         },
     });
 
-    // Synthetic arena: 24x24 grey ground plus block references at known sizes.
-    commands.spawn((
-        Mesh3d(meshes.add(Plane3d::default().mesh().size(24.0, 24.0))),
-        MeshMaterial3d(ground_material),
-    ));
-    for (x, z, size) in acu_sim::BLOCKS {
+    if let Some(block) = &block_view {
+        // Decoded Paris collision (ACU-RE-0050), flat shaded: warm = walkable top
+        // (|n.y| >= 0.7), grey = steep. Collision geometry, not the render meshes.
         commands.spawn((
-            Mesh3d(meshes.add(Cuboid::new(size, size, size))),
-            MeshMaterial3d(grey.clone()),
-            Transform::from_xyz(x, size / 2.0, z),
+            Mesh3d(meshes.add(block_mesh(block))),
+            MeshMaterial3d(materials.add(StandardMaterial {
+                base_color: Color::WHITE,
+                perceptual_roughness: 0.9,
+                cull_mode: None,
+                double_sided: true,
+                ..default()
+            })),
         ));
+        commands.insert_resource(BlockView(block.clone()));
+    } else {
+        // Synthetic arena: 24x24 grey ground plus block references at known sizes.
+        commands.spawn((
+            Mesh3d(meshes.add(Plane3d::default().mesh().size(24.0, 24.0))),
+            MeshMaterial3d(ground_material),
+        ));
+        for (x, z, size) in acu_sim::BLOCKS {
+            commands.spawn((
+                Mesh3d(meshes.add(Cuboid::new(size, size, size))),
+                MeshMaterial3d(grey.clone()),
+                Transform::from_xyz(x, size / 2.0, z),
+            ));
+        }
     }
 
     // Arno pieces as children of one native-space root.
@@ -504,8 +552,21 @@ fn setup_world(
     let center = (bevy_min + bevy_max) / 2.0;
     let size = (bevy_max - bevy_min).length().max(1.0);
     let azimuth = options.orbit_deg.to_radians();
-    let distance = size * 1.6;
-    let eye = center + Vec3::new(azimuth.sin(), 0.28, azimuth.cos()).normalize() * distance;
+    let distance = options
+        .camera_distance
+        .unwrap_or(size * 1.6)
+        .clamp(0.4, 60.0);
+    let elevation = options
+        .camera_pitch
+        .map(f32::to_radians)
+        .unwrap_or(0.28_f32.atan())
+        .clamp(-0.1, 1.4);
+    let eye = center
+        + Vec3::new(
+            azimuth.sin() * elevation.cos(),
+            elevation.sin(),
+            azimuth.cos() * elevation.cos(),
+        ) * distance;
     let mut camera = commands.spawn((
         Camera3d::default(),
         Camera {
@@ -520,7 +581,7 @@ fn setup_world(
         InspectionCamera {
             center,
             azimuth,
-            elevation: 0.28_f32.atan(),
+            elevation,
             distance,
         },
     ));
@@ -536,6 +597,59 @@ fn setup_world(
         capture.image = Some(handle.clone());
         camera.insert(RenderTarget::Image(handle.into()));
         println!("capture target: offscreen {width}x{height} Rgba8UnormSrgb");
+    }
+}
+
+#[derive(Resource)]
+struct BlockView(std::sync::Arc<acu_sim::block::Block>);
+
+/// Flat-shaded triangle soup with per-face colour by slope.
+fn block_mesh(block: &acu_sim::block::Block) -> Mesh {
+    let n = block.triangles.len() * 3;
+    let mut positions = Vec::with_capacity(n);
+    let mut normals = Vec::with_capacity(n);
+    let mut colors = Vec::with_capacity(n);
+    for t in &block.triangles {
+        let walkable = t.normal.y.abs() >= acu_sim::block::TOP_NY;
+        // Shade by instance so neighbouring shapes read apart (presentation only).
+        let tint = 0.9 + 0.1 * ((t.instance.wrapping_mul(2_654_435_761) >> 28) as f32 / 15.0);
+        let color = if walkable {
+            [0.80 * tint, 0.70 * tint, 0.55 * tint, 1.0]
+        } else {
+            [0.62 * tint, 0.64 * tint, 0.68 * tint, 1.0]
+        };
+        let normal = if t.normal.y < 0.0 {
+            -t.normal
+        } else {
+            t.normal
+        };
+        for v in t.v {
+            positions.push(v.to_array());
+            normals.push(normal.to_array());
+            colors.push(color);
+        }
+    }
+    Mesh::new(
+        bevy::render::render_resource::PrimitiveTopology::TriangleList,
+        bevy::asset::RenderAssetUsages::RENDER_WORLD,
+    )
+    .with_inserted_attribute(Mesh::ATTRIBUTE_POSITION, positions)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_NORMAL, normals)
+    .with_inserted_attribute(Mesh::ATTRIBUTE_COLOR, colors)
+}
+
+/// Ledge edges (ACU-RE-0055 recipe) near the player, yellow, with their outward normal.
+fn draw_ledges(view: Res<BlockView>, state: Option<Res<player::State>>, mut gizmos: Gizmos) {
+    let centre = state.map(|s| s.player.position).unwrap_or(Vec3::ZERO);
+    for edge in view.0.ledges_near(centre, 12.0) {
+        let lift = Vec3::Y * 0.02;
+        gizmos.line(edge.a + lift, edge.b + lift, Color::srgb(1.0, 0.85, 0.1));
+        let mid = (edge.a + edge.b) / 2.0 + lift;
+        gizmos.line(
+            mid,
+            mid + Vec3::new(edge.outward.x, 0.0, edge.outward.y) * 0.25,
+            Color::srgb(1.0, 0.4, 0.1),
+        );
     }
 }
 

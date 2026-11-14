@@ -1,5 +1,21 @@
 # Project status
 
+Latest (2026-11-15, Paris block in the test arena): `acu_bevy --block FILE` puts a block of
+decoded Paris collision into the rigged Arno arena and traverses it
+([test-world-movement.md](mechanics/test-world-movement.md#paris-collision-block-2026-11-15)).
+- Export: `tools/world_collision.py block X Y --half H --write local/blocks/NAME.bin`
+  (`ACUBLK01`, JSON sidecar with instance provenance, Python ground samples). Reference
+  block: Paris arrival point (768.55, -46.653), 40 m, 84,288 triangles from 1,284 placements.
+- `acu_sim::block`: ACU-RE-0050 ground support, sphere contact, rays, ACU-RE-0055 ledge edges
+  (9,812 in the reference block). `acu_sim::traverse`: authored mantle / wall climb / let go /
+  fall (9.55 m/s², ACU-RE-0059). The body, reach and timings are authored, not native.
+- Rust ground matches the Python query on 81 samples (worst 0.05 mm). The scripted
+  `block-climb` replay mantles three times, climbs a facade and tops out at 4.25 m, the same
+  on every run.
+- Not here: render meshes of the block (collision is drawn), primitive shapes, the navmesh,
+  climb clips (the matcher idles while climbing), native candidate selection.
+- Also fixed: the `acu_bevy` test target compiles again (missing `Options` fields in a test).
+
 Latest (2026-11-14, window graph parameter sources): [ACU-RE-0064](findings/ACU-RE-0064-window-graph-parameter-sources.md).
 - Static, from the binary:
   - `SyncB_TargetHeight` = `TargetHeight` = P.z − character.z;

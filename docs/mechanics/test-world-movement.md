@@ -62,3 +62,54 @@ Lighting is a synthetic daylight rig with shadows and an explicit PBR response.
 It does not claim recovered Day, Paris lighting, baked GI or shader parity.
 Every visible result requires fresh captures from the built executable with
 source/binary hashes, arguments, ticks and original asset identities.
+
+## Paris collision block (2026-11-15)
+
+`--block FILE` replaces the grey floor and cubes with a block of decoded Paris
+collision, and the rigged Arno traverses it. The block is exported by
+`python tools/world_collision.py --archive DataPC_ACU_Paris.forge block X Y --half H --write local/blocks/NAME.bin`
+(`ACUBLK01`: f64 origin, then f32[9] origin-relative native triangles and an
+instance index; a JSON sidecar lists every instance's body, shape, name and source
+archive entry, and a `.samples.txt` grid of Python ground heights). It holds the
+MeshShape triangles of ShadowRigidBody and Entity RigidBody placements overlapping
+the box (ACU-RE-0050), with identical (shape, matrix) placements kept once.
+Primitive shapes and the navmesh are not decoded and are absent. The renderer draws
+the collision triangles themselves (warm = walkable top, grey = steep), not the
+render meshes, and the ACU-RE-0055 ledge edges near the player in yellow with
+their outward normal in orange.
+
+Reference block: `local/blocks/paris-arrival-40m.bin`, centre (768.55, -46.653)
+(the Paris arrival point of ACU-RE-0049), half extent 20 m, origin z -0.45267
+(ACU-RE-0050 support under probe -0.456), 84,288 triangles from 1,284
+placements, SHA-256 `802bdf4549562f8f3e3084236384af03541df8483e3cf46cd36b506e3f27d8f6`,
+index 2026-10-22.1.
+
+What is decoded and what is authored (`acu_sim::block`, `acu_sim::traverse`):
+
+- Decoded: triangles and placement (ACU-RE-0050); ground = highest surface at or
+  below the probe plus a step (ACU-RE-0050 rule); ledge edges = convex triangle
+  edges with a walkable top (|n.y| >= 0.7) and a steep side (|n.y| <= 0.3)
+  (ACU-RE-0055 recipe); fall acceleration 9.55 m/s² (ACU-RE-0059).
+- Authored, not native: the body (three 0.28 m spheres at 0.73/1.12/1.52 m),
+  0.45 m step, axis sliding, jump speed 4 m/s, RT + up into a wall mantles a ledge
+  0.5-2.4 m above the feet within 0.7 m or else starts a free wall climb
+  (1.4 m/s up, 0.9 m/s sideways while RT is held), a climb tops out when a ledge
+  is within 1.9 m, Circle/B lets go, and a mantle is a 0.35 s + 0.2 s/m
+  interpolation onto the ledge top. No native candidate selection, reach,
+  timing, climb clip or warp is used; the locomotion matcher idles while
+  climbing or mantling.
+- Coordinates: native (x, y, z) -> arena (x, z, -y), the renderer's presentation
+  rotation. Falling 5 m below the block respawns at the spawn point.
+
+Checks: `cargo test -p acu_sim` (synthetic boxes: wall stop, mantle vs Down,
+6 m climb and top-out, let go and land, walk off a roof, deterministic replay,
+parser rejects bad magic/length/count/NaN). Install-dependent, with
+`ACU_BLOCK=<absolute path to the .bin>`:
+`cargo test -p acu_sim -- --ignored ground_matches paris_arrival` compares the
+Rust ground query with the exporter's Python query on 81 samples (76 surfaces,
+5 empty; worst 0.05 mm) and replays the scripted climb (three mantles, a facade
+climb, top-out at 4.25 m, identical on rerun).
+
+Run (window): `acu_bevy --game-dir <install> --block ../local/blocks/paris-arrival-40m.bin`.
+Scripted: add `--spawn 12,12 --scenario block-climb --ticks 300` (RT + up held
+toward -Z), with `--camera-distance M --camera-pitch DEG` for framing.

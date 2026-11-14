@@ -52,12 +52,20 @@ pub struct Options {
     /// Archives used by map mode; default to the installed Paris pair.
     pub map_paris: Option<PathBuf>,
     pub map_assets: Option<PathBuf>,
+    /// Decoded Paris collision block (`tools/world_collision.py block`) that replaces the
+    /// synthetic floor and cubes; the rigged player traverses it.
+    pub block: Option<PathBuf>,
+    /// Spawn point in the block, arena metres (x, z) relative to its origin.
+    pub spawn: Option<(f32, f32)>,
     /// Screenshot path; when set the app captures and exits.
     pub capture: Option<PathBuf>,
     /// Frames to render before capturing.
     pub frames: u32,
     /// Camera azimuth in degrees (orbit around the model).
     pub orbit_deg: f32,
+    /// Camera distance and pitch overrides (metres, degrees).
+    pub camera_distance: Option<f32>,
+    pub camera_pitch: Option<f32>,
     /// Render target size for capture (and the windowed view).
     pub size: (u32, u32),
     /// Archives indexed for cross-archive lookups, in selection order.
@@ -113,9 +121,13 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut map_cell: Option<String> = None;
     let mut map_paris: Option<PathBuf> = None;
     let mut map_assets: Option<PathBuf> = None;
+    let mut block: Option<PathBuf> = None;
+    let mut spawn: Option<(f32, f32)> = None;
     let mut capture: Option<PathBuf> = None;
     let mut frames: u32 = 60;
     let mut orbit_deg: f32 = 35.0;
+    let mut camera_distance: Option<f32> = None;
+    let mut camera_pitch: Option<f32> = None;
     let mut size: (u32, u32) = (1280, 720);
     let mut texture_archives: Vec<String> = Vec::new();
     let mut no_textures = false;
@@ -137,10 +149,25 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
             "--piece" => piece_args.push(args.next().ok_or("--piece needs a value")?),
             "--map-cell" => map_cell = Some(args.next().ok_or("--map-cell needs a value")?),
             "--map-paris" => {
-                map_paris = Some(PathBuf::from(args.next().ok_or("--map-paris needs a value")?))
+                map_paris = Some(PathBuf::from(
+                    args.next().ok_or("--map-paris needs a value")?,
+                ))
             }
             "--map-assets" => {
-                map_assets = Some(PathBuf::from(args.next().ok_or("--map-assets needs a value")?))
+                map_assets = Some(PathBuf::from(
+                    args.next().ok_or("--map-assets needs a value")?,
+                ))
+            }
+            "--block" => block = Some(PathBuf::from(args.next().ok_or("--block needs a value")?)),
+            "--spawn" => {
+                let value = args.next().ok_or("--spawn needs a value")?;
+                let (x, z) = value
+                    .split_once(',')
+                    .ok_or_else(|| format!("--spawn {value:?} must be X,Z"))?;
+                spawn = Some((
+                    x.trim().parse().map_err(|e| format!("--spawn x: {e}"))?,
+                    z.trim().parse().map_err(|e| format!("--spawn z: {e}"))?,
+                ));
             }
             "--capture" => {
                 capture = Some(PathBuf::from(args.next().ok_or("--capture needs a value")?))
@@ -176,6 +203,7 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
                     "contact",
                     "profile-up",
                     "profile-down",
+                    "block-climb",
                 ]
                 .contains(&scenario.as_str())
                 {
@@ -205,6 +233,22 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
                     .ok_or("--orbit-deg needs a value")?
                     .parse()
                     .map_err(|e| format!("--orbit-deg: {e}"))?;
+            }
+            "--camera-distance" => {
+                camera_distance = Some(
+                    args.next()
+                        .ok_or("--camera-distance needs a value")?
+                        .parse()
+                        .map_err(|e| format!("--camera-distance: {e}"))?,
+                )
+            }
+            "--camera-pitch" => {
+                camera_pitch = Some(
+                    args.next()
+                        .ok_or("--camera-pitch needs a value")?
+                        .parse()
+                        .map_err(|e| format!("--camera-pitch: {e}"))?,
+                )
             }
             "--size" => {
                 let value = args.next().ok_or("--size needs a value")?;
@@ -290,9 +334,13 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
         map_cell,
         map_paris,
         map_assets,
+        block,
+        spawn,
         capture,
         frames,
         orbit_deg,
+        camera_distance,
+        camera_pitch,
         size,
         texture_archives,
         no_textures,
@@ -316,6 +364,8 @@ OPTIONS:
     --report PATH      Write a JSON report of the material/texture chain
     --frames N         Frames rendered before the capture (default 60)
     --orbit-deg DEG    Camera azimuth around the model (default 35)
+    --camera-distance M  Camera distance from the target (metres)
+    --camera-pitch DEG   Camera elevation (degrees)
     --size WxH         Render target size (default 1280x720)
     --texture-archive FILE
                        Extra archive indexed for cross-archive lookups
@@ -326,6 +376,10 @@ OPTIONS:
     --scenario NAME    idle/bind/deform/walk/run/turn/jump/contact/profile-up/profile-down; walk/run-left/right/back/circle
                        reversals: visible loop, four right/left pairs (2 s each)
     --ticks N          Fixed replay ticks before capture (max 36000)
+    --block FILE       Traverse a decoded collision block (ACUBLK01 from
+                       tools/world_collision.py block) instead of the grey floor
+    --spawn X,Z        Spawn point in the block, arena metres from its origin
+                       (block-climb: RT + up held toward -Z)
 
 Without --piece the scene shows Arno (Fearless Assassin outfit, hood up, LOD0)
 standing at the origin on a synthetic grey ground plane. All geometry is read

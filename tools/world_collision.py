@@ -693,6 +693,114 @@ def cmd_height(args):
         print("support:", None if s is None else round(s["z"], 4))
 
 
+BLOCK_MAGIC = b"ACUBLK01"
+MAX_BLOCK_TRIANGLES = 2_000_000
+
+
+def block_triangles(world, box, zrange=None):
+    """World-space triangles of every collision instance overlapping box (xmin, ymin, xmax, ymax).
+
+    A triangle is kept when its xy bounds overlap the box (and its z bounds overlap zrange, if
+    given); triangles are not clipped. Returns (triangles, instance rows); each triangle is
+    (a, b, c, instance index).
+    """
+    if world.instances is None:
+        world.build_index()
+    xmin, ymin, xmax, ymax = box
+    triangles, rows, seen = [], [], set()
+    for inst in world.instances:
+        if inst["hi"][0] < xmin or inst["lo"][0] > xmax or inst["hi"][1] < ymin or inst["lo"][1] > ymax:
+            continue
+        # A ShadowRigidBody and an Entity RigidBody often place the same shape with the same
+        # matrix (ACU-RE-0050 observation 1); keep one copy of each (shape, matrix) pair.
+        key = (inst["shape"], tuple(round(v, 3) for v in inst["matrix"]))
+        if key in seen:
+            world.stats["block duplicate placements dropped"] += 1
+            continue
+        seen.add(key)
+        try:
+            shape = world.shape(inst["shape"])
+        except FormatError as error:
+            world.failures.append({"file_id": f"{inst['shape']:016x}", "type": "b22b3e61", "error": str(error)})
+            continue
+        if shape is None:
+            continue
+        verts = [apply(inst["matrix"], v) for v in shape["vertices"]]
+        kept = 0
+        for a, b, c in shape["triangles"]:
+            tri = (verts[a], verts[b], verts[c])
+            if (max(p[0] for p in tri) < xmin or min(p[0] for p in tri) > xmax
+                    or max(p[1] for p in tri) < ymin or min(p[1] for p in tri) > ymax):
+                continue
+            if zrange and (max(p[2] for p in tri) < zrange[0] or min(p[2] for p in tri) > zrange[1]):
+                continue
+            triangles.append((*tri, len(rows)))
+            kept += 1
+            if len(triangles) > MAX_BLOCK_TRIANGLES:
+                raise SystemExit(f"block exceeds {MAX_BLOCK_TRIANGLES} triangles; use a smaller box")
+        if kept:
+            source = world.shape_source[inst["shape"]]
+            rows.append(dict(source=inst["source"], body=f"{inst['body']:016x}",
+                             shape=f"{inst['shape']:016x}", shape_name=source[2],
+                             shape_archive=source[0], shape_entry=source[1], triangles=kept))
+    return triangles, rows
+
+
+def write_block(path, origin, triangles):
+    """ACUBLK01: magic, f64[3] origin, u32 n, n x (f32[9] origin-relative native xyz, u32 instance)."""
+    out = bytearray(BLOCK_MAGIC)
+    out += struct.pack("<3dI", *origin, len(triangles))
+    for a, b, c, inst in triangles:
+        out += struct.pack("<9fI", *(p[i] - origin[i] for p in (a, b, c) for i in range(3)), inst)
+    Path(path).write_bytes(out)
+    return bytes(out)
+
+
+def cmd_block(args):
+    import hashlib
+    half = args.half
+    box = (args.x - half, args.y - half, args.x + half, args.y + half)
+    # Load instances in a slightly larger box so shapes straddling the edge are found.
+    world = World(args.archive, (box[0] - 1, box[1] - 1, box[2] + 1, box[3] + 1))
+    zrange = (args.zmin, args.zmax) if args.zmin is not None and args.zmax is not None else None
+    triangles, rows = block_triangles(world, box, zrange)
+    hits = world.column(args.x, args.y)
+    probe = args.z if args.z is not None else (hits[-1]["z"] if hits else 0.0)
+    ground = support(hits, probe, 0.5)
+    origin = (args.x, args.y, ground["z"] if ground else probe)
+    out = Path(args.write)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    data = write_block(out, origin, triangles)
+    db = index_db()
+    meta = dict(schema="acu-block/1", archive=args.archive, index_version=index_version(db),
+                center=[args.x, args.y], half_extent=half, zrange=zrange, origin=list(origin),
+                origin_rule="ground support (ACU-RE-0050 rule, step 0.5 m) under the center at probe z",
+                probe_z=probe, axes="native Z-up metres, origin-relative", triangles=len(triangles),
+                instances=rows, sha256=hashlib.sha256(data).hexdigest(), bytes=len(data),
+                stats=world.stats, failures=world.failures[:50], failure_count=len(world.failures),
+                note="Primitive shapes (Box/Cylinder/Capsule/Sphere) and the navmesh are not decoded "
+                     "and are absent (ACU-RE-0050).")
+    # Independent ground samples: the Python column query (instance index over the whole
+    # world, not the exported triangles) on a grid, origin-relative native metres. Lines are
+    # "x y z" (z = support under probe origin z with step 0.5) or "x y none".
+    samples = []
+    steps = args.samples
+    for i in range(steps):
+        for j in range(steps):
+            sx = box[0] + (i + 0.5) * (2 * half) / steps
+            sy = box[1] + (j + 0.5) * (2 * half) / steps
+            s = support(world.column(sx, sy), origin[2], 0.5)
+            samples.append(f"{sx - origin[0]:.4f} {sy - origin[1]:.4f} "
+                           + ("none" if s is None else f"{s['z'] - origin[2]:.4f}"))
+    out.with_suffix(".samples.txt").write_text("".join(line + "\n" for line in samples))
+    meta["ground_samples"] = dict(file=out.with_suffix(".samples.txt").name, grid=steps,
+                                  rule="support(column(x, y), origin z, step 0.5)")
+    out.with_suffix(".json").write_text(json.dumps(meta, indent=1, default=dict))
+    zs = [p[2] for t in triangles for p in t[:3]]
+    print(f"{out}: {len(triangles)} triangles from {len(rows)} instances, origin {origin}, "
+          f"z {min(zs) - origin[2]:.2f}..{max(zs) - origin[2]:.2f} m relative" if zs else f"{out}: empty")
+
+
 def live_points(run_names):
     """Settled player positions: hop scan rows, and live-state samples whose z is unchanged
     (within 5 mm) over three consecutive samples, deduplicated on a 0.25 m / 0.05 m grid."""
@@ -876,8 +984,18 @@ def main(argv=None):
     c.add_argument("--step", type=float, default=0.5)
     c.add_argument("--limit", type=int, default=0)
     c.add_argument("--write")
+    b = sub.add_parser("block", help="export the collision triangles of an xy box (ACUBLK01 + JSON)")
+    b.add_argument("x", type=float)
+    b.add_argument("y", type=float)
+    b.add_argument("--half", type=float, default=20.0, help="half extent of the square box, metres")
+    b.add_argument("--z", type=float, help="probe height for the origin's ground (default: lowest surface)")
+    b.add_argument("--zmin", type=float)
+    b.add_argument("--zmax", type=float)
+    b.add_argument("--samples", type=int, default=9, help="ground samples per side (grid)")
+    b.add_argument("--write", required=True)
     args = parser.parse_args(argv)
-    {"extract": cmd_extract, "survey": cmd_survey, "height": cmd_height, "compare": cmd_compare}[args.command](args)
+    {"extract": cmd_extract, "survey": cmd_survey, "height": cmd_height, "compare": cmd_compare,
+     "block": cmd_block}[args.command](args)
 
 
 if __name__ == "__main__":

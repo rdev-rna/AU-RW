@@ -1,7 +1,9 @@
 //! Test movement and authored pose driver; docs/mechanics/test-world-movement.md.
 use crate::{InspectionCamera, controls::Controller, options::Options, rig::Skin};
-use acu_sim::{Input, Player, Traversal};
+use acu_sim::block::Block;
+use acu_sim::{BlockTuning, Input, Mode, Player, Traversal};
 use bevy::prelude::*;
+use std::sync::Arc;
 
 #[derive(Component)]
 pub struct Character;
@@ -17,14 +19,29 @@ fn turn_facing(yaw: f32, heading: f32, moving: bool, run: bool) -> f32 {
     yaw + turn.clamp(-max_turn, max_turn)
 }
 
-fn advance(player: &mut Player, matcher: &mut acu_motion::unity::Matcher, input: Input) {
+/// The decoded collision block the player traverses, when the arena uses one.
+pub struct ArenaBlock {
+    pub block: Arc<Block>,
+    pub tuning: BlockTuning,
+    pub spawn: Vec3,
+}
+
+fn advance(
+    player: &mut Player,
+    matcher: &mut acu_motion::unity::Matcher,
+    input: Input,
+    block: Option<&ArenaBlock>,
+) {
     if input.reset {
         matcher.reset();
-        *player = Player::default();
+        *player = spawn_player(block);
     }
     use acu_motion::unity::Profile;
     let amount = input.direction.length().min(1.0);
-    let profile = if amount < 0.08 {
+    // Climbing and mantling have no original clips wired yet: the locomotion matcher idles
+    // while the authored traversal moves the body (presentation gap, stated).
+    let traversing = matches!(player.mode, Mode::Climb { .. } | Mode::Mantle { .. });
+    let profile = if amount < 0.08 || traversing {
         Profile::Idle
     } else if input.run {
         Profile::Sprint
@@ -51,7 +68,33 @@ fn advance(player: &mut Player, matcher: &mut acu_motion::unity::Matcher, input:
         Vec2::new(c * world.x + s * world.y, -s * world.x + c * world.y)
     };
     let yaw = turn_facing(player.yaw, heading, profile != Profile::Idle, input.run);
-    player.step_with_root(input, displacement, yaw);
+    match block {
+        Some(arena) => {
+            let input = Input {
+                reset: false,
+                ..input
+            };
+            if player.step_in_block(&arena.block, &arena.tuning, input, displacement, yaw) {
+                *player = Player {
+                    tick: player.tick,
+                    ..spawn_player(Some(arena))
+                };
+            }
+        }
+        None => player.step_with_root(input, displacement, yaw),
+    }
+}
+
+fn spawn_player(block: Option<&ArenaBlock>) -> Player {
+    Player {
+        position: block.map(|b| b.spawn).unwrap_or(Vec3::ZERO),
+        mode: if block.is_some() {
+            Mode::Air
+        } else {
+            Mode::Ground
+        },
+        ..Player::default()
+    }
 }
 
 #[derive(Resource)]
@@ -62,6 +105,7 @@ pub struct State {
     pub player: Player,
     previous: Player,
     pub skins: Vec<Skin>,
+    pub block: Option<ArenaBlock>,
     pub bind: bool,
     pub deform: bool,
     pub frozen: bool,
@@ -148,17 +192,20 @@ pub fn replay(scenario: &str, tick: u32) -> Input {
             };
             Vec2::new(x as f32 * AMP, -(y as f32) * AMP)
         }
-        "contact" | "profile-up" | "profile-down" => Vec2::new(0.0, -1.0),
+        "contact" | "profile-up" | "profile-down" | "block-climb" => Vec2::new(0.0, -1.0),
         _ => Vec2::ZERO,
     };
     Input {
         direction,
         run: scenario.starts_with("run")
-            || matches!(scenario, "contact" | "profile-up" | "profile-down"),
+            || matches!(
+                scenario,
+                "contact" | "profile-up" | "profile-down" | "block-climb"
+            ),
         jump: scenario == "jump" && tick == 90,
         reset: false,
         traversal: match scenario {
-            "profile-up" => Traversal::Up,
+            "profile-up" | "block-climb" => Traversal::Up,
             "profile-down" => Traversal::Down,
             _ => Traversal::Neutral,
         },
@@ -170,14 +217,17 @@ impl State {
         options: &Options,
         mut matcher: acu_motion::unity::Matcher,
         motion_report: serde_json::Value,
+        block: Option<ArenaBlock>,
     ) -> Self {
-        let mut player = Player::default();
+        let mut player = spawn_player(block.as_ref());
         let mut motion_trace = Vec::new();
         for tick in 0..options.ticks {
             let input = replay(&options.scenario, tick);
             let selected = matcher.selected;
-            advance(&mut player, &mut matcher, input);
+            let mode = player.mode;
+            advance(&mut player, &mut matcher, input, block.as_ref());
             if selected != matcher.selected
+                || std::mem::discriminant(&mode) != std::mem::discriminant(&player.mode)
                 || tick == 0
                 || tick + 1 == options.ticks
                 || options.scenario == "turn-arc"
@@ -185,7 +235,7 @@ impl State {
                 motion_trace.push(serde_json::json!({"tick":tick+1,"direction":input.direction.to_array(),
                     "yaw":player.yaw,"clip":matcher.takes[matcher.selected].file_id,
                     "name":matcher.takes[matcher.selected].name,"time":matcher.time,"cost":matcher.cost,
-                    "position":player.position.to_array()}));
+                    "position":player.position.to_array(),"mode":format!("{:?}",player.mode)}));
             }
         }
         Self {
@@ -195,6 +245,7 @@ impl State {
             player,
             previous: player,
             skins: Vec::new(),
+            block,
             bind: options.scenario == "bind",
             deform: options.scenario == "deform",
             frozen: false,
@@ -222,16 +273,19 @@ pub fn step(
         if state.review_tick == 1080 {
             state.review_trace_done = true;
             state.review_tick = 0;
-            state.player = Player::default();
+            state.player = spawn_player(state.block.as_ref());
             state.matcher.reset();
         }
         let tick = state.review_tick;
         let input = replay("reversals", tick);
         state.previous = state.player;
         let State {
-            player, matcher, ..
+            player,
+            matcher,
+            block,
+            ..
         } = &mut *state;
-        advance(player, matcher, input);
+        advance(player, matcher, input, block.as_ref());
         if !state.review_trace_done
             && tick.is_multiple_of(6)
             && let Some(path) = std::env::var_os("ACU_REVERSAL_TRACE")
@@ -282,9 +336,12 @@ pub fn step(
     };
     state.previous = state.player;
     let State {
-        player, matcher, ..
+        player,
+        matcher,
+        block,
+        ..
     } = &mut *state;
-    advance(player, matcher, input);
+    advance(player, matcher, input, block.as_ref());
 }
 
 pub fn present(
@@ -412,6 +469,7 @@ mod tests {
                             run,
                             ..Default::default()
                         },
+                        None,
                     );
                 }
                 let yaw = player.yaw;
@@ -423,6 +481,7 @@ mod tests {
                         run,
                         ..Default::default()
                     },
+                    None,
                 );
                 // Facing -Z means world +X is actor-local LEFT.
                 assert_eq!(
@@ -446,6 +505,7 @@ mod tests {
                             run,
                             ..Default::default()
                         },
+                        None,
                     );
                     switches += usize::from(old != m.selected);
                 }
