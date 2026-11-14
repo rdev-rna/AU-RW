@@ -92,8 +92,9 @@ oracle, so it ends in a fixture, not only a write-up.
 | 6 | World travel remainder | setter chain and arrival sequence observed live (ACU-RE-0054) | `world_travel.json` | player-entity creator (write watch on World +0xD8) |
 | 7 | Patch precedence | front-insert mount, first-match lookup; live reads agree (ACU-RE-0053) | — | mount order observed live |
 
-Next before the first port slice: record the coordinate/unit convention, the tick policy and
-root-motion ownership in `DECISIONS.md`.
+Decisions recorded before the first port slice: [ADR-0003](decisions/0003-coordinates-and-units.md)
+(coordinates and units), [ADR-0004](decisions/0004-tick-policy.md) (tick),
+[ADR-0005](decisions/0005-root-motion-ownership.md) (root-motion ownership, implementation choice).
 
 ## Preparation that is not research
 
@@ -105,10 +106,10 @@ root-motion ownership in `DECISIONS.md`.
 - **Function dossiers.** For each critical-path routine a builder will transcribe: VA, corpus
   file, callers seen live, struct offsets read and written, constants. They belong in the finding
   that owns the routine.
-- **Decisions to record before the first slice uses them:** coordinate and unit convention (Z up
-  observed in 0044 and 0047; metres used by 0047, unconfirmed in 0044; handedness unproven),
-  tick policy (after 2), root-motion ownership (after 4). Identity policy is recorded:
-  [ADR-0002](decisions/0002-identity-policy.md).
+- **Decisions before the first slice:** identity [ADR-0002](decisions/0002-identity-policy.md),
+  coordinates and units [ADR-0003](decisions/0003-coordinates-and-units.md), tick
+  [ADR-0004](decisions/0004-tick-policy.md), root-motion ownership
+  [ADR-0005](decisions/0005-root-motion-ownership.md). Pending: collision backend.
 
 ## Live-tooling rules that keep this safe
 
