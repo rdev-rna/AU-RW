@@ -2,9 +2,9 @@
 
 Date: 2026-11-14. Related: [ACU-RE-0044](ACU-RE-0044-player-state-and-repeatable-start.md),
 [ACU-RE-0049](ACU-RE-0049-world-travel.md), REWRITE_READINESS backlog item 2.
-State: **partly live-verified (run tick-1, 30 and 60 fps caps).** The static part is read from the
+State: **live-verified at 30, 60 and 100 fps caps (runs tick-1, tick-100); uncapped open.** The static part is read from the
 pseudocode corpus and the mapped image; the live part (section "Live result") is from probe
-sessions on the running game. 100 fps and uncapped are still open. Oracle: `data/oracles/tick.json`.
+sessions on the running game. Uncapped is still open. Oracle: `data/oracles/tick.json`.
 
 ## Provenance
 
@@ -179,7 +179,17 @@ reads). Export: `python tools/oracle_export.py tick` → `data/oracles/tick.json
     file is not usable because the probe ring dropped events (the session reported overwritten
     hits).
 
-Open: 100 fps and uncapped (which bucket above 60, and whether the count ever exceeds 1); the
+12. **100 fps cap (run tick-100, fresh launch, pid 122760, Paris).** The engine frame clock ran
+    at 94.1 Hz with the probes attached (the shim reported 101 fps without them). Mode was 2 and
+    `+0x90` was 30.0. Game dt median was 0.0100 s (p10 0.00993, p90 0.01011), game time against
+    wall 0.9995, and clock-tree dt 10.0 ms. The physics planner chose **1/60 s, 60 Hz, count 1 in
+    1,042 of 1,052 frames**, and 1/120 s at 120 Hz in 10, always with carry 0. This matches the
+    static table (obs. 7: {120, 60, 45, 30} Hz, ±5 Hz hysteresis): a 100 Hz frame keeps the
+    60 Hz bucket. So at 100 fps each 0.01 s frame takes one 1/60 s physics step. Inference, not
+    checked: physics consumers of `+0x10F4` advance about 1.67× faster than wall time at this
+    frame rate, unless they rescale by `+0x10F8`.
+
+Open: uncapped (rates above 120 Hz); whether the 1/60 step at 100 fps really speeds up physics; the
 bucket table in `0x1425FB720` and its thresholds; pause behaviour.
 
 ## Implementation implications

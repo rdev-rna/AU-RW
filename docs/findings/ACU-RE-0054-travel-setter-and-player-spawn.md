@@ -2,8 +2,8 @@
 
 Date: 2026-11-14. Related: [ACU-RE-0049](ACU-RE-0049-world-travel.md) (observations 4, 11, 14–16),
 [ACU-RE-0044](ACU-RE-0044-player-state-and-repeatable-start.md).
-State: partially established. A second writer of travel state `+644` is found and its request
-chain is traced statically; it is unverified live. The new player entity's creator is **not**
+State: partially established. The writer of travel state `+644` on the map route is
+**confirmed live** (run travel-setter-1, section "Live result"), with its whole request chain. The new player entity's creator is **not**
 found; the earlier "spawner" at `[World+1976]` is a streaming-focus object, not an entity factory.
 
 ## Provenance
@@ -163,6 +163,57 @@ rel32 (`target − (site + 4)`) and 8-byte pointers to each VA.
 Implementation implications: none for `acu_sim` yet beyond ACU-RE-0049's lifecycle; if confirmed,
 the travel request is a queued command with states 1/2/3, and arrival first sets a streaming
 focus, then later creates the player.
+
+## Live result (run travel-setter-1, 2026-11-14)
+
+Setup: fresh launch at a 100 fps cap, pid 122760, Paris, pinned save `capture-start-1`, focus
+shim t8, Invisible + God through `teleport.py keep-safe`. Map route: teleport to Île Saint-Louis,
+walk 1 s (see note), Back opens the map. The keyboard steps the cursor through the icons stacked
+at the Café Théâtre (Big_Wheel → W → "Versailles — [F] Fast Travel"), then F and Enter.
+Session `client.py ... session tools/native_probe/world_travel_setter2.profile.json` and the
+50 ms world sampler ran together. Raw data: `local/native-probe/runs/travel-setter-1/`
+(`events.jsonl`, `world-samples.jsonl`, `keep-safe.log`).
+
+Each probe hit exactly once, all on game thread 120924 in the same frame, 4.89 s into the
+sampler. The sampler first read `+644 = 1` at 4.80 s; the probe-to-sampler clock bound is about
+0.1 s, so the two agree.
+
+| Order | Probe | Caller (return address) | Arguments / snapshot |
+| --- | --- | --- | --- |
+| 1 | `travel_request` `0x141DFBDF0` | `0x1413EAB90` (inside `0x1413EAAF0`) | `[rdx]` = target world handle (Versailles, `0x74086B10` in this process) |
+| 2 | `travel_job_state1` `0x141D55E80` | `0x141DF8433` (inside job `0x141DF83D0`) | rcx = travel manager `[0x145219860]`; `+644` = 0, `+592` = null handle |
+| 3 | `travel_cmd_execute` `0x1420A2E90` | `0x1427381D8` | command: vtable `0x14306DE38`, world `0x74086B10`, destination handle `0xF3C5CAF0`, third = null handle |
+| 4 | `travel_state_setter` `0x141D55D30` | `0x1420A2EAC` (inside `0x1420A2E90`) | rcx = travel manager; at entry `+644` = 0 |
+
+The next sample (4.80 s) showed `+644 = 1`, `+592 = 0x74086B10` (id `0000000e84b48064`
+ACU_Versailles) and `+600 = 0xF3C5CAF0` (id `00000017717b9bf1` PlayerPortal to Versailles): the
+values the command carried.
+
+Conclusions:
+- **Observed:** on the map route, `+644` is written by `0x141D55D30`, called from command
+  `0x1420A2E90` (vtable `0x14306DE38`). The command was executed from `0x1427381D8`, the same
+  frame as the travel-request job `0x141DF83D0` ran state 1 → `0x141D55E80`. This confirms
+  obs. 1–4. The request entered through `0x141DFBDF0`, called from `0x1413EAB90` inside
+  `0x1413EAAF0`, the save-game travel event of the static plan.
+- The ACU-RE-0049 obs. 15 broadcast (`0x1413EAEF0` from the listener loop `0x141EBD4E0`) is
+  consistent with this: the save-game travel event is the listener that issues the request.
+  That link is inferred from the matching caller, not hooked in this run.
+- World resource handles are per process: Versailles was `0x74066B10` in pid 122172 and
+  `0x74086B10` here (ADR-0002: key on file IDs).
+- Timing this trip (sampler): state 1 at 4.8 s, transition world at 6.3 s, new World at 8.8 s,
+  player at 22.3 s, state 0 at 25.8 s. That is about 17.5 s from the request to the player,
+  inside the range of ACU-RE-0049.
+
+Map-route notes for repeat runs (observed):
+- After a teleport the map and menus do not open (Back, Start and M ignored) until Arno has
+  moved; a 1 s walk is enough.
+- With the shim's keyboard, the map cursor sits at the screen centre and WASD taps of
+  0.045–0.065 s step it between nearby icons. The icon panel on the right is fixed on screen. F1/F3
+  cycle the filters (ALL, MISSIONS, POINTS OF INTEREST, DIFFICULTY, SELECTIVE). Zoom needs the
+  mouse wheel, which the shim blocks.
+- If Arno stands on the pin, his marker hides it (ACU-RE-0049 obs. 15). The hop point
+  (775.5, −113.4) is on top of the Versailles pin cluster; the P-pin arrival point (768.55,
+  −46.65) is a good start.
 
 ## Live verification plan
 

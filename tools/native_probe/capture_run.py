@@ -18,7 +18,8 @@ Stages (each recorded with timings in capture.json):
  5. decode   tools/parkour_trace.py (action types need --image, a hash-bound mapped image); with the
              live_state.py sampler (default) decisions are paired with clip starts and named
              (tools/parkour_clip_pairs.py --names, local asset index) in clips/.
- 6. close    remove the shim, shut the probe down, close the game (unless --keep-game).
+ 6. close    shutdown(): probe SHUTDOWN, graceful close with the shim kept, ClipCursor(NULL) from
+             outside, taskkill /F after 15 s (unless --keep-game).
 
 A minimised game stops rendering; a watchdog restores it without activating it. Nothing here
 touches game files: run tools/intro_skip.py and tools/capture_preset.py beforehand if wanted.

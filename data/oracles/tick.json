@@ -45,7 +45,26 @@
     {"step_s":0.03333,"rate_hz":30.0,"steps":1,"frames":187},
     {"step_s":0.01667,"rate_hz":60.0,"steps":1,"frames":7}
    ]
+  },
+  {
+   "run": "tick-100",
+   "file": "events-cap100.jsonl",
+   "fps_cap": 100,
+   "frames_hooked": 1032,
+   "span_s": 10.953,
+   "frame_rate_hz": 94.13,
+   "engine_mode": [[2, 1032]],
+   "engine_fixed_hz_field": [[30.0, 1032]],
+   "wall_frame_dt_s": {"n": 1031, "p10": 0.00994, "median": 0.01, "p90": 0.01011},
+   "game_time_dt_s": {"n": 1031, "p10": 0.00993, "median": 0.01, "p90": 0.01011},
+   "game_time_per_wall_s": 0.9995,
+   "clock_tree_updates_per_frame": 10.15,
+   "clock_update_dt_ms": {"n": 10471, "p10": 9.932, "median": 10.0, "p90": 10.068},
+   "physics_plan": [
+    {"step_s":0.01667,"rate_hz":60.0,"steps":1,"frames":1042},
+    {"step_s":0.00833,"rate_hz":120.0,"steps":1,"frames":10}
+   ]
   }
  ],
- "not_established": ["100 fps and uncapped behaviour (which physics rate bucket is chosen above 60 fps)", "the rate bucket table and its thresholds", "behaviour while paused or in menus"]
+ "not_established": ["uncapped behaviour (frame rates above 120 Hz)", "whether every physics user consumes the 1/60 step at 100 fps (simulation faster than real time?)", "behaviour while paused or in menus"]
 }

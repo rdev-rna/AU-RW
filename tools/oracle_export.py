@@ -839,7 +839,8 @@ def camera(runs: Path) -> dict:
 # clock tree update, physics step planner, BeginFrame) at each shim fps cap.
 # ---------------------------------------------------------------------------------------------
 
-TICK_RUNS = (("tick-1", "events.jsonl", 60), ("tick-1", "events-cap30.jsonl", 30))
+TICK_RUNS = (("tick-1", "events.jsonl", 60), ("tick-1", "events-cap30.jsonl", 30),
+             ("tick-100", "events-cap100.jsonl", 100))
 
 
 def quantiles(values: list[float], digits: int = 5) -> dict:
@@ -915,8 +916,8 @@ def tick(runs: Path) -> dict:
         ],
         "runs": out,
         "not_established": [
-            "100 fps and uncapped behaviour (which physics rate bucket is chosen above 60 fps)",
-            "the rate bucket table and its thresholds",
+            "uncapped behaviour (frame rates above 120 Hz)",
+            "whether every physics user consumes the 1/60 step at 100 fps (simulation faster than real time?)",
             "behaviour while paused or in menus",
         ],
     }

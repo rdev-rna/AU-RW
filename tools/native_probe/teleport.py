@@ -1,4 +1,4 @@
-"""Teleport Arno: write the player entity's matrix, then reset the Human's behaviour (ACU-RE-0046).
+r"""Teleport Arno: write the player entity's matrix, then reset the Human's behaviour (ACU-RE-0046).
 
     python tools/native_probe/teleport.py <pid> to X Y Z [--yaw DEG] [--settle 1.0]
     python tools/native_probe/teleport.py <pid> where
