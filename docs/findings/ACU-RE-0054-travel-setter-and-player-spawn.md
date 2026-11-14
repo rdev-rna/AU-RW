@@ -3,7 +3,9 @@
 Date: 2026-11-14. Related: [ACU-RE-0049](ACU-RE-0049-world-travel.md) (observations 4, 11, 14–16),
 [ACU-RE-0044](ACU-RE-0044-player-state-and-repeatable-start.md).
 State: partially established. The writer of travel state `+644` on the map route is
-**confirmed live** (run travel-setter-1, section "Live result"), with its whole request chain. The new player entity's creator is **not**
+**confirmed live** (run travel-setter-1), with its whole request chain; the arrival sequence is
+observed live (run player-spawn-1): save-game travel event, World init, stream focus on the
+destination portal, player at the portal point. The new player entity's creator is **not**
 found; the earlier "spawner" at `[World+1976]` is a streaming-focus object, not an entity factory.
 
 ## Provenance
@@ -214,6 +216,43 @@ Map-route notes for repeat runs (observed):
 - If Arno stands on the pin, his marker hides it (ACU-RE-0049 obs. 15). The hop point
   (775.5, −113.4) is on top of the Versailles pin cluster; the P-pin arrival point (768.55,
   −46.65) is a good start.
+
+## Live result (run player-spawn-1, 2026-11-14)
+
+Same process (pid 122760), return trip Versailles → Paris: teleport 37 m off the P pin, walk
+1 s, open the map, step to "Île Saint-Louis — [F] Fast Travel", then F and Enter. Session
+`tools/native_probe/player_spawn.profile.json` ran with the 50 ms world sampler and keep-safe.
+Raw data: `local/native-probe/runs/player-spawn-1/`.
+
+| t (s) | Event | Thread | Detail |
+| --- | --- | --- | --- |
+| 4.81 | `savegame_travel_event` `0x1413EAAF0` (1 hit) | main 85504 | rcx `0x740E0960`, from `0x140056F3D`; `+6840` = {Paris world handle `0x66CFFA0`, destination `0xF3C5CA90`, null handle} |
+| 4.83 | sampler: `+644 = 1` | | |
+| 6.30 | sampler: transition world (holder `+0x90` = null handle) | | |
+| 9.05 | `world_init` `0x141D522C0` (1 hit) | loader 123012 | rcx = the new World (`0x148BCCA20`, the sampler's World at 9.30 s), edx = 0, from `0x1426ECEC6` |
+| 9.05 | `start_focus` `0x141D68080` | loader | `+328` = `0xF3C4F1D0` (the default; it was the travel manager's `+600` before any trip) |
+| 9.05 | `stream_focus_set` `0x141DFA910` | loader | (x, y) = (496.67, −7.31): the default Paris start, where a fresh launch puts Arno |
+| 9.33 | `start_focus` | loader | `+328` = `0xF3C5CA90`, the destination (PlayerPortal to Paris) |
+| 9.33 | `stream_focus_set` | loader | (768.55, −46.65): the arrival point |
+| 10.66 | `start_focus`, `stream_focus_set` again | main 85504 | same destination and point |
+| 28.34 | sampler: new player entity at (768.55, −46.65, −0.44) | | World `+0xD8` set |
+| 31.91 | sampler: `+644 = 0` | | |
+
+Conclusions:
+- **Observed:** the map route goes through the save-game travel event (`0x1413EAAF0`), which keeps
+  {target world, destination portal} at `+6840` of its object. This answers the static plan's
+  question: the SaveGameDataManager route is used.
+- **Observed:** a new World first focuses streaming on its default start, then (0.27 s later)
+  on the destination portal's position. The player entity appears about 19 s after that, exactly
+  at that position (to 1 cm in x, y). This confirms obs. "stream focus" (the `[World+1976]`
+  object is a streaming focus, not the spawner).
+- **Inference:** the arrival position is the destination portal's placement, so a port can spawn
+  the player at the portal entity's transform (file IDs per ACU-RE-0049) after streaming around
+  it. The default-start focus suggests a World default start used by fresh loads; its file ID is
+  not resolved.
+- **Still not found:** the routine that creates the player entity. The next probe is a hardware
+  write watch on the new World's `+0xD8`, armed at `world_init` (rcx + 0xD8); its hit names
+  the creator.
 
 ## Live verification plan
 
