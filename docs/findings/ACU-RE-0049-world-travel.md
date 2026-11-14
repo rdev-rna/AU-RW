@@ -1,0 +1,64 @@
+# ACU-RE-0049 — World change and world travel (partial; first live attempt crashed)
+
+Date: 2026-11-14. Related: [ACU-RE-0044](ACU-RE-0044-player-state-and-repeatable-start.md),
+[ACU-RE-0046](ACU-RE-0046-player-teleport-and-vault-scan.md).
+State: partially established. The world-change pipeline is traced; calling its last step alone
+crashed the game.
+
+## Provenance
+
+- `ACU.exe` SHA-256 `748abdc6456397fe7d8080f975f2a5ed3123bce548e7bf1c68b23f47e8b27e40`, base
+  `0x140000000`; mapped image SHA-256 `9a1124f1…0520` for table reads.
+- Corpus: `141CCA250.c` (lines 142, 299–330, 605–610), `141CEB520.c`, `141CE69F0.c` (lines
+  ~90–95), `141CCB460.c`, `141CE1840.c`, `141CE1820.c`, `141CCF930.c`, `141D60C90.c`,
+  `141D57AD0.c`, `141E42C00.c`, `141C5D3C0.c` (line 169), `140F94AD0.c`, `140F16B30.c`.
+- Asset index (crc-name): World resources, type `fbb63e47`.
+- Live: run `travel-1-launch` (pid 120456, pinned save `capture-start-1`); crash dump
+  `ACU.exe.120456.dmp` (Windows CrashDumps, 118,321,273 bytes; not copied into the project).
+
+## Observations
+
+1. World resources (`fbb63e47`): `ACU_Paris` `0000000f18b7e1cf`, `ACU_Versailles`
+   `0000000e84b48064`, `ACU_Prologue` `00000010a04d134d`, `ACU_RebirthRitual`
+   `0000000fc9a64e04`, `ACU-DLC_Saint-Denis` `000000135dce49f2`, `ACU_LGS_BelleEpoque`
+   `000000102ad65759`, `ACU_LGS_Medieval` `000000102ad678f3`, `ACU_LGS_WorldWar2`
+   `000000102b0edb35`, `TitleScreenFPP` `0000000829bb2de8`. Also `Universe_WorldPortalManager`
+   (`03091e55`) and `FastTravelManager` (`125cff33`) in `DataPC.forge`. `0x140F16B30` only checks
+   that the `_ACU_Paris` and `_ACU_Versailles` data packs are present.
+2. World holder `[0x145217368]`: ring-buffer command queue (56-byte entries at `+48`, count
+   `+56`, write index `+60`, read index `+64`, capacity `+68`, pending `+80`/`+84`). Per-frame
+   `0x141CE69F0` drains it via `0x141CCB460` with a functor (vtable `0x14301A660`, slot 2
+   `0x141CEB520`) that calls `0x141CCA250(command)`.
+3. Command 5 = set world: `0x141CE1840(holder, &worldHandle, flag, delay)` writes `{5, handle +8,
+   flag byte +48}`; `0x141CCA250` case 5 swaps the refcounted world handle at holder `+0x90`
+   and stores the resolved World at `+0x98` (the World of ACU-RE-0044). `0x141CE1820(&h, flag)`
+   is the wrapper; command 9 (`0x141CCF7D0`) can chain into 5.
+4. Travel manager `[0x145219860]`: `0x141D60C90(mgr, &worldHandle, &destHandle)` stores target world
+   `+592`, destination `+600`, state `+644 = 1`, requests the transition world
+   `0x141CE1820(&off_1450A9600, 1)`, then `0x141CD8A00(world id, 1, 0, 6, destination id, 1)`.
+   Handle layout as used: `+0` object, `+8`/`+12` counts, `+16` file ID.
+5. Its only caller is `0x141E42C00(request)` (world handle `+72`, destination `+80`, plus `+16`,
+   `+24`/`+34` list, `+60`, `+88`, `+96`, `+104`). Before the travel call it prepares the game:
+   `0x141E5D5A0`, `0x141E5F130`, `[0x145219C88]->vtbl+64`, `0x141E69F80(…)`,
+   `0x141D901E0([0x145219A80], 1, 4, 0)`, guard byte `0x14521A2D0`. Its only caller,
+   `0x141C5D3C0`, reassembles a multi-part message and deserializes the request object — the
+   travel request is a message object, not static data.
+6. Live, the heap holds 11 handles with file ID `ACU_Paris` and 143 places that reference one, among
+   them 31 records with the Paris world handle at `+72` and a `PlayerPortal` (type `7c00f6af`) at
+   `+80` (mission/rift start points, e.g. `PlayerPortal_SQ02_M01_f012d4ed` `0000000fc7f96295`)
+   and district destinations (type `3306cd8e`: Marais, Cite, Invalides, …).
+7. **Crash.** Calling only `0x141D60C90([0x145219860], rec+72, rec+80)` from the window thread
+   (focus shim mode 3) returned, then the game crashed: access violation reading `0xD8` at
+   `0x140F94AEB` in `0x140F94AD0`, which reads `[0x141CD0D30() + 216]` (World → player) without a
+   null check after only `0x140D69E20(1)`; the World had become the transition world (null).
+   Saves were restored from the run snapshot (match the pin again).
+
+Inference: a real fast travel first puts the game in a state where gameplay systems such as
+`0x140F94AD0` stop (the preparation in observation 5) before the world handle is swapped.
+
+## Next
+
+Find where the local fast-travel UI builds and dispatches the request message that
+`0x141C5D3C0`/`0x141E42C00` consume (the producer side), and call that on the game thread; or
+call `0x141E42C00` with a request object built to its layout once every field is known. Do not
+repeat the bare `0x141D60C90` call.

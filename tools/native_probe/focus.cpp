@@ -6,7 +6,11 @@
 // While the game is *really* in the background (original foreground query), mouse and keyboard
 // are neutralised so the user's desktop work never reaches the game: GetCursorPos returns the
 // last focused position, and DirectInput GetDeviceState/GetDeviceData report no input. XInput
-// (the virtual controller) is untouched. With the game really focused, everything passes through.
+// (the virtual controller) is untouched. With the game really focused, everything passes through,
+// unless acu_focus.ini sets [focus] block_user_input=1: then the user's input is neutralised all
+// the time, the game's ClipCursor/SetCursorPos/ShowCursor(FALSE) calls are dropped, raw-input,
+// mouse and keyboard window messages go to DefWindowProc, any existing clip is released, and
+// with return_focus=<hwnd hex> the foreground is handed back to that window at install.
 // In-process virtual controller: when a runner writes an enabled state into the shared section
 // Local\acu-pad-<pid>, XInputGetState/GetStateEx/GetCapabilities report a connected pad at user
 // index 0 with that state, and the window is sent WM_DEVICECHANGE so the game re-enumerates.
@@ -70,6 +74,117 @@ static int patchCount = 0;
 // The real foreground query, resolved from the user32 stub before that stub is patched.
 static HWND(WINAPI* realForeground)() = nullptr;
 static bool reallyFocused() { return !realForeground || realForeground() == gameWindow; }
+// [focus] block_user_input=1: the user's mouse and keyboard never reach the game, even while the
+// game really has the foreground (for example right after launch, or when the user clicks it).
+static bool blockUserInput = false;
+static bool blockUser() { return blockUserInput || !reallyFocused(); }
+static volatile LONG droppedClips = 0, droppedCursorSets = 0, droppedCursorHides = 0, droppedInputMessages = 0;
+static bool returnedFocus = false;
+static HWND returnFocusTo = nullptr;
+static volatile LONG focusReturns = 0;
+constexpr UINT kShowCursorMessage = WM_APP + 0x41;  // handled by subclassProc on the game thread
+static int(WINAPI* realShowCursor)(BOOL) = nullptr;
+
+// Teleport request (ACU-RE-0046), written by tools/native_probe/teleport.py into the shared
+// section Localcu-teleport-<pid>. The debug menu's own "Teleport Character" (0x140EE11B0) needs
+// interface 13 of the Human, which retail does not provide (live: null). Instead, on the game
+// window's thread inside SEH: copy the requested 4x4 matrix (rotation rows, position row, w = 1)
+// over the player entity's world matrix (+0x20), then call the Human's behaviour reset
+// (RVA 0x131A530; ACUFixes lead "Human__Dispatch_HSTE_ResetBehavior", re-derived in ACU-RE-0046)
+// so the character restarts from the new transform. The Human must carry the vtable at
+// RVA 0x2FB2010 and the entity must point back to a world (+0x60); nothing else is called.
+// mode 1 (Invisible, ACU-RE-0046): the debug menu's "Invisible :" (0x140EF6DD0) sets byte +208 of the
+// player's behaviour component (vtable RVA 0x2F08230, typed by 0x140B9CD00) through 0x141EC93F0,
+// which notifies (vtbl+648) first; game systems call the same setter. human = component,
+// entity = its owner, matrix[0] = value. mode 2 (God Mode, debug item 0x140EF7510): handle =
+// [0x141CCFAC0(entity) + 184]; 0x141212680(&handle, value); matrix[1] = read back through
+// 0x140CFBDA0(handle), as the menu displays it.
+// mode 3 (world travel, ACU-RE-0049): the portal/fast-travel entry's last step 0x141E42C00 ends with
+// 0x141D60C90([0x145219860], &entry->worldHandle (+72), &entry->destinationHandle (+80)). human = the
+// entry; entity = the world file ID its world handle must carry at handle+16 (checked first).
+struct TeleportShared { uint32_t magic, request, done; int32_t status; uint64_t human, entity; float matrix[16];
+                        uint32_t exception, mode; };
+static_assert(sizeof(TeleportShared) == 104, "teleport layout");  // '<IIIiQQ16fII'
+constexpr uint32_t kTeleportMagic = 0x54554341;  // "ACUT"
+constexpr UINT kTeleportMessage = WM_APP + 0x42;
+constexpr uintptr_t kHumanVtableRva = 0x2FB2010, kHumanResetRva = 0x131A530, kEntityMatrix = 0x20, kEntityWorld = 0x60;
+constexpr uintptr_t kBehaviourVtableRva = 0x2F08230, kSetInvisibleRva = 0x1EC93F0, kEntityDataRva = 0x1CCFAC0,
+                    kSetGodModeRva = 0x1212680, kGodModeStateRva = 0x0CFBDA0,
+                    kTravelManagerRva = 0x5219860, kTravelRva = 0x1D60C90;
+static volatile TeleportShared* teleport = nullptr;
+static volatile LONG teleports = 0;
+static uintptr_t imageLow = 0, imageHigh = 0;
+static bool readable(uintptr_t p, size_t n) {
+    MEMORY_BASIC_INFORMATION m{};
+    return p && VirtualQuery((void*)p, &m, sizeof m) && m.State == MEM_COMMIT &&
+           !(m.Protect & (PAGE_NOACCESS | PAGE_GUARD)) && p + n <= (uintptr_t)m.BaseAddress + m.RegionSize;
+}
+// status: 1 moved and reset, -1 not the Human, -2 not an entity, -3 exception.
+static int runTeleport(uintptr_t human, uintptr_t entity, const float* matrix, uint32_t* exception) {
+    if (!readable(human, 8) || *(uintptr_t*)human != imageLow + kHumanVtableRva) return -1;
+    if (!readable(entity + kEntityMatrix, 64) || !readable(entity + kEntityWorld, 8) || !*(uintptr_t*)(entity + kEntityWorld))
+        return -2;
+    __try {
+        memcpy((void*)(entity + kEntityMatrix), matrix, 64);
+        ((char(__fastcall*)(uintptr_t))(imageLow + kHumanResetRva))(human);
+        return 1;
+    } __except (*exception = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
+        return -3;
+    }
+}
+// status: 1 done, -1 not the behaviour component / no data, -2 not an entity, -3 exception.
+static int runFlag(uint32_t mode, uintptr_t component, uintptr_t entity, bool value, float* readback, uint32_t* exception) {
+    if (!readable(entity + kEntityWorld, 8) || !*(uintptr_t*)(entity + kEntityWorld)) return -2;
+    __try {
+        if (mode == 1) {
+            if (!readable(component + 0x10, 8) || *(uintptr_t*)component != imageLow + kBehaviourVtableRva ||
+                *(uintptr_t*)(component + 0x10) != entity) return -1;
+            ((uintptr_t(__fastcall*)(uintptr_t, char))(imageLow + kSetInvisibleRva))(component, value);
+            *readback = *(uint8_t*)(component + 208);
+            return 1;
+        }
+        uintptr_t data = ((uintptr_t(__fastcall*)(uintptr_t))(imageLow + kEntityDataRva))(entity);
+        if (!readable(data + 184, 8) || !*(uintptr_t*)(data + 184)) return -1;
+        uintptr_t handle = *(uintptr_t*)(data + 184);
+        ((uintptr_t(__fastcall*)(uintptr_t*, uint8_t))(imageLow + kSetGodModeRva))(&handle, value);
+        *readback = ((char(__fastcall*)(uintptr_t))(imageLow + kGodModeStateRva))(*(uintptr_t*)(data + 184));
+        return 1;
+    } __except (*exception = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
+        return -3;
+    }
+}
+// status: 1 queued, -1 entry/handles invalid or world ID mismatch, -2 no travel manager, -3 exception.
+static int runTravel(uintptr_t entry, uint64_t worldId, uint32_t* exception) {
+    if (!readable(entry + 72, 16)) return -1;
+    uintptr_t world = *(uintptr_t*)(entry + 72), dest = *(uintptr_t*)(entry + 80);
+    if (!readable(world + 16, 8) || !readable(dest + 16, 8) || *(uint64_t*)(world + 16) != worldId) return -1;
+    uintptr_t manager = *(uintptr_t*)(imageLow + kTravelManagerRva);
+    if (!readable(manager + 648, 8)) return -2;
+    __try {
+        ((double(__fastcall*)(uintptr_t, uintptr_t, uintptr_t))(imageLow + kTravelRva))(manager, entry + 72, entry + 80);
+        return 1;
+    } __except (*exception = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
+        return -3;
+    }
+}
+static void serviceTeleport() {
+    volatile TeleportShared* t = teleport;
+    if (!t || t->magic != kTeleportMagic || t->request == t->done) return;
+    float matrix[16];
+    for (int i = 0; i < 16; i++) matrix[i] = t->matrix[i];
+    uint32_t exception = 0;
+    float readback = -1;
+    int status = t->mode == 0 ? runTeleport((uintptr_t)t->human, (uintptr_t)t->entity, matrix, &exception)
+               : t->mode == 3 ? runTravel((uintptr_t)t->human, t->entity, &exception)
+               : t->mode <= 2 ? runFlag(t->mode, (uintptr_t)t->human, (uintptr_t)t->entity, matrix[0] > 0.5f, &readback, &exception)
+               : -4;
+    t->matrix[1] = readback;
+    t->exception = exception;
+    t->status = status;
+    InterlockedIncrement(&teleports);
+    MemoryBarrier();
+    t->done = t->request;
+}
 
 static HWND WINAPI gameWindowFake() { return gameWindow; }
 static void WINAPI xinputEnableFake(BOOL enable) { if (!enable) InterlockedIncrement(&ignoredXInputDisable); }
@@ -114,15 +229,46 @@ static BOOL(WINAPI* originalGetCursorPos)(LPPOINT) = nullptr;
 static POINT frozenCursor{};
 static volatile LONG haveFrozenCursor = 0;
 static BOOL WINAPI getCursorPosFake(LPPOINT point) {
-    if (reallyFocused() || !point) {
+    if (!blockUser() || !point) {
         BOOL ok = originalGetCursorPos(point);
         if (ok && point) { frozenCursor = *point; InterlockedExchange(&haveFrozenCursor, 1); }
         return ok;
     }
     InterlockedIncrement(&frozenCursorReads);
-    if (!haveFrozenCursor) return originalGetCursorPos(point);
+    if (!haveFrozenCursor) {  // first blocked read: freeze wherever the cursor is now
+        if (!originalGetCursorPos(&frozenCursor)) return FALSE;
+        InterlockedExchange(&haveFrozenCursor, 1);
+    }
     *point = frozenCursor;
     return TRUE;
+}
+
+// ClipCursor / SetCursorPos / ShowCursor are 6-byte `jmp [rip+rel]` stubs into win32u; the real
+// targets are read from the stubs before patching and called directly when not blocking.
+static BOOL(WINAPI* realClipCursor)(const RECT*) = nullptr;
+static BOOL(WINAPI* realSetCursorPos)(int, int) = nullptr;
+static BOOL WINAPI clipCursorFake(const RECT* rect) {
+    if (blockUser() && rect) { InterlockedIncrement(&droppedClips); return TRUE; }
+    return realClipCursor ? realClipCursor(rect) : FALSE;
+}
+static BOOL WINAPI setCursorPosFake(int x, int y) {
+    if (blockUser()) { InterlockedIncrement(&droppedCursorSets); frozenCursor = {x, y}; return TRUE; }
+    return realSetCursorPos ? realSetCursorPos(x, y) : FALSE;
+}
+static int WINAPI showCursorFake(BOOL show) {
+    // Keep the user's cursor visible over the game window while blocking. Report -1 (hidden): ACU
+    // hides in a loop until the count goes negative, and returning 0 spun its thread (2026-11-14,
+    // 410 million calls in seconds).
+    if (blockUser() && !show) { InterlockedIncrement(&droppedCursorHides); return -1; }
+    return realShowCursor ? realShowCursor(show) : 0;
+}
+static void* stubTarget(const char* name) {
+    HMODULE user = GetModuleHandleA("user32.dll");
+    const BYTE* stub = user ? (const BYTE*)GetProcAddress(user, name) : nullptr;
+    if (!stub || stub[0] != 0xFF || stub[1] != 0x25) return nullptr;
+    int32_t rel;
+    memcpy(&rel, stub + 2, 4);
+    return *(void**)(stub + 6 + rel);
 }
 
 // DirectInput device methods 9 (GetDeviceState) and 10 (GetDeviceData); same signature for A and W.
@@ -139,7 +285,7 @@ static HRESULT STDMETHODCALLTYPE getDeviceStateFake(void* device, DWORD size, LP
     int i = vtableIndex(device);
     if (i < 0) return DIERR_GENERIC;
     HRESULT hr = vtables[i].state(device, size, data);
-    if (SUCCEEDED(hr) && data && !reallyFocused()) { memset(data, 0, size); InterlockedIncrement(&blankedDeviceState); }
+    if (SUCCEEDED(hr) && data && blockUser()) { memset(data, 0, size); InterlockedIncrement(&blankedDeviceState); }
     return hr;
 }
 static HRESULT STDMETHODCALLTYPE getDeviceDataFake(void* device, DWORD objectSize, LPDIDEVICEOBJECTDATA items,
@@ -147,7 +293,7 @@ static HRESULT STDMETHODCALLTYPE getDeviceDataFake(void* device, DWORD objectSiz
     int i = vtableIndex(device);
     if (i < 0) return DIERR_GENERIC;
     HRESULT hr = vtables[i].data(device, objectSize, items, count, flags);
-    if (SUCCEEDED(hr) && count && *count && !reallyFocused()) { *count = 0; InterlockedIncrement(&blankedDeviceData); }
+    if (SUCCEEDED(hr) && count && *count && blockUser()) { *count = 0; InterlockedIncrement(&blankedDeviceData); }
     return hr;
 }
 
@@ -157,6 +303,19 @@ static LRESULT CALLBACK subclassProc(HWND hwnd, UINT message, WPARAM wParam, LPA
     case WM_ACTIVATE: if (LOWORD(wParam) == WA_INACTIVE) { InterlockedIncrement(&droppedActivate); return 0; } break;
     case WM_KILLFOCUS: InterlockedIncrement(&droppedKillFocus); return 0;
     case WM_NCACTIVATE: if (!wParam) { InterlockedIncrement(&droppedNcActivate); return TRUE; } break;
+    }
+    // ShowCursor's display counter is per thread: undo the game's hiding on its own (window) thread.
+    if (message == kShowCursorMessage) {
+        for (int i = 0; realShowCursor && i < 64 && realShowCursor(TRUE) < 0; i++) {}
+        return 0;
+    }
+    if (message == kTeleportMessage) { serviceTeleport(); return 0; }
+    // Raw input, mouse and keyboard messages go to the default procedure, not the game, while
+    // blocking (DefWindowProc also frees WM_INPUT data). XInput is unaffected.
+    if (blockUser() && (message == WM_INPUT || (message >= WM_MOUSEFIRST && message <= WM_MOUSELAST) ||
+                        (message >= WM_KEYFIRST && message <= WM_KEYLAST))) {
+        InterlockedIncrement(&droppedInputMessages);
+        return DefWindowProcW(hwnd, message, wParam, lParam);
     }
     return CallWindowProcW(originalProc, hwnd, message, wParam, lParam);
 }
@@ -382,12 +541,19 @@ static void writeStatus(const char* state, const char* error) {
               reallyFocused() ? "true" : "false", realForeground ? "true" : "false", originalGetCursorPos ? "true" : "false",
               dinputActive, frozenCursorReads, blankedDeviceState, blankedDeviceData);
     s += buf;
+    sprintf_s(buf, ",\"block_user_input\":%s,\"returned_focus\":%s,\"focus_returns\":%ld,\"blocked\":{\"clips\":%ld,"
+              "\"cursor_sets\":%ld,\"cursor_hides\":%ld,\"input_messages\":%ld}",
+              blockUserInput ? "true" : "false", returnedFocus ? "true" : "false", focusReturns, droppedClips, droppedCursorSets,
+              droppedCursorHides, droppedInputMessages);
+    s += buf;
     sprintf_s(buf, ",\"frame\":{\"present_hooked\":%s,\"fps_cap\":%u,\"fps\":%ld,\"presents\":%ld}",
               presentPatched ? "true" : "false", fpsCap, measuredFps, presents);
     s += buf;
     sprintf_s(buf, ",\"pad\":{\"mapped\":%s,\"enabled\":%s,\"sequence\":%lu,\"state_reads\":%ld,\"caps_reads\":%ld,\"device_notices\":%ld}",
               pad ? "true" : "false", padActive(0) ? "true" : "false", pad ? (unsigned long)pad->sequence : 0ul,
               padStateReads, padCapsReads, padDeviceNotices);
+    s += buf;
+    sprintf_s(buf, ",\"teleport\":{\"mapped\":%s,\"serviced\":%ld}", teleport ? "true" : "false", teleports);
     s += buf;
     s += ",\"patches\":[";
     for (int i = 0; i < patchCount; i++) {
@@ -428,7 +594,30 @@ static DWORD WINAPI worker(void*) {
     swprintf_s(padName, L"Local\\acu-pad-%lu", GetCurrentProcessId());
     if (HANDLE section = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, sizeof(PadShared), padName))
         pad = (volatile PadShared*)MapViewOfFile(section, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(PadShared));
+    swprintf_s(padName, L"Local\\acu-teleport-%lu", GetCurrentProcessId());
+    if (HANDLE section = CreateFileMappingW(INVALID_HANDLE_VALUE, nullptr, PAGE_READWRITE, 0, sizeof(TeleportShared), padName))
+        teleport = (volatile TeleportShared*)MapViewOfFile(section, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(TeleportShared));
+    {
+        auto image = (BYTE*)GetModuleHandleW(nullptr);
+        auto nt = (IMAGE_NT_HEADERS*)(image + ((IMAGE_DOS_HEADER*)image)->e_lfanew);
+        imageLow = (uintptr_t)image;
+        imageHigh = imageLow + nt->OptionalHeader.SizeOfImage;
+    }
+    const std::wstring ini = besideDll(L"acu_focus.ini");
+    blockUserInput = GetPrivateProfileIntW(L"focus", L"block_user_input", 0, ini.c_str()) != 0;
+    wchar_t returnTo[32] = {};
+    GetPrivateProfileStringW(L"focus", L"return_focus", L"", returnTo, 32, ini.c_str());
+    realClipCursor = (BOOL(WINAPI*)(const RECT*))stubTarget("ClipCursor");
+    realSetCursorPos = (BOOL(WINAPI*)(int, int))stubTarget("SetCursorPos");
+    realShowCursor = (int(WINAPI*)(BOOL))stubTarget("ShowCursor");
     patchGetCursorPos();
+    if (realClipCursor) patchExport("user32.dll", "ClipCursor", (void*)&clipCursorFake);
+    if (realSetCursorPos) patchExport("user32.dll", "SetCursorPos", (void*)&setCursorPosFake);
+    if (realShowCursor) patchExport("user32.dll", "ShowCursor", (void*)&showCursorFake);
+    if (blockUserInput) {
+        if (realClipCursor) realClipCursor(nullptr);  // release a clip the game set before we arrived
+        returnFocusTo = (HWND)(uintptr_t)wcstoull(returnTo, nullptr, 16);
+    }
     patchXInputPad();
     patchDirectInput();
     patchPresent();
@@ -445,10 +634,19 @@ static DWORD WINAPI worker(void*) {
         SendMessageTimeoutW(gameWindow, WM_ACTIVATEAPP, TRUE, 0, SMTO_ABORTIFHUNG, 2000, nullptr);
         SendMessageTimeoutW(gameWindow, WM_ACTIVATE, WA_ACTIVE, 0, SMTO_ABORTIFHUNG, 2000, nullptr);
         SendMessageTimeoutW(gameWindow, WM_SETFOCUS, 0, 0, SMTO_ABORTIFHUNG, 2000, nullptr);
+        if (blockUserInput) PostMessageW(gameWindow, kShowCursorMessage, 0, 0);
     }
     bool padWasActive = false;
     for (unsigned tick = 0; stop && WaitForSingleObject(stop, 100) == WAIT_TIMEOUT; tick++) {
         // Announce pad arrival/removal the way a real device would, so the game re-enumerates.
+        // ACU takes the foreground some time after its window appears (not yet at install). For
+        // the first 90 s hand it back whenever it does; the foreground process may do that.
+        if (returnFocusTo && tick < 900 && realForeground() == gameWindow && IsWindow(returnFocusTo)) {
+            if (SetForegroundWindow(returnFocusTo)) { returnedFocus = true; InterlockedIncrement(&focusReturns); }
+            if (realClipCursor) realClipCursor(nullptr);
+        }
+        if (teleport && teleport->magic == kTeleportMagic && teleport->request != teleport->done)
+            PostMessageW(gameWindow, kTeleportMessage, 0, 0);
         bool active = padActive(0);
         if (active != padWasActive) {
             PostMessageW(gameWindow, WM_DEVICECHANGE, 0x0007 /* DBT_DEVNODES_CHANGED */, 0);

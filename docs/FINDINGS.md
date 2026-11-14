@@ -98,3 +98,15 @@ re-derives ACUFixes' candidate selection loop, fancy-vtable layout and action
 fitness/distance offsets against this build; see [the review](ACUFIXES_REFERENCE.md).
 Live parkour selection: [ACU-RE-0042](findings/ACU-RE-0042-parkour-candidate-trace.md)
 records the game's candidate lists, ranking and chosen action during a scripted run.
+Parkour action classes: [ACU-RE-0043](findings/ACU-RE-0043-parkour-action-classes.md) maps the
+factory type numbers to constructors, vtables and fancy tables, cross-checked against live traces.
+Player state: [ACU-RE-0044](findings/ACU-RE-0044-player-state-and-repeatable-start.md) reads the
+player entity and transform live and gives captures a repeatable start.
+Decisions and clips: [ACU-RE-0045](findings/ACU-RE-0045-decision-clips-and-window-sweep.md) pairs
+parkour decisions with the clips that follow and records the first staged sweep (window entry).
+Teleport and vault scan: [ACU-RE-0046](findings/ACU-RE-0046-player-teleport-and-vault-scan.md)
+moves the player live (entity matrix + Human behaviour reset; the debug menu teleport is absent
+in retail) and scans for spots where vault clips start.
+Offline placements: [ACU-RE-0047](findings/ACU-RE-0047-paris-placements-offline.md) decodes every
+Paris and Versailles cell placement (397,205 Paris placements, transforms, direct mesh references,
+prop types sized from LOD0) and matches live Versailles positions to under 1 mm.

@@ -1,5 +1,37 @@
 # Project status
 
+Latest (2026-11-14, teleport, safety flags, world inventory, offline placements): Arno can be
+teleported live (entity matrix + Human behaviour reset; the debug "Teleport Character" is absent
+in retail), made invisible to enemies and immortal through the debug menu's own flags, and every
+loaded entity can be listed with its placement name ([ACU-RE-0046](findings/ACU-RE-0046-player-teleport-and-vault-scan.md)).
+The pinned save is in Versailles; it was mapped fully (11,384 entities) and probed for vaults
+(first SkipOver vaults captured; per-prop move labels still noisy). Offline, every Paris and
+Versailles placement is decoded with transforms and mesh references, matching live positions
+to under 1 mm ([ACU-RE-0047](findings/ACU-RE-0047-paris-placements-offline.md)). A live Paris
+scan needs a save in Paris.
+
+Latest (2026-11-14, decisions to clips, first staged sweep): every capture now records the
+playing animation clips and pairs each parkour decision with the clips that start after it,
+named from the asset index ([ACU-RE-0045](findings/ACU-RE-0045-decision-clips-and-window-sweep.md)).
+`tools/native_probe/staged_sweep.py` walks Arno (closed loop, along a recorded route) to one
+spot and runs at it from several angles; at a window it captured angle-dependent blends of the
+0°/45° window-entry clips. Window entries are not chosen by the parkour selection function.
+
+Latest (2026-11-14, repeatable captures): the player entity and transform are read live with
+no hooks ([ACU-RE-0044](findings/ACU-RE-0044-player-state-and-repeatable-start.md)): Z up,
+matrix row 1 = forward. With `tools/save_pin.py` and a movement-free world check, captures
+start at the same position every run; the user's mouse/keyboard are blocked from the game.
+Parkour type numbers now map to constructors, vtables and fancy tables
+([ACU-RE-0043](findings/ACU-RE-0043-parkour-action-classes.md); 31 live classes agree, none
+disagree). Open: the game's teleport routine (position writes are overwritten each frame),
+closed-loop navigation live test, clip per decision, then staged per-action sweeps.
+
+Latest (2026-11-14, one-command capture): `tools/native_probe/capture_run.py` takes a closed
+game to a decoded parkour trace and closes it again with no user input (126 s in the first
+complete run; see [CONTROLLER_AUTOPLAY.md](CONTROLLER_AUTOPLAY.md#one-command-capture)). The
+capture preset now also sets `GFXSettings.ACU.xml`, which the game otherwise uses to restore
+1080p in ACU.ini at launch. Open: the autosave moves the start position between runs.
+
 Latest (2026-11-14, parkour candidate trace): **the original game's traversal choices are
 now recorded live** ([ACU-RE-0042](findings/ACU-RE-0042-parkour-candidate-trace.md)). A
 hands-off background run (focus shim + in-process controller, game unfocused) drove Arno for

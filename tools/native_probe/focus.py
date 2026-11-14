@@ -53,10 +53,15 @@ def status_path(pid: int) -> Path:
 
 
 def status(pid: int) -> dict | None:
-    try:
-        return json.loads(status_path(pid).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
+    # The shim replaces the file every second; a read can land mid-replace (pinned-3b, 2026-11-14,
+    # stopped a replay), so retry briefly before reporting no status.
+    for attempt in range(3):
+        try:
+            return json.loads(status_path(pid).read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            if attempt < 2:
+                time.sleep(0.05)
+    return None
 
 
 def live(pid: int) -> dict | None:
@@ -69,13 +74,18 @@ def live(pid: int) -> dict | None:
     return s if all(p.get("active") for p in s.get("patches", [])) else None
 
 
-def install(pid: int, dll: Path = OUT / "acu_focus.dll", timeout: float = 15, fps_cap: int = 0) -> dict:
+def install(pid: int, dll: Path = OUT / "acu_focus.dll", timeout: float = 15, fps_cap: int = 0,
+            block_user_input: bool = False, return_focus: int = 0) -> dict:
+    """block_user_input: the user's mouse/keyboard never reach the game, even when it is really
+    focused. return_focus: window handle to give the foreground back to if the game holds it."""
     if live(pid):
         return live(pid)
     if not 0 <= fps_cap <= 240:
         raise ValueError("fps_cap must be 0 (off) .. 240")
     # Read by the shim at install: [focus] fps_cap paces IDXGISwapChain::Present.
-    (OUT / "acu_focus.ini").write_text(f"[focus]\nfps_cap={fps_cap}\n", encoding="ascii")
+    (OUT / "acu_focus.ini").write_text(
+        f"[focus]\nfps_cap={fps_cap}\nblock_user_input={int(block_user_input)}\nreturn_focus={return_focus:x}\n",
+        encoding="ascii")
     # LoadLibrary of an already-loaded path is a no-op, so every install uses a fresh copy. The
     # copy stays in OUT because the shim writes focus-<pid>.json beside its own DLL.
     copy = OUT / f"acu_focus-{pid}-{time.time_ns()}.dll"
@@ -185,8 +195,10 @@ def main() -> None:
     ap.add_argument("pid", type=int)
     ap.add_argument("--dll", type=Path, default=OUT / "acu_focus.dll")
     ap.add_argument("--fps-cap", type=int, default=0, help="frame limiter for install (0 = off)")
+    ap.add_argument("--block-user-input", action="store_true",
+                    help="install: the user's mouse/keyboard never reach the game, even when it is focused")
     a = ap.parse_args()
-    result = install(a.pid, a.dll, fps_cap=a.fps_cap) if a.mode == "install" else remove(a.pid) if a.mode == "remove" else status(a.pid)
+    result = install(a.pid, a.dll, fps_cap=a.fps_cap, block_user_input=a.block_user_input) if a.mode == "install" else remove(a.pid) if a.mode == "remove" else status(a.pid)
     print(json.dumps(result, indent=2))
 
 

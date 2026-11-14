@@ -70,7 +70,38 @@ Inferences and limits:
   the session, so per-frame completeness is not claimed.
 - One run, one save location. No claim about which input caused which action type.
 
+## Second run: capture preset, 60 fps cap
+
+Same profile and moves, after a relaunch with `tools/capture_preset.py` applied and the shim's
+60 fps limiter; Arno started at the save's spawn in a crowded street, not where run 1 began.
+Trace `local/native-probe/runs/parkour-2-preset/native-session.jsonl`, SHA-256
+`b2d4693db9fb5bbc759c6900933d1ced47fbc9585a140aaff8a32ca0033b53fd`. Probe drops: 0.
+
+| Quantity | Run 1 | Run 2 |
+| --- | --- | --- |
+| Selection calls | 944 | 32 |
+| Calls that chose an action | 17 | 31 |
+| Action types chosen | 9 | 9 (adds 15, 32, 77) |
+
+Run 2 has none of run 1's near-continuous non-selecting calls (two type-53 candidates almost
+every frame). The start position, the route actually taken and the settings all differ, so the
+difference is **not** attributed to the preset. Game-window captures show street level, a
+roof, a facade climb and a balcony. Type 8 was chosen five times in a row (4.9–9.2 s, fitness
+4.04–4.31, distance 5.3–6.6) during the first RT+A step.
+
+Run 3, `capture_run.py` (one command, 2026-11-14): trace
+`local/native-probe/runs/parkour-5-runner/scenario/native-session.jsonl`, SHA-256
+`143ce084a5504af6acd48264208b2f55c5ee1da775b0f2a730ab77cb9323e6fa`; preset confirmed by a
+1280x720 client area; 37 selection calls, 35 chosen, 16 chosen types, 0 probe drops,
+no decode problems. Different start again (the autosave moves it), so not compared.
+
 ## Reproduce
+
+```powershell
+python tools/native_probe/capture_run.py local/native-probe/runs/<name> --image <mapped image>
+```
+
+or step by step with a running game:
 
 ```powershell
 python tools/native_probe/focus.py install <pid>

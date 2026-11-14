@@ -377,9 +377,14 @@ def capture_screenshot(output, name, hwnd=None):
 def focus_shim_status(pid):
     """Status written by acu_focus.dll beside it; refreshed about once a second while installed."""
     path = ROOT/"local/native-probe"/f"focus-{pid}.json"
-    try:
-        status = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    status = None
+    for attempt in range(3):  # the shim replaces the file each second; a read can land mid-replace
+        try:
+            status = json.loads(path.read_text(encoding="utf-8"))
+            break
+        except (OSError, ValueError):
+            time.sleep(0.05)
+    if status is None:
         return None
     kernel = C.WinDLL("kernel32")
     kernel.GetTickCount64.restype = C.c_uint64

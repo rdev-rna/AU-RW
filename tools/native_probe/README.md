@@ -188,6 +188,9 @@ and raycast arguments/results when those native layouts are recovered.
 
 ## Background runs: focus shim and in-process controller
 
+For a whole capture in one command (launch, load the save, scenario, decode, close) use
+`capture_run.py`; see `docs/CONTROLLER_AUTOPLAY.md` "One-command capture".
+
 `acu_focus.dll` (source `focus.cpp`) keeps ACU running and controllable while another window
 has focus, so captures need no attention from the user:
 
@@ -207,6 +210,24 @@ python tools/native_probe/focus.py remove <pid>     # restores everything listed
   reports a connected pad with that state, and the window receives `WM_DEVICECHANGE` so the
   game enumerates it. No device or driver is involved and no other process sees the pad.
 
+- User input block: `focus.py install <pid> --block-user-input` (the runner's default) keeps
+  the user's mouse and keyboard out even while ACU really has the foreground, drops its
+  `ClipCursor`/`SetCursorPos`/`ShowCursor(FALSE)` (reported as -1, since ACU hides in a loop
+  until the count is negative) and hands the foreground back to `return_focus` during the
+  first 90 s.
+- Player state: `player_state.py <pid>` reads the player entity and transform (ACU-RE-0044);
+  `navigate.py <pid> goto X Y` / `face DEG` drive Arno there in closed loop.
+- Teleport: `teleport.py <pid> to X Y Z` writes the player entity matrix and calls the Human's
+  behaviour reset (`0x14131A530`) on the game window's thread through the shim's
+  `Local\acu-teleport-<pid>` section (ACU-RE-0046). Heading is not kept (the reset restores it);
+  pick Z on known ground. `vault_scan.py` uses it to free-run outwards from many ground points
+  and ranks the spots where vault clips (`SkipOver`/`SlideOver`/`JumpOn*`) start.
+  `teleport.py <pid> invisible on` / `godmode on` set the debug menu's flags (enemies ignore
+  Arno; no death). A teleport that ends more than 1.5 m below its target (ground not streamed)
+  is retried with longer waits.
+- World inventory: `world_entities.py <pid> out.json` lists loaded entities (World pointer at
+  +0x60, rigid matrix at +0x20, name via [E+0x130]+0x10). `hop_scan.py` teleports across a
+  whole region and maps it; `tools/prop_moves.py` labels prop types from probe runs.
 - Frame limiter: `focus.py install <pid> --fps-cap N` writes `acu_focus.ini`; the shim paces
   `IDXGISwapChain::Present` (vtable slot 8, found through a throwaway swap chain) to N per
   second and reports the measured rate in `frame.fps`.
