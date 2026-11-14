@@ -39,6 +39,22 @@ observed slot. On this host ViGEm reports 0 while the state is visible at XInput
 slot 3. F12 stops replay immediately; the timeline records controller state
 and timings after the calibration pulse has been released.
 
+## Background runs (no focus, no ViGEm)
+
+With the focus shim installed (`tools/native_probe/focus.py install <pid>`), `--background`
+replaces the foreground guard with a check that the shim is live, and `--in-process-pad`
+serves the scripted controller from inside the game instead of a ViGEm device. Background
+screenshots render only the game window (`PrintWindow`); the desktop is never captured.
+F12 still stops a replay.
+
+```powershell
+python tools/native_probe/controller_autoplay.py <pid> tools/native_probe/parkour_moves.example.json local/native-probe/runs/<name> --expected-sha256 <exe-sha256> --background --in-process-pad --probe-profile tools/native_probe/parkour_selection.profile.json
+```
+
+`continue_from_menu.example.json` presses A on the highlighted Continue item and waits for
+the world. On 2026-11-14 the ViGEm virtual pad device (`USB\VID_045E&PID_028E\01`) was
+disabled in Device Manager, so XInput never saw it; the in-process pad does not depend on it.
+
 ## Input sweep and native correlation
 
 After reaching gameplay, `controller_sweep.example.json` sends every ordinary

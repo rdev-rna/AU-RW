@@ -1,0 +1,23 @@
+{
+  "description": "Parkour candidate selection trace (ACU-RE-0041). Installed ACU.exe 748abdc6...27e40, image base 0x140000000. Entry 0x140133B00: a9 (candidate SmallArray) is the 9th argument at [RSP+0x48]. Shared epilogue 0x140133D4B: every return path reaches it with EAX = selected index (sorted order) or 0xFFFFFFFF, and RSI still holding a9 (loaded at 0x140133B1B). SmallArray: data pointer +0, u16 count +10 (corpus 140133B00.c:34,49,60). Candidate bytes are copied raw; decoding uses only offsets verified in ACU-RE-0041.",
+  "rotation_seconds": 600,
+  "probes": [
+    {
+      "label": "parkour_select_entry",
+      "rva": "133b00",
+      "expected_hex": "488bc448895818488968204889501056",
+      "category": "traversal",
+      "register_index": 9,
+      "offset": 0,
+      "bytes": 80,
+      "gather": {"register_index": 9, "offset": 72, "deref": true, "data_offset": 0, "count_offset": 10, "max_elements": 16, "element_bytes": 672}
+    },
+    {
+      "label": "parkour_select_exit",
+      "rva": "133d4b",
+      "expected_hex": "4c8d5c2470498b5b40498b6b48498be3415f415d415c5f5ec3",
+      "category": "traversal",
+      "gather": {"register_index": 6, "offset": 0, "deref": false, "data_offset": 0, "count_offset": 10, "max_elements": 16, "element_bytes": 672}
+    }
+  ]
+}

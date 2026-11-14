@@ -21,6 +21,9 @@ K.CloseHandle.argtypes = [W.HANDLE]
 K.WaitNamedPipeW.argtypes = [W.LPCWSTR, W.DWORD]
 
 
+MAX_RESPONSE_BYTES = 32 * 1024 * 1024  # 256 gathered events of 16 x 768 bytes, hex-encoded, fit with margin
+
+
 def command(pid: int, text: str) -> dict:
     data = (text + "\n").encode("ascii")
     if len(data) > 65535:
@@ -51,7 +54,7 @@ def command(pid: int, text: str) -> dict:
             if not done.value:
                 raise RuntimeError("probe closed pipe without a complete response")
             result.extend(buf.raw[:done.value])
-            if len(result) > 1048576:
+            if len(result) > MAX_RESPONSE_BYTES:
                 raise RuntimeError("oversized response")
         K.WriteFile(pipe, b"ACK", 3, C.byref(done), None)
         return json.loads(result)
@@ -202,6 +205,25 @@ def scan(pid: int, address: int, length: int, pattern: str, max_bytes: int = 64*
     return {"matches": hits, "holes": holes, "truncated": False}
 
 
+def gather_command(slot: int, gather: dict) -> str:
+    """GATHER for one hooked slot: follow a pointer array inside the hit handler.
+
+    base = register + offset (dereferenced once when `deref`); data = *(base+data_offset);
+    count = u16 at base+count_offset; element i = *(data+8*i); copy element_bytes of each.
+    """
+    reg = int(gather["register_index"])
+    offset = int(gather.get("offset", 0))
+    deref = 1 if gather.get("deref", False) else 0
+    data_offset = int(gather.get("data_offset", 0))
+    count_offset = int(gather["count_offset"])
+    max_elements = int(gather["max_elements"])
+    element_bytes = int(gather["element_bytes"])
+    if not (0 <= reg < 16 and 0 <= data_offset <= 4096 and 0 <= count_offset <= 4096
+            and 1 <= max_elements <= 16 and 1 <= element_bytes <= 768):
+        raise ValueError("gather outside register 0..15, offsets 0..4096, 1..16 elements, 1..768 bytes")
+    return f"GATHER {slot} {reg} {offset} {deref} {data_offset} {count_offset} {max_elements} {element_bytes}"
+
+
 def session(pid: int, profile: Path, output: Path, seconds: float, max_bytes: int,
             stop_file: Path | None = None) -> None:
     config = json.loads(profile.read_text(encoding="utf-8"))
@@ -255,6 +277,9 @@ def session(pid: int, profile: Path, output: Path, seconds: float, max_bytes: in
                         raise ValueError("category must contain no whitespace")
                     cmd = f"{kind} {slot} {address} {p['expected_hex']} {label} {int(p.get('every', 1))} {int(p.get('register_index', 0))} {int(p.get('offset', 0))} {int(p.get('bytes', 0))} {category}"
                     checked(pid, cmd)
+                    gather = p.get("gather")
+                    if gather:
+                        checked(pid, gather_command(slot, gather))
                 redirect = config.get("redirect")
                 if redirect:
                     slot = int(redirect["slot"])

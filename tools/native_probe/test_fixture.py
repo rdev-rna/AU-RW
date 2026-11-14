@@ -91,6 +91,35 @@ class FixtureTest(unittest.TestCase):
             changed = checked(pid, "WATCHES")["watches"][0]
             self.assertGreater(changed["changes"], initial["changes"])
             self.assertGreater(int.from_bytes(bytes.fromhex(changed["hex"]), "little"), int.from_bytes(bytes.fromhex(initial["hex"]), "little"))
+            # Pointer-array gather: RCX is the array, RDX points at a pointer to it.
+            select = sites["ProbeFixtureSelect"]
+            select_bytes = checked(pid, f"READ {base+select:x} 8")["hex"]
+            self.assertFalse(command(pid, "GATHER 1 0 0 0 0 10 4 16")["ok"])  # no hook in slot 1
+            checked(pid, f"HOOK 1 {select:x} {select_bytes} fixture_select")
+            self.assertFalse(command(pid, "GATHER 1 0 0 0 0 10 17 16")["ok"])  # too many elements
+            self.assertFalse(command(pid, "GATHER 1 0 0 0 0 10 4 769")["ok"])  # element too large
+            self.assertFalse(command(pid, "GATHER 1 16 0 0 0 10 4 16")["ok"])  # bad register
+            self.assertFalse(command(pid, "GATHER 1 0 0 2 0 10 4 16")["ok"])  # deref is 0 or 1
+            expected_elements = [bytes(0x10*(i+1)+k for k in range(16)).hex() for i in range(3)]
+            for reg, deref in ((0, 0), (1, 1)):
+                checked(pid, f"HOOK 1 {select:x} {select_bytes} fixture_select")
+                checked(pid, f"GATHER 1 {reg} 0 {deref} 0 10 4 16")
+                time.sleep(.1)
+                gathered = [e for e in checked(pid, "EVENTS 64")["events"] if e["label"] == "fixture_select"]
+                self.assertTrue(gathered)
+                g = gathered[-1]["gather"]
+                self.assertTrue(g["ok"])
+                self.assertEqual(g["count"], 3)
+                self.assertEqual(int(g["base"], 16), int(gathered[-1]["registers"][0], 16))
+                self.assertEqual([e["hex"] for e in g["elements"]], expected_elements)
+            checked(pid, f"GATHER 1 0 0 0 0 10 2 16")  # bounded below the array length
+            time.sleep(.1)
+            g = [e for e in checked(pid, "EVENTS 64")["events"] if e["label"] == "fixture_select"][-1]["gather"]
+            self.assertEqual((g["count"], len(g["elements"])), (3, 2))
+            checked(pid, f"HOOK 1 {select:x} {select_bytes} fixture_select")  # HOOK clears gather
+            time.sleep(.1)
+            self.assertNotIn("gather", [e for e in checked(pid, "EVENTS 64")["events"] if e["label"] == "fixture_select"][-1])
+            checked(pid, "UNHOOK 1")
             for _ in range(100):
                 checked(pid, "UNHOOK 0")
                 checked(pid, f"HOOK 0 {tick:x} {expected} fixture_tick")

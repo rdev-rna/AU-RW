@@ -16,6 +16,7 @@ $digest = (Get-FileHash -LiteralPath (Join-Path $out 'acu_probe_fixture.exe') -A
 Set-Content -LiteralPath (Join-Path $out 'fixture_hash.h') -Value ('#define FIXTURE_SHA256 "' + $digest + '"') -Encoding Ascii
 Compile ('"' + $source + '\launcher.cpp" /I"' + $out + '" /Fe:acu_probe_launcher.exe /link /INCREMENTAL:NO')
 Compile ('/LD "' + $source + '\probe.cpp" /Fe:acu_probe.dll /link /INCREMENTAL:NO')
+Compile ('/LD "' + $source + 'ocus.cpp" /Fe:acu_focus.dll /link /INCREMENTAL:NO')
 Copy-Item -LiteralPath (Join-Path $out 'acu_probe_launcher.exe') -Destination (Join-Path $out 'ACU-Probe.exe')
 $paths = (& python (Join-Path $root 'tools/acu.py') paths | ConvertFrom-Json)
 $gameExe = Join-Path $paths.game_dir 'ACU.exe'

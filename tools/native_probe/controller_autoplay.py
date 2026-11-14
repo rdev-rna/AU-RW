@@ -321,33 +321,100 @@ class VirtualState:
             raise ValueError("stick/trigger values are out of range")
 
 
-def capture_screenshot(output, name):
-    from PIL import ImageGrab
+def capture_window(hwnd):
+    """Render one window with PrintWindow(PW_RENDERFULLCONTENT); never reads the desktop."""
+    from PIL import Image
+    user, gdi = C.WinDLL("user32"), C.WinDLL("gdi32")
+    user.GetClientRect.argtypes = [W.HWND, C.POINTER(W.RECT)]
+    user.GetDC.restype = W.HDC
+    user.GetDC.argtypes = [W.HWND]
+    user.ReleaseDC.argtypes = [W.HWND, W.HDC]
+    user.PrintWindow.argtypes = [W.HWND, W.HDC, W.UINT]
+    gdi.CreateCompatibleDC.restype = W.HDC
+    gdi.CreateCompatibleDC.argtypes = [W.HDC]
+    gdi.CreateCompatibleBitmap.restype = W.HBITMAP
+    gdi.CreateCompatibleBitmap.argtypes = [W.HDC, C.c_int, C.c_int]
+    gdi.SelectObject.restype = W.HGDIOBJ
+    gdi.SelectObject.argtypes = [W.HDC, W.HGDIOBJ]
+    gdi.GetBitmapBits.argtypes = [W.HBITMAP, C.c_long, C.c_void_p]
+    gdi.DeleteObject.argtypes = [W.HGDIOBJ]
+    gdi.DeleteDC.argtypes = [W.HDC]
+    rect = W.RECT()
+    if not user.GetClientRect(hwnd, C.byref(rect)) or rect.right <= 0 or rect.bottom <= 0:
+        raise RuntimeError("game window has no client area to capture")
+    width, height = rect.right, rect.bottom
+    screen = user.GetDC(None)
+    memory = gdi.CreateCompatibleDC(screen)
+    bitmap = gdi.CreateCompatibleBitmap(screen, width, height)
+    previous = gdi.SelectObject(memory, bitmap)
+    try:
+        if not user.PrintWindow(hwnd, memory, 1 | 2):  # PW_CLIENTONLY | PW_RENDERFULLCONTENT
+            raise RuntimeError("PrintWindow failed for the game window")
+        buffer = C.create_string_buffer(width * height * 4)
+        gdi.GetBitmapBits(bitmap, len(buffer), buffer)
+        return Image.frombuffer("RGB", (width, height), buffer.raw, "raw", "BGRX", 0, 1)
+    finally:
+        gdi.SelectObject(memory, previous)
+        gdi.DeleteObject(bitmap)
+        gdi.DeleteDC(memory)
+        user.ReleaseDC(None, screen)
+
+
+def capture_screenshot(output, name, hwnd=None):
+    """Game-window capture when hwnd is known (background runs); whole screen only in foreground runs."""
     safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", name).strip("_.") or "checkpoint"
     folder = output / "screenshots"
     folder.mkdir(exist_ok=True)
     path = folder / f"{safe_name}.png"
-    ImageGrab.grab(all_screens=True).save(path)
+    if hwnd:
+        capture_window(hwnd).save(path)
+    else:
+        from PIL import ImageGrab
+        ImageGrab.grab(all_screens=True).save(path)
     return path
 
 
+def focus_shim_status(pid):
+    """Status written by acu_focus.dll beside it; refreshed about once a second while installed."""
+    path = ROOT/"local/native-probe"/f"focus-{pid}.json"
+    try:
+        status = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    kernel = C.WinDLL("kernel32")
+    kernel.GetTickCount64.restype = C.c_uint64
+    fresh = kernel.GetTickCount64() - int(status.get("tick_ms", 0)) < 5000
+    ok = (status.get("pid") == pid and status.get("state") == "installed" and status.get("subclassed")
+          and fresh and all(p.get("active") for p in status.get("patches", [])))
+    return status if ok else None
+
+
+def target_active(pid, background):
+    """Foreground mode needs the game focused; background mode needs a live focus shim instead."""
+    return focus_shim_status(pid) is not None if background else foreground_pid() == pid
+
+
 def run_steps(pad, profile, pid, output, snapshot, max_bytes, checkpoint_names,
-              screenshot_start, screenshot_steps):
+              screenshot_start, screenshot_steps, background=False):
     probe = client_module()
     log_path = output / "input-timeline.jsonl"
     period = 1.0 / profile.get("report_hz", 60)
     if not 10 <= profile.get("report_hz", 60) <= 120:
         raise ValueError("report_hz must be 10..120")
+    # Background runs never grab the desktop: the user's other windows are not part of a capture.
+    game_window = int((focus_shim_status(pid) or {}).get("window", "0"), 16) if background else None
+    if background and (screenshot_start or screenshot_steps) and not game_window:
+        raise RuntimeError("background screenshots need the focus shim's game window handle")
     with log_path.open("x", encoding="utf-8", newline="\n") as log:
         def emit(row):
             log.write(json.dumps({"unix_time": time.time(), **row})+"\n")
             log.flush()
         if screenshot_start:
-            path = capture_screenshot(output, "start")
+            path = capture_screenshot(output, "start", game_window)
             emit({"kind":"screenshot", "name":"start", "path":str(path.resolve())})
         for index, step in enumerate(profile["steps"]):
-            if foreground_pid() != pid:
-                raise RuntimeError("target game lost foreground; controller released and replay stopped")
+            if not target_active(pid, background):
+                raise RuntimeError("target game lost foreground (or its focus shim); controller released and replay stopped")
             start = time.perf_counter()
             end = start + step["duration_ms"] / 1000.0
             observed = False
@@ -356,11 +423,13 @@ def run_steps(pad, profile, pid, output, snapshot, max_bytes, checkpoint_names,
             while time.perf_counter() < end:
                 if user32.GetAsyncKeyState(STOP_VK) & 1:
                     raise KeyboardInterrupt("F12 emergency stop")
-                if foreground_pid() != pid:
-                    raise RuntimeError("target game lost foreground; replay stopped")
+                if not target_active(pid, background):
+                    raise RuntimeError("target game lost foreground (or its focus shim); replay stopped")
                 pad.update(step)
                 if not observed:
-                    state = read_xinput_state(pad.user_index)
+                    in_process = getattr(pad, "calibration_probe", {}).get("method") == "in_process_pad"
+                    state = ({"result": 0, "shim_pad": (focus_shim_status(pid) or {}).get("pad")}
+                             if in_process else read_xinput_state(pad.user_index))
                     emit({"kind":"xinput_readback", "index":index, "name":step["name"], **state})
                     if not pad.index_verified and (
                         step.get("buttons") or step.get("left_trigger", 0)
@@ -377,7 +446,7 @@ def run_steps(pad, profile, pid, output, snapshot, max_bytes, checkpoint_names,
                   "release_state":{"buttons":[],"left_stick":[0,0],"right_stick":[0,0],
                                    "left_trigger":0,"right_trigger":0}})
             if step["name"] in screenshot_steps:
-                path = capture_screenshot(output, f"{index:03d}_{step['name']}")
+                path = capture_screenshot(output, f"{index:03d}_{step['name']}", game_window)
                 emit({"kind":"screenshot", "index":index, "name":step["name"],
                       "path":str(path.resolve())})
             if snapshot != "none" and (step.get("checkpoint") or step["name"] in checkpoint_names):
@@ -410,6 +479,12 @@ def main():
                     help="save an all-monitor screenshot before the first input step")
     ap.add_argument("--screenshot-step", action="append", default=[],
                     help="save an all-monitor screenshot after the named step (repeatable)")
+    ap.add_argument("--background", action="store_true",
+                    help="run without focus: requires acu_focus.dll installed in the target (tools/native_probe/focus.py); "
+                         "the virtual pad is then visible to any XInput reader, so keep other gamepad apps closed")
+    ap.add_argument("--in-process-pad", action="store_true",
+                    help="serve the controller from the focus shim inside the game instead of a ViGEm device; "
+                         "requires --background; no other process sees the pad")
     ap.add_argument("--probe-profile", type=Path,
                     help="optional native hook profile to run concurrently; hooks are removed on exit")
     ap.add_argument("--category", action="append", default=[],
@@ -430,7 +505,9 @@ def main():
     xref_args = (args.xref_functions, args.xref_summary, args.corpus)
     if any(xref_args) and not all(xref_args):
         ap.error("--xref-functions, --xref-summary and --corpus must be supplied together")
-    if not args.vigem_client:
+    if args.in_process_pad and not args.background:
+        ap.error("--in-process-pad requires --background (the pad lives in the focus shim)")
+    if not args.vigem_client and not args.in_process_pad:
         ap.error("ViGEm bus is present but the user-mode ViGEmClient DLL was not located; pass --vigem-client")
     # PowerShell's default UTF-8 output can include a BOM; accept it for JSON profiles.
     profile = json.loads(args.profile.read_text(encoding="utf-8-sig"))
@@ -441,16 +518,18 @@ def main():
     actual_sha, status, modules = process_exe_sha256(args.pid)
     if actual_sha.lower() != args.expected_sha256.lower():
         ap.error(f"target image SHA-256 mismatch: got {actual_sha}")
-    if foreground_pid() != args.pid:
-        ap.error("focus the target game's foreground window before starting the replay")
+    if not target_active(args.pid, args.background):
+        ap.error("install the focus shim (tools/native_probe/focus.py install PID) for --background"
+                 if args.background else "focus the target game's foreground window before starting the replay")
     output.mkdir(parents=True, exist_ok=False)
     if args.plan_file:
         (output/"capture-plan.json").write_bytes(args.plan_file.read_bytes())
     metadata = {"schema_version":1, "pid":args.pid, "image_sha256":actual_sha,
                 "image_base":status["image_base"], "profile":str(args.profile.resolve()),
                 "profile_sha256":hashlib.sha256(args.profile.read_bytes()).hexdigest(),
-                "duration_ms":duration, "modules":modules, "controller_api":"ViGEmClient XUSB",
+                "duration_ms":duration, "modules":modules, "controller_api":"in-process shim XInput" if args.in_process_pad else "ViGEmClient XUSB",
                 "capture_categories":sorted(set(args.category)),
+                "background_focus_shim":focus_shim_status(args.pid) if args.background else None,
                 "snapshot_mode":args.snapshot, "snapshot_max_bytes":args.max_bytes,
                 "f12_emergency_stop":True, "started_utc":datetime.now(timezone.utc).isoformat()}
     (output/"run.json").write_text(json.dumps(metadata,indent=2)+"\n",encoding="utf-8")
@@ -458,7 +537,13 @@ def main():
     stop_file = output / "stop-probe-session"
     trace_path = output / "native-session.jsonl"
     try:
-        with VirtualX360(args.vigem_client, args.expected_user_index) as pad:
+        if args.in_process_pad:
+            sys.path.insert(0, str(Path(__file__).resolve().parent))
+            from focus import InProcessPad
+            pad_context = InProcessPad(args.pid)
+        else:
+            pad_context = VirtualX360(args.vigem_client, args.expected_user_index)
+        with pad_context as pad:
             metadata["xinput_user_index"] = pad.user_index
             metadata["vigem_reported_user_index"] = pad.reported_user_index
             metadata["xinput_index_calibration"] = pad.calibration_probe
@@ -503,7 +588,7 @@ def main():
                     raise RuntimeError("native probe session did not arm within 30 seconds; inspect native-session.jsonl and native-session.stdout.txt")
             log_path = run_steps(pad, profile, args.pid, output, args.snapshot,
                                  args.max_bytes, set(args.checkpoint),
-                                 args.screenshot_start, set(args.screenshot_step))
+                                 args.screenshot_start, set(args.screenshot_step), args.background)
     finally:
         if session_process:
             stop_file.touch(exist_ok=True)

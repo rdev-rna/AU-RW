@@ -72,6 +72,7 @@ service or privilege boundary.
 | `READ hex-VA decimal-length` | Exact bounded read,1..65536bytes; inaccessible/partial reads fail |
 | `HOOK slot hex-RVA expected-lowercase-hex label [every register-index signed-offset bytes]` | Verified executable-site probe, slots0..3, expected bytes1..32; sample size0..256 |
 | `HOOKVA slot hex-VA expected-lowercase-hex label [every register-index signed-offset bytes category]` | Same guards for an absolute executable address in any loaded module |
+| `GATHER slot reg-index signed-disp deref(0/1) data-offset count-offset max-elements bytes` | On each sampled hit of that slot's hook, follow a pointer array inside the handler: base = register+disp (optionally dereferenced once), data = `*(base+data-offset)`, count = u16 at `base+count-offset`, then copy `bytes` (1..768) from each of up to 16 elements. A new `HOOK` in the slot clears it |
 | `UNHOOK slot` | Restore affected debug-register slot to its original state |
 | `EVENTS [count]` | Drain bounded ring; return newest up to256events, discard omitted older events |
 | `WATCH label hex-VA decimal-length` | Up to32 absolute-memory watches, each1..4096bytes |
@@ -184,6 +185,33 @@ readback against the requested report. Without that option it discovers the
 slot with the pulse and confirms release before replay.
 Use separately labelled entry and verified post-call sites for traversal tests
 and raycast arguments/results when those native layouts are recovered.
+
+## Background runs: focus shim and in-process controller
+
+`acu_focus.dll` (source `focus.cpp`) keeps ACU running and controllable while another window
+has focus, so captures need no attention from the user:
+
+```powershell
+python tools/native_probe/focus.py install <pid>    # copy + inject; waits for focus-<pid>.json
+python tools/native_probe/focus.py status <pid>
+python tools/native_probe/focus.py remove <pid>     # restores everything listed below
+```
+
+- Window: the game's top-level window is subclassed and deactivation messages are dropped;
+  `GetForegroundWindow`/`GetActiveWindow`/`GetFocus` return the game window inside ACU, and
+  `XInputEnable(FALSE)` is ignored. Without this, loading stalls when the game is unfocused.
+- The user's desktop never reaches the game: while the game is *really* in the background
+  (original foreground query), `GetCursorPos` returns the last focused position and DirectInput
+  `GetDeviceState`/`GetDeviceData` report no input. Focused, everything passes through.
+- In-process controller: when a runner writes into `Local\acu-pad-<pid>`, XInput user index 0
+  reports a connected pad with that state, and the window receives `WM_DEVICECHANGE` so the
+  game enumerates it. No device or driver is involved and no other process sees the pad.
+
+Patches are 5-byte `jmp rel32` to a nearby trampoline (some user32 exports are 6-byte
+stubs); call-through originals are only built for prologues whose first instruction is
+exactly 5 position-independent bytes. Removal restores the saved bytes, the two DirectInput
+vtable slots and the window procedure; the DLL stays resident as an inert module. The shim
+writes `focus-<pid>.json` beside its DLL copy. Never edits game code, files or saves.
 
 ## Verification and restoration
 

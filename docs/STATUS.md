@@ -1,5 +1,14 @@
 # Project status
 
+Latest (2026-11-14, parkour candidate trace): **the original game's traversal choices are
+now recorded live** ([ACU-RE-0042](findings/ACU-RE-0042-parkour-candidate-trace.md)). A
+hands-off background run (focus shim + in-process controller, game unfocused) drove Arno for
+about 48 s while the probe's new pointer-array `GATHER` copied every candidate at entry and
+exit of `0x140133B00`: 944 selection calls, 17 chosen actions, 13 action types, ranking and
+final-filter rejections consistent with the corpus. `tools/parkour_trace.py` decodes only
+verified fields (fitness, distance, action type via the fancy getter). Action-type meanings,
+weights and the link to animation clips remain open.
+
 Latest (2026-11-14, ACUFixes review): the unlicensed ACUFixes modding library
 (NameTaken3125, `e20228a0`) is reviewed as a cite-only lead source in
 [ACUFIXES_REFERENCE.md](ACUFIXES_REFERENCE.md); no code was copied.

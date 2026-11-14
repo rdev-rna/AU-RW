@@ -96,3 +96,5 @@ the FH trajectory/steering and cloth reference boundaries.
 Parkour selection layouts: [ACU-RE-0041](findings/ACU-RE-0041-acufixes-layout-spot-checks.md)
 re-derives ACUFixes' candidate selection loop, fancy-vtable layout and action
 fitness/distance offsets against this build; see [the review](ACUFIXES_REFERENCE.md).
+Live parkour selection: [ACU-RE-0042](findings/ACU-RE-0042-parkour-candidate-trace.md)
+records the game's candidate lists, ranking and chosen action during a scripted run.
