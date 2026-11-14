@@ -122,6 +122,17 @@ fn value(r: &mut Reader<'_>, codec: u8) -> Result<[f32; 4]> {
 
 /// Unique, fully validated mapping object; no interpretation of opaque event objects.
 pub fn parse(bytes: &[u8]) -> Result<Clip> {
+    parse_tracks(bytes, false)
+}
+
+/// Decode only the two root channels (track 0 translation, track 1 rotation), which come first.
+/// Later bone tracks may use codecs this decoder does not support (7, 8, 3); they are not read, so
+/// the trailing-bytes check is skipped. ACU-RE-0058 uses this for root motion.
+pub fn parse_root(bytes: &[u8]) -> Result<Clip> {
+    parse_tracks(bytes, true)
+}
+
+fn parse_tracks(bytes: &[u8], root_only: bool) -> Result<Clip> {
     if bytes.len() > 16 * 1024 * 1024 {
         return invalid("animation size limit");
     }
@@ -173,7 +184,8 @@ pub fn parse(bytes: &[u8]) -> Result<Clip> {
     }
     let mut tracks = Vec::with_capacity(n);
     let mut total_keys = 0usize;
-    for hash in hashes {
+    let read = if root_only { 2 } else { n };
+    for hash in hashes.into_iter().take(read) {
         let offset = r.position;
         let mut t = r.u8()?;
         if t == 255 {
@@ -246,7 +258,7 @@ pub fn parse(bytes: &[u8]) -> Result<Clip> {
             encoded_values: bytes[values_start..r.position].to_vec(),
         });
     }
-    if r.remaining() != 0 {
+    if !root_only && r.remaining() != 0 {
         return invalid("animation trailing bytes");
     }
     if tracks[0].hash != 0 || tracks[0].codec != 9 || tracks[1].hash != 0 || tracks[1].codec > 8 {
@@ -318,6 +330,35 @@ mod tests {
         bad.extend(0x0181efe8u32.to_le_bytes());
         bad.extend(42u32.to_le_bytes());
         assert!(parse(&bad).is_err());
+    }
+    #[test]
+    fn root_only_parse_ignores_unsupported_bone_tracks() {
+        // The fixture's two root tracks plus a third track in codec 7 (type 21), which the full
+        // parser rejects. Header fields that count tracks are patched from 2 to 3.
+        let mut b = fixture();
+        let mapping = b
+            .windows(4)
+            .position(|w| w == 0x0181efe8u32.to_le_bytes())
+            .unwrap();
+        b[mapping + 8..mapping + 12].copy_from_slice(&3u32.to_le_bytes());
+        let entries_end = mapping + 12 + 2 * 16;
+        let mut entry = 0u64.to_le_bytes().to_vec();
+        entry.extend(0x653caa76u32.to_le_bytes());
+        entry.extend(0x1234_5678u32.to_le_bytes());
+        b.splice(entries_end..entries_end, entry);
+        let count_at = entries_end + 16 + 2 + 4;
+        b[count_at..count_at + 2].copy_from_slice(&3u16.to_le_bytes());
+        b.push(21);
+        b.extend(8u32.to_le_bytes());
+        b.extend(1u32.to_le_bytes());
+        b.extend([0xAA; 8]);
+        assert!(parse(&b).is_err());
+        let root = parse_root(&b).unwrap();
+        let full = parse(&fixture()).unwrap();
+        assert_eq!(root.tracks.len(), 2);
+        assert_eq!(root.tracks[0].values, full.tracks[0].values);
+        assert_eq!(root.tracks[1].values, full.tracks[1].values);
+        assert!(parse_root(&b[..b.len() - 30]).is_err());
     }
     #[test]
     fn known_quaternion_axes_and_invalid_sphere() {

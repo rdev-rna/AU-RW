@@ -1,5 +1,6 @@
 //! Dump the root motion tracks (track 0 translation, track 1 orientation; ACU-RE-0018) of chosen
-//! animations in one package, for comparison with the native root delta (ACU-RE-0058).
+//! animations in one package, for comparison with the native root delta (ACU-RE-0058). A clip the
+//! decoder rejects is listed with its error.
 use acu_assets::{Limits, Result, animation, forge::Forge, package, sha256};
 use serde_json::json;
 
@@ -20,7 +21,17 @@ fn main() -> Result<()> {
             continue;
         }
         let bytes = &p.bytes[r.payload.clone()];
-        let c = animation::parse(bytes)?;
+        let c = match animation::parse_root(bytes) {
+            Ok(c) => c,
+            Err(e) => {
+                // Unsupported variants fail per clip, explicitly, without stopping the dump.
+                clips.push(
+                    json!({"file_id": r.file_id, "name": r.name, "resource_index": index,
+                    "payload_sha256": sha256(bytes), "error": e.to_string()}),
+                );
+                continue;
+            }
+        };
         let track = |i: usize| {
             let t = &c.tracks[i];
             json!({"codec": t.codec, "times": t.times, "values": t.values})

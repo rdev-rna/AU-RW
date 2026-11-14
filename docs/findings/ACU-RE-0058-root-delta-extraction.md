@@ -160,6 +160,11 @@ alone. Rotating roots and other blend node types are not tested.
   `local/native-probe/acu_probe_pre-drsync.dll` (restore by copying it back to `acu_probe.dll`).
 - Run root-extract-2 with the fix: 52 traps/s, 0 dropped, 0 conflicts, 0 stray traps.
 
+## Follow-up
+
+[ACU-RE-0059](ACU-RE-0059-trace-replay-root-motion.md) replays the earlier traces with this
+formula, covering all the action families that played.
+
 ## Development handoff
 
 - **Consumer:** `acu_motion` (sampling) and `acu_sim` (ADR-0005, `clip_root`).

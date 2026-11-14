@@ -1,5 +1,16 @@
 # Project status
 
+Latest (2026-11-14, trace replay): earlier traces were replayed against decoded clip root motion
+([ACU-RE-0059](findings/ACU-RE-0059-trace-replay-root-motion.md)).
+- New `animation::parse_root` reads only the root channels. It decodes root motion for 584 of
+  the 590 clips that played, including swings, side hops, drops, ascents, descents, beams and
+  hangs. The full parser manages 251 (bone codecs 7/8/3).
+- Locomotion plays match the clip within a median 2 cm. Falls are gravity (−9.55 m/s² measured).
+- Parkour and climbing plays deviate by a median 22 cm and 31 cm, consistent with a target warp;
+  the target link is not established.
+- New `tools/root_replay.py`. `acu_motion::root_delta` was added (synthetic tests); its live
+  oracle test is pending.
+
 Latest (2026-11-14, root-delta extraction): the animation graph's root delta is decoded
 ([ACU-RE-0058](findings/ACU-RE-0058-root-delta-extraction.md)).
 - Each playback leaf samples the clip's root tracks (track 0 translation, track 1 rotation, named
