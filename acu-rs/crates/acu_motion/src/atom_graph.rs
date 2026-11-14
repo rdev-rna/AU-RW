@@ -1150,22 +1150,41 @@ impl Pose {
     }
 }
 
-/// CHOICE (ACU-RE-0069): the evaluation context's requested sync group and looping flag
-/// (`ctx + 16`, `ctx + 20` read by `sub_1400CC8A0`) are not traced; every observed sync track
-/// uses group 0 and the locomotion roots loop.
-const SYNC_GROUP: i32 = 0;
-const SYNC_LOOPING: bool = true;
+/// The sync group and looping flag a graph state's clips build their records with.
+///
+/// Observed: the clip evaluator (`sub_1400EA0C0`) builds its record once with the evaluation
+/// arguments' `+88` dword as group and `+98` bit 0 as looping (`sub_1400CC8A0` ctx `+16`/`+20`);
+/// a group of -1 or -2 gives no markers (total = clip length, id -2); only a looping record is
+/// rotated to start at its smallest id (`sub_14002C9B0`). The root evaluator (`sub_1400EA210`)
+/// compares its own `+92` (`f92`) with the merged record's group.
+/// INFERENCE (ACU-RE-0069): group = root `f92`, looping = root `f112`. In NewDemo every loop graph
+/// (walk, sprint, idle loops) has `f92` 0, `f112` 1 and every walk start / stop / transition graph
+/// has `f92` -2, `f112` 0. The write of `+88`/`+98` itself was not found.
+#[derive(Clone, Copy, Debug)]
+struct Sync {
+    group: i32,
+    looping: bool,
+}
+
+impl Sync {
+    fn of_root(root: &Node) -> Self {
+        Sync {
+            group: root.field("f92") as u32 as i32,
+            looping: root.field("f112") & 1 != 0,
+        }
+    }
+}
 
 /// `sub_1400CC8A0` / `sub_14002C9B0`: the record of a clip node and its rotation offset.
-fn clip_record(info: Option<&ClipInfo>, mirror: bool) -> (Record, f32) {
+fn clip_record(info: Option<&ClipInfo>, mirror: bool, sync: Sync) -> (Record, f32) {
     match info {
-        Some(c) if c.duration > EPS => Record::build(
+        Some(c) if c.duration > EPS && sync.group >= 0 => Record::build(
             &c.sync_keys,
             0.0,
             c.duration,
-            SYNC_GROUP,
+            sync.group,
             mirror,
-            SYNC_LOOPING,
+            sync.looping,
         ),
         Some(c) => (Record::none(c.duration), 0.0),
         None => (Record::none(0.0), 0.0),
@@ -1207,7 +1226,9 @@ fn graph_leaves(ctx: &mut Ctx, s: usize, g: &mut GraphRt, w: f32, dt: f32, out: 
         return;
     };
     let handoff = g.handoff.clone();
+    let sync = Sync::of_root(&nodes[root]);
     let mut ev = Eval {
+        sync,
         ctx,
         nodes,
         outputs,
@@ -1257,7 +1278,7 @@ fn graph_leaves(ctx: &mut Ctx, s: usize, g: &mut GraphRt, w: f32, dt: f32, out: 
         let mirror = nodes[n].inputs.get(2).cloned().is_some_and(|p| ev.flag(&p));
         let info = ev.ctx.clips.get(&clip);
         let d = info.map(|c| c.duration).unwrap_or(0.0);
-        let (lr, offset) = clip_record(info, mirror);
+        let (lr, offset) = clip_record(info, mirror, sync);
         let time = clip_time(&lr, offset, d, after.as_ref(), next);
         let t0 = clip_time(&lr, offset, d, before.as_ref(), phase);
         let advance = (time - t0).rem_euclid(d.max(EPS));
@@ -1282,6 +1303,7 @@ struct Eval<'c, 'a> {
     latch: &'c mut HashMap<usize, f32>,
     pick: &'c mut HashMap<usize, usize>,
     handoff: Option<&'c (Record, Pos)>,
+    sync: Sync,
 }
 
 impl Eval<'_, '_> {
@@ -1413,7 +1435,7 @@ impl Eval<'_, '_> {
                 let info = self.nodes[n].clip.and_then(|c| self.ctx.clips.get(&c));
                 Pose {
                     leaves: vec![(n, 1.0)],
-                    record: clip_record(info, mirror).0,
+                    record: clip_record(info, mirror, self.sync).0,
                 }
             }
             "AtomAxialBlendNode" => self.axial(n, false),

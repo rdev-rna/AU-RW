@@ -17,6 +17,8 @@ pub struct Library {
     pub report: serde_json::Value,
     animation_root: (u32, Mat4),
     leg_helpers: Vec<(u32, LegHelper)>,
+    /// Bone name hash -> (mirror bone name hash, mirroring type), from each skeleton's bones.
+    mirror: HashMap<u32, (u32, u8)>,
 }
 enum LegHelper {
     Aim(u32),
@@ -38,6 +40,7 @@ pub fn load(game_dir: &Path) -> Result<Library> {
     let mut records = Vec::new();
     let mut rejected = Vec::new();
     let mut leg_helpers = Vec::new();
+    let mut mirror = HashMap::new();
     for (archive, entries) in [
         ("DataPC.forge", vec![110, 968, 1006]),
         ("DataPC_ACU_LGS_BelleEpoque.forge", vec![334]),
@@ -80,6 +83,12 @@ pub fn load(game_dir: &Path) -> Result<Library> {
                 let payload = &p.bytes[r.payload.clone()];
                 match skeleton::parse(payload,&r.file_id,Limits::default()){
                     Ok(s)=>{
+                        let ids: HashMap<_, _> = s.bones.iter().map(|b|(b.file_id.as_str(),b.name_hash)).collect();
+                        for b in &s.bones {
+                            if let Some(m) = pointer(&b.mirror).and_then(|id| ids.get(id)) {
+                                mirror.entry(b.name_hash).or_insert((*m, b.mirroring_type as u8));
+                            }
+                        }
                         if r.name == "ACU_Unisex_LegsRollbones" {
                             use skeleton::humanoid::{ModifierData, ObjectData};
                             let ids: HashMap<_, _> = s.bones.iter().map(|b|(b.file_id.as_str(),b.name_hash)).collect();
@@ -132,6 +141,7 @@ pub fn load(game_dir: &Path) -> Result<Library> {
         report: json!({}),
         animation_root,
         leg_helpers,
+        mirror,
     };
     let mut pending = sources;
     let mut registrations = Vec::new();
@@ -220,6 +230,23 @@ pub struct Skin {
 }
 
 impl Library {
+    /// Per motion-rig joint: the joint a mirrored clip writes and the quaternion mode.
+    /// INFERENCE (ACU-RE-0069): the native mirror table (`sub_14004DF10`, entry >> 3 channel,
+    /// & 7 mode) holds each bone's skeleton mirror link and mirroring type; the observed types
+    /// (2, 4, 5) are binding modes of ACU-RE-0027. Joints without a link keep themselves, mode 0.
+    pub fn mirror_table(&self) -> Vec<(usize, u8)> {
+        self.joints
+            .iter()
+            .enumerate()
+            .map(|(i, j)| {
+                self.mirror
+                    .get(&j.hash)
+                    .and_then(|(m, t)| self.by_hash.get(m).map(|&k| (k, *t)))
+                    .unwrap_or((i, 0))
+            })
+            .collect()
+    }
+
     pub fn motion_rig(&self) -> Result<acu_motion::unity::PoseRig> {
         let mut rig = acu_motion::unity::PoseRig::new(
             self.joints.iter().map(|j| j.hash).collect(),

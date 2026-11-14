@@ -1,5 +1,30 @@
 # Project status
 
+Latest (2026-11-15, the arena walks and runs on the native NewDemo graph;
+[ACU-RE-0069](findings/ACU-RE-0069-atomgraph-evaluation-sync-and-mirroring.md)):
+- `acu_bevy` no longer uses the For Honor style matcher. `motion::load_graph` loads NewDemo
+  (`DataPC.forge` entry 1518, `000000013d5bc4d8`) and every decodable clip of entry 928.
+- `acu_motion::graph_driver`:
+  - turns the stick into MovementSpeed / HighProfile / Parkour / TargetAngle (ACU-RE-0067);
+  - steps the interpreter, blends the leaf poses (mirroring through the skeleton mirror links);
+  - returns the blended clip root delta.
+- `player.rs` moves and turns the body only by that root delta (ACU-RE-0057). There is no
+  authored facing or direction warp.
+- Sync: clip records take group = root `f92` and loop = root `f112` (INFERENCE, obs. 9). Walk
+  starts are one-shot, so a mirrored start no longer skips its turn.
+- Checks:
+  - live replay: 649/1051 dominant-clip agreement, median time error 0.084 s;
+  - `installed_graph_steering`: from idle, forward / right / left / back walk and free run start,
+    turn to the stick, travel along it and stop.
+- Open:
+  - damp nodes (pass through);
+  - masked layers;
+  - stop entry 0.18 s early;
+  - idle phase offset;
+  - `DiffAngleToTarget` (game-computed, not set);
+  - Parkour 21 beside walls;
+  - climbing has no clips.
+
 Latest (2026-11-15, AtomGraph stream exact; navigation hub found;
 [ACU-RE-0066](findings/ACU-RE-0066-atomgraph-stream-and-navigation-hub.md)):
 - `tools/atomgraph_stream.py` parses NewDemo with the native per-class loaders (class -> loader

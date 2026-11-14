@@ -235,9 +235,9 @@ fn setup_world(
     });
     let block_view = arena_block.as_ref().map(|a| a.block.clone());
     let mut state = library.as_ref().map(|library| {
-        let (matcher, report) =
-            motion::load(&options.game_dir, library).expect("decode original navigation tracks");
-        player::State::new(&options, matcher, report, arena_block)
+        let (driver, report) = motion::load_graph(&options.game_dir, library)
+            .expect("decode the native locomotion graph and navigation clips");
+        player::State::new(&options, driver, report, arena_block)
     });
     let texture_handles: Vec<_> = loaded
         .scene
@@ -510,12 +510,12 @@ fn setup_world(
             serde_json::json!({"scenario":options.scenario,"ticks":state.player.tick,
             "position":state.player.position.to_array(),"velocity":state.player.velocity.to_array(),"distance":state.player.distance,
             "yaw":state.player.yaw,"motion_trace":state.motion_trace,
-            "bone_pose":state.matcher.pose.iter().enumerate().map(|(index,matrix)|serde_json::json!({
-                "index":index,"name_hash":format!("{:08x}",state.matcher.rig.hashes[index]),
-                "parent":state.matcher.rig.parents[index],"matrix_cols":matrix.to_cols_array()
+            "bone_pose":state.driver.pose.iter().enumerate().map(|(index,matrix)|serde_json::json!({
+                "index":index,"name_hash":format!("{:08x}",state.driver.rig.hashes[index]),
+                "parent":state.driver.rig.parents[index],"matrix_cols":matrix.to_cols_array()
             })).collect::<Vec<_>>(),
             "lighting":"Synthetic daylight/PBR, not native Day Paris","motion":state.motion_report,
-            "selected_clip":state.matcher.takes[state.matcher.selected].file_id,"selected_time":state.matcher.time,"match_cost":state.matcher.cost}),
+            "selected_leaf":state.driver.dominant().map(|l|serde_json::json!({"clip":format!("{:016x}",l.clip),"name":state.driver.name(l.clip),"time":l.time,"weight":l.weight,"mirror":l.mirror}))}),
         );
         commands.insert_resource(state);
     }

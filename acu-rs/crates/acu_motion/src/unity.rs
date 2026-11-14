@@ -203,6 +203,59 @@ impl PoseRig {
         self.root_frame = Some((i, frame.inverse()));
         Ok(())
     }
+    /// Local joint transforms of `clip` at `time` (root frame removed), before the hierarchy.
+    /// `mirror` gives, per joint, the joint its tracks write when the clip node mirrors and the
+    /// quaternion mode applied (`sub_14004DF10`: the target channel's mirror table entry,
+    /// `>> 3` channel, `& 7` mode); mirrored translations negate x (`sub_140018050`).
+    pub fn local_pose(&self, clip: &Clip, time: f32, mirror: Option<&[(usize, u8)]>) -> Vec<Mat4> {
+        let mut local = self.local.clone();
+        for track in clip.tracks.iter().skip(2) {
+            let Some(mut i) = self.hashes.iter().position(|&h| h == track.hash) else {
+                continue;
+            };
+            let mut mode = 0;
+            if let Some(&(j, m)) = mirror.and_then(|t| t.get(i)) {
+                i = j;
+                mode = m;
+            }
+            let (scale, mut q, mut p) = local[i].to_scale_rotation_translation();
+            let v = sample(track, time);
+            match track.codec {
+                0..=8 => {
+                    q = Quat::from_array(v).normalize();
+                    if mirror.is_some() {
+                        q = native_binding_quaternion(q, mode).unwrap_or(q);
+                    }
+                }
+                9 | 11 => {
+                    p = Vec3::from_slice(&v[..3]);
+                    if mirror.is_some() {
+                        p.x = -p.x;
+                    }
+                }
+                _ => continue,
+            }
+            local[i] = Mat4::from_scale_rotation_translation(scale, q, p);
+        }
+        if let Some((i, inverse)) = self.root_frame
+            && clip.tracks.iter().skip(2).any(|t| t.hash == self.hashes[i])
+        {
+            local[i] = inverse * local[i];
+        }
+        local
+    }
+
+    /// Compose local transforms into model space and apply the reconstructed helpers.
+    pub fn compose(&self, mut local: Vec<Mat4>) -> Vec<Mat4> {
+        for &i in &self.order {
+            if let Some(p) = self.parents[i] {
+                local[i] = local[p] * local[i];
+            }
+        }
+        self.apply_helpers(&mut local);
+        local
+    }
+
     pub fn pose(&self, clip: &Clip, time: f32) -> Vec<Mat4> {
         let mut local = self.local.clone();
         for track in clip.tracks.iter().skip(2) {

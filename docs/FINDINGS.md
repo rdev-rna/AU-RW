@@ -67,6 +67,10 @@ MovementSpeed/HighProfile/Parkour and clips per stick input, and decodes the axi
 Clip events: [ACU-RE-0068](findings/ACU-RE-0068-clip-event-intervals.md) reads the runtime
 event-interval lists live: integer event tracks are step tracks (key to next key), plus an end
 marker `0x80000002`; `event(id)` tests overlap with the frame window.
+Graph evaluation: [ACU-RE-0069](findings/ACU-RE-0069-atomgraph-evaluation-sync-and-mirroring.md)
+maps the pose-node evaluators, event-condition modes, best-match selection, the sync-marker record
+(one-shot vs looping, group from the root) and skeleton mirroring. The arena now plays NewDemo
+through `acu_motion::graph_driver`, with root motion as the only body driver (649/1051 live replay).
 
 Use `docs/templates/FINDING.md`; store durable findings under `docs/findings/`.
 Link bulky raw evidence in ignored `outputs/` with identity and reproduction steps.

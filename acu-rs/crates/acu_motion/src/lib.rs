@@ -19,6 +19,7 @@ pub mod atom_graph;
 pub mod sync;
 pub mod bone_modifier;
 pub mod coat;
+pub mod graph_driver;
 #[allow(clippy::collapsible_if)]
 pub mod loco_match;
 pub mod modifier_order;

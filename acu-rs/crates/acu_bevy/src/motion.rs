@@ -1,9 +1,12 @@
 //! Archive-backed selected original clips. No extracted animation dependency.
 use crate::rig::Library;
 use acu_assets::{Limits, Result, animation, forge::Forge, sha256};
+#[cfg(test)]
 use acu_motion::unity::{Matcher, Profile, Take};
 use std::path::Path;
 
+/// The superseded For Honor style matcher over eight selected clips; kept for rig comparisons.
+#[cfg(test)]
 pub fn load(dir: &Path, library: &Library) -> Result<(Matcher, serde_json::Value)> {
     let limits = Limits::default();
     let mut f = Forge::open(dir.join("DataPC.forge"), limits)?;
@@ -53,6 +56,54 @@ pub fn load(dir: &Path, library: &Library) -> Result<(Matcher, serde_json::Value
         "adapter":"Imported FH pose + prediction_geometry_cost over cached Unity joint/root features; actor-relative direction; 30Hz phases; 10Hz and direction-triggered searches; 160ms local pose blend",
         "coverage":"Event objects and actor ownership unknown; authored facing/trajectory warp/collision; no native graph, cloth or parkour parity"});
     Ok((Matcher::new(library.motion_rig()?, takes)?, report))
+}
+
+/// The native locomotion graph (ACU-RE-0066/0069): NewDemo from `DataPC.forge` entry 1518
+/// (`000000013d5bc4d8`) and every decodable clip of the navigation package (entry 928).
+pub fn load_graph(
+    dir: &Path,
+    library: &Library,
+) -> Result<(acu_motion::graph_driver::GraphDriver, serde_json::Value)> {
+    use acu_assets::atom_stream;
+    use acu_motion::atom_graph::Graph;
+    let limits = Limits::default();
+    let mut f = Forge::open(dir.join("DataPC.forge"), limits)?;
+    let p = crate::io::decode_package(f.raw(1518)?, limits)?;
+    let r = p
+        .resources
+        .iter()
+        .find(|r| r.file_id == "000000013d5bc4d8")
+        .ok_or("NewDemo AtomGraph absent")?;
+    let bytes = &p.bytes[r.payload.clone()];
+    let graph_sha = sha256(bytes);
+    let graph = Graph::from_root(&atom_stream::parse(bytes)?)?;
+    let package = crate::io::decode_package(f.raw(928)?, limits)?;
+    let mut clips = std::collections::HashMap::new();
+    let mut names = std::collections::HashMap::new();
+    let mut failed = 0usize;
+    for r in &package.resources {
+        let Ok(id) = u64::from_str_radix(&r.file_id, 16) else {
+            continue;
+        };
+        match animation::parse(&package.bytes[r.payload.clone()]) {
+            Ok(c) => {
+                clips.insert(id, c);
+                names.insert(id, r.name.clone());
+            }
+            Err(_) => failed += 1,
+        }
+    }
+    let report = serde_json::json!({"graph":"NewDemo","graph_sha256":graph_sha,
+        "clips":clips.len(),"undecoded_resources":failed,
+        "finding":"ACU-RE-0069","coverage":"native graph selection, marker sync and mirroring; damp nodes pass through; masked layers not evaluated"});
+    let mut driver = acu_motion::graph_driver::GraphDriver::new(
+        graph,
+        clips,
+        library.motion_rig()?,
+        library.mirror_table(),
+    )?;
+    driver.names = names;
+    Ok((driver, report))
 }
 
 /// Load one explicit animation resource from the navigation package. This is
