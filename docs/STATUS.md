@@ -1,5 +1,10 @@
 # Project status
 
+Outfit (2026-11-15, [ACU-RE-0070](findings/ACU-RE-0070-arnos-tailored-visual-pieces.md)): the default
+Arno now wears Arno's Tailored. The seven pieces are hood, coat, flap, belts, strap, bracers and
+breeches, all `CN_P_FR_*_Arnaud_V3_LOD0` from BelleEpoque entries 425–429, 436 and 447. They come
+from avatar BuildTable row 3. The item `_03` → row 3 step is an inference. Colour sets are not applied.
+
 Latest (2026-11-15, the arena walks and runs on the native NewDemo graph;
 [ACU-RE-0069](findings/ACU-RE-0069-atomgraph-evaluation-sync-and-mirroring.md)):
 - `acu_bevy` no longer uses the For Honor style matcher. `motion::load_graph` loads NewDemo
@@ -785,8 +790,8 @@ rows remain empty.
 
 The current source retains original four/eight-weight CPU skinning, authored fixed
 tick movement, a follow/orbit camera, synthetic daylight/shadows and original
-diffuse plus inferred packed-normal PBR shading. Default geometry is still the
-identified FearlessAssassin set, not a resolved Arno's Tailored selection.
+diffuse plus inferred packed-normal PBR shading. Default geometry is now Arno's Tailored:
+the seven `Arnaud_V3` pieces from avatar BuildTable row 3 ([ACU-RE-0070](findings/ACU-RE-0070-arnos-tailored-visual-pieces.md)).
 38 diagnostic candidate rigs supply 721 distinct name hashes; one active shoulder
 hash remains parentless/frozen and is explicitly reported. Bind error is below
 7.18e-7 in the selected set. See [finding0017](findings/ACU-RE-0017-composed-rig-skinning.md).

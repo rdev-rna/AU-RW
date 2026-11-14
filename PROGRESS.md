@@ -47,6 +47,7 @@ Bevy 0.19.1 (existing locked workspace). Mission and exit gates:
 Test character requirement: keep Arno in **Arno's Tailored** hood, coat, gloves
 and greaves. Resolve the game's modular equipment references before assigning
 that name to the existing FearlessAssassin assembly; no silent outfit substitution.
+Done 2026-11-15: default set is now the `Arnaud_V3` pieces (ACU-RE-0070).
 
 ## Done
 

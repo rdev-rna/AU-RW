@@ -1,7 +1,7 @@
 //! Command-line scene description for the synthetic ACU test world.
 //!
 //! Pieces are `ARCHIVE:ENTRY:RESOURCE` or `ENTRY:RESOURCE` when `--archive` is
-//! given. The default set is Arno (Fearless Assassin outfit, hood up, LOD0)
+//! given. The default set is Arno ("Arno's Tailored" outfit, hood up, LOD0)
 //! plus his head and hood-up hair plane; see ACU-RE-0011 for identities.
 
 use std::path::PathBuf;
@@ -16,18 +16,18 @@ pub const DEFAULT_ARCHIVE: &str = "DataPC_ACU_LGS_BelleEpoque.forge";
 /// only and never claims patch precedence.
 pub const DEFAULT_TEXTURE_ARCHIVES: &[&str] = &["DataPC_SharedGroup_00.forge", "DataPC.forge"];
 
-/// Arno pieces: (entry, resource, label). Identities and payload hashes are in
-/// ACU-RE-0011.
+/// Arno pieces: (entry, resource, label). Default outfit is "Arno's Tailored"
+/// (`ACU_AvatarGear_*_03`), which the avatar BuildTables resolve to the
+/// `Arnaud_V3` pieces; see ACU-RE-0070. Head/hair identities are in ACU-RE-0011.
+/// The previous FearlessAssassin set (entry 679) remains loadable via --piece.
 pub const ARNO_PIECES: &[(usize, usize, &str)] = &[
-    (679, 35, "CN_P_Arno_FearlessAssassin_Upperbody_LOD0"),
-    (679, 39, "CN_P_Arno_FearlessAssassin_Upperbody_Down_LOD0"),
-    (679, 43, "CN_P_Arno_FearlessAssassin_Hood_Up_LOD0"),
-    (679, 23, "CN_P_Arno_FearlessAssassin_Legs_LOD0"),
-    (679, 15, "CN_P_Arno_FearlessAssassin_Belt_LOD0"),
-    (679, 19, "CN_P_Arno_FearlessAssassin_Flaps_LOD0"),
-    (679, 27, "CN_P_Arno_FearlessAssassin_scarf_LOD0"),
-    (679, 11, "CN_P_Arno_FearlessAssassin_ShoulderCover_LOD0"),
-    (679, 31, "CN_P_Arno_FearlessAssassin_ThrowBlade_LOD0"),
+    (426, 1, "CN_P_FR_Upperbody_Arnaud_V3_LOD0"),
+    (425, 1, "CN_P_FR_Flap_Arnaud_V3_LOD0"),
+    (427, 1, "CN_P_FR_Hood_Arnaud_V3_LOD0"),
+    (428, 1, "CN_P_FR_Pants_Arnaud_V3_LOD0"),
+    (429, 1, "CN_P_FR_Belts_Arnaud_V3_LOD0"),
+    (447, 1, "CN_P_FR_Strap_Arnaud_V3_LOD0"),
+    (436, 1, "CN_P_FR_ThrowBlade_Arnaud_V3_LOD0"),
     (351, 1, "CN_U_FR_Arno_Head_LOD0"),
     (655, 1, "CN_U_Arno_HairPlane_HoodUp_LOD0"),
 ];
@@ -381,7 +381,7 @@ OPTIONS:
     --spawn X,Z        Spawn point in the block, arena metres from its origin
                        (block-climb: RT + up held toward -Z)
 
-Without --piece the scene shows Arno (Fearless Assassin outfit, hood up, LOD0)
+Without --piece the scene shows Arno (Arno's Tailored outfit, hood up, LOD0)
 standing at the origin on a synthetic grey ground plane. All geometry is read
 in memory from the install; nothing is extracted or written back.
 "

@@ -303,11 +303,24 @@ impl Library {
             .map(|j| common.inverse() * j.bind)
             .collect();
         let mut unresolved = Vec::new();
+        // Largest per-bone disagreement between the mesh's own bind and the
+        // composed skeleton bind (both in the mesh frame).
+        let mut bind_vs_skeleton: (f32, f32, String) = (0.0, 0.0, String::new());
         for bone in &piece.bones {
             let hash = u32::from_str_radix(&bone.name_hash, 16)?;
             let inverse_bind = Mat4::from_cols_array(&bone.matrix);
             if !inverse_bind.is_finite() || inverse_bind.determinant().abs() < 1e-8 {
                 return Err("invalid mesh bind matrix".into());
+            }
+            if let Some(&i) = lookup.get(&hash) {
+                let (_, ra, ta) = bind[i].to_scale_rotation_translation();
+                let (_, rb, tb) = inverse_bind.inverse().to_scale_rotation_translation();
+                let deg = ra.angle_between(rb).to_degrees();
+                if deg > bind_vs_skeleton.0 {
+                    bind_vs_skeleton.0 = deg;
+                    bind_vs_skeleton.2 = bone.name_hash.clone();
+                }
+                bind_vs_skeleton.1 = bind_vs_skeleton.1.max((ta - tb).length());
             }
             let i = if let Some(&i) = lookup.get(&hash) {
                 i
@@ -389,6 +402,7 @@ impl Library {
         }
         self.report["pieces"].as_array_mut().unwrap().push(json!({"file_id":piece.file_id,"name":piece.label,"payload_sha256":piece.payload_sha256,
             "vertices":vertices.len(),"joints":rig.bind.len(),"mesh_to_skeleton":common.to_cols_array(),"max_bind_error":max_error,
+            "max_bind_vs_skeleton_deg":bind_vs_skeleton.0,"max_bind_vs_skeleton_m":bind_vs_skeleton.1,"max_bind_vs_skeleton_bone":bind_vs_skeleton.2,
             "unresolved_parent_hashes":unresolved,"unresolved_weighted_parent_hashes":unresolved_weighted,
             "unresolved_policy":"Preserve original bind joint and weights; parentless and frozen. No guessed attachment."}));
         let tangents = piece

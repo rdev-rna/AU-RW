@@ -264,8 +264,8 @@ Port the sibling For Honor live matcher with reviewed source provenance, decode
 Unity's original animation tracks and bone bindings, and drive root and pose
 from one selected clip/time. Start with idle/walk/sprint, then upward/downward
 traversal/climbing; retain held RT+X/Circle and right-stick camera controls.
-Resolve the actual Tailored equipment references; the displayed Fearless set
-does not satisfy that requirement. Acceptance: multiple original clips decoded
+Tailored equipment references are resolved to the `Arnaud_V3` pieces (ACU-RE-0070); the
+item-to-row step remains an inference. Acceptance: multiple original clips decoded
 with independent checks, live selection and blended playback visibly inspected,
 traceable clip/track/root/pose decisions and correct equipment identities. A
 copied matcher or synthetic feature test alone does not complete this task.
