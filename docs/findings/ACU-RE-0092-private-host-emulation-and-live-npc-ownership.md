@@ -274,12 +274,57 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
       - Each time, the NHI executor ran (return `0x1407346D2`, inside the guard). Its intention held `+84` = 7,
         `+92` = 11, `+120` = 8 and `+125`/`+126` = 1, with `+80` = 0 the first time and 30 the second.
       - In the same poll and on the same thread (tids 111372 and 130688), the NHI `SendFightDamageEventToMaster` block
-        ran with `r12b` = 0. That branch loads `0x6527A678`, the message's *broadcast* wire id. Its caller chain was
+        ran with `r12b` = 0. That branch loads `0x6527A678`, the message's `_ID` hash (the atlas calls it the
+        broadcast ID; see observation 15 for the routing). Its caller chain was
         builder ← `0x141C4718D` ← `0x1405695C7` ← `0x141C664D4` ← `0x1405695C7` ← starter `0x1405DA9E0`.
       - The executors never ran in the host, and the host sent nothing.
     - So a hit on a game's own avatar is applied by that game and then broadcast under the same message name, with no
       unicast. A replica's guard fails, so the broadcast copy cannot apply damage a second time. Health then reaches
       the other game through `RFCSetMasterLife` (observation 11).
+
+15. **A forwarded hit, live: request to the master, execute there, reply to one peer** (live, then static):
+    - `damagewatch9` (`damage9.jsonl`, t = 667.97 s and 688.4–688.5 s) caught the same pattern twice. Both players
+      had godmode on, so they were not taking damage, and were attacking enemies beside Danton.
+    - **Joiner:**
+      - the NetBehaviorAI `SendFightDamageEventToMaster` block ran with `r14b` = 0, which loads `0x42E553D6`, the
+        message's `_ID` hash;
+      - its caller chain was builder ← `0x141C4718D` ← `0x1405695C7` ← `0x141C6655E` ← `0x1405695C7` ← starter
+        `0x1405DA480` (return `0x1405DA8B7`) ← `0x1426F480E`;
+      - no NBAI execute ran in the joiner. The victim NPC was a replica there.
+    - **Host, in the same poll:**
+      - the NBAI execute `sub_1406D3FA0` ran (its master guard passed). Its intention held `+80` = 30, `+84` = 7,
+        `+92` = 11, `+120` = 8 and `+125`/`+126` = 1, the same values as the joiner's local hits;
+      - on the same thread, the NBAI block ran with `r14b` = 1, which loads `0x4BE42FC0`, the `_ID_UNICAST` hash.
+    - So the joiner's player hit an NPC that the host owns:
+      1. the joiner sent the damage request to the NPC's master;
+      2. the host rebuilt it and executed it, so it was applied on the master;
+      3. the host then sent the message on, addressed to one peer.
+
+      That the NPC's life fell was not checked in this run.
+    - **Static: where the branch flag comes from.**
+      - The builder's flag is its fourth argument (`movzx r14d, r9b` at `0x14069F21C`, `movzx r12d, r9b` at
+        `0x14071F0AC`).
+      - It is the last argument of the object's message factory, vtable `+128`, called from the object path
+        `sub_141C66360` (corpus lines 51–183).
+      - The path takes the intention's mode `a3[5]`. Mode 4, used by `SendFightDamageEventToMaster` (ACU-RE-0081),
+        becomes route 1 when `obj+56` (relative to the object base `*a1-136`) is non-zero. Otherwise it becomes route 2
+        when the target peer `a4` is −1, and route 1 when `a4` is a peer. Mode 5 becomes route 3 when `obj+56` is 0,
+        and is not sent when `obj+56` is non-zero.
+      - Each route builds a 24-byte send record with a route type at `+4`:
+
+        | Route | Condition | Factory flag | Wire ID | Record |
+        |---|---|---|---|---|
+        | 1 | `obj+56` = 1 | 0 | `_ID` | type 1 |
+        | 1 | `obj+56` ≠ 1 | 1 | `_ID_UNICAST` | type 1, target `+16` = `a4` |
+        | 2 | — | 0 | `_ID` | type 2, `+20` = `a3[6]` ≠ 0 |
+        | 3 | — | 1 | `_ID_UNICAST` | type 3, target `+16` = `a3[7]` |
+
+    - Inference: `obj+56` = 1 marks a replica of the object, so the request goes to its master on the plain `_ID`.
+      A master uses `_ID_UNICAST` to address one peer, here most likely the requester, or `_ID` (route 2) to address
+      everyone.
+      - The joiner's hits on its own avatar (observation 14) fit route 2: master, flag 0, no target peer.
+      - The atlas labels "broadcast"/"unicast" only name the two hashes (`_ID`, `_ID_UNICAST`). They do not mean
+        "to all" and "to one" in every case.
 
 ## Inferences
 
@@ -308,9 +353,9 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
      value.
 
   Step 3 runs as a master-gated execute callback. The callback rebuilds a `FightDamageEvent` and posts it to the
-  victim's event dispatcher (observation 14). It was caught live for local hits. A forwarded hit (unicast
-  `0xEDA483AB` → receive handler → `sub_1405DA9E0` → execute) is the same path statically, but has not been
-  caught live.
+  victim's event dispatcher (observation 14). It was caught live for local hits. A forwarded hit was caught
+  live for an NPC victim (observation 15): replica request on `_ID` → master execute → master message on
+  `_ID_UNICAST` to one peer.
 - **The request lane exists and runs (observation 7).** In the spy fight, the joiner, which simulated the attacking
   spies, sent `SendFightDamageEventToMaster` while the host's player was being hurt. One hit, with no caller
   captured, so this is consistent with the prediction but does not prove it. The master rebuilds the event as an
@@ -328,8 +373,9 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
 - whether ownership was the joiner's because of proximity or for another reason (the host was 5 m away, the joiner 1 m);
 - the HUD health asymmetry: replica health may be local-only, or the HUD may show each game's view of the partner;
 - the meaning of each field of the shared damage record (`+0x30`, `+0x80`…`+0x90`, `+0xa8`…`+0xaf`, `+0xc8`);
-- a live forwarded (unicast `0xEDA483AB`) hit reaching the master's execute callback. It is traced statically
-  (observation 14) but not caught;
+- a forwarded hit on a *player* victim (NHI). Only NPC victims (NBAI) were caught forwarded (observation 15).
+  Whether the forwarded NPC hit lowered the NPC's life was not checked;
+- what `obj+56` is (inferred: the replica marker), and who the host's `_ID_UNICAST` target peer was;
 - what the `victim+136` bit `0x40000000000000` means, and who drains the pending `{event, handle}` array that
   `sub_140FDEEC0` fills;
 - the meaning of the executor's intention fields `+80` (0 / 30), `+84` (7), `+92` (11), `+120` (8);

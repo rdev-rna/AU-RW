@@ -81,13 +81,14 @@ How Storm then serializes and paces them is not traced (I).
 | | Rule | Evidence |
 |---|---|---|
 | D1 | The attacker's hit routine (`sub_140576270`) never writes the victim's health. It fills a `FightDamageEvent` and starts `SendFightDamageEventToMaster` on the victim's own net component: NetHumanIntention for a human (`entity+212 & 7 == 2`), NetBehaviorAI for an AI NPC (`== 1`). | O (code), O (live sends) |
-| D2 | The intention router delivers by the victim component's state: replica → unicast to the master; master → local. Game code has no co-op branch. | O (code, ACU-RE-0081), I (live coverage is partial) |
+| D2 | The intention router delivers by the victim component's state: replica → to the master; master → local execute, then sent on. Game code has no co-op branch. | O (code, ACU-RE-0081), O (live, NPC and own-avatar victims; observations 14–15) |
 | D3 | The master rebuilds the event as an intention (receive handler `0x1407269B0`). Each intention message registers three functions: receive, send builder and execute. The execute callback (NHI `0x140734650`, NBAI `0x1406D3F30`) runs only when the victim is local master (`+212 & 0xC0000 == 0x40000`). It refills a `FightDamageEvent` and posts it to the victim's event dispatcher (`sub_141E2E640` → `0x1420F3200`). The health component's damage handler `0x140EBBFD0` computes the new life and broadcasts it to the entity's listeners (`0x141212900` → `0x14124BC30` → life setter). | O (code), O (live for local hits: execute, then broadcast), I (forwarded hit not caught live) |
 | D4 | One damage record travels on two lanes with identical 16-field layouts: `SendFightDamageEventToMaster` (request, unicast to the master) and `SetLastDamageEvent` (outcome, broadcast). | O (layouts) |
 | D5 | `CSrvHealth.Life` belongs to the master. A replica's getter reads the replicated value (`+260` set → `sub_14066B710(+240)`); the master keeps a local int16 at `+256`. | O (code) |
 | D6 | Replicas receive life with `ZenHealthReplication_RFCSetMasterLife`. The handler `0x140B25550` writes through the life setter only when the entity's role bits `(+212 & 0xC0000) == 0x80000` (replica). | O (code), O (live: the joiner applied the host's NPC life values) |
 | D7 | Health regeneration runs every second in the health state machine on each peer, for both local and replica player-health objects. | O (live) |
-| D8 | A hit on a peer's own avatar is applied there (execute) and then broadcast under the same message name. The broadcast wire ID is `0x6527A678`; the unicast is `0xEDA483AB`. Receivers' guards fail, so the copy is informational, not a second apply. | O (live, ACU-RE-0092 observation 14) |
+| D8 | A hit on a peer's own avatar is applied there (execute) and then sent on the message's `_ID` hash (`0x6527A678` for NHI), route 2 to all peers. Receivers' guards fail, so the copy cannot apply damage a second time. | O (live, ACU-RE-0092 observation 14) |
+| D9 | Forwarded hit (live, NPC victim): the replica side sends on `_ID` (route 1, to the master). The master executes, then sends on `_ID_UNICAST` to one peer. Routing comes from the intention mode and the object's replica marker in `sub_141C66360`, not from the gameplay code. | O (live, ACU-RE-0092 observation 15), I (replica marker, reply target) |
 
 ## 7. Porting checklist (AC4 co-op mod and other titles)
 
