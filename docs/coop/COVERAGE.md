@@ -46,8 +46,11 @@ Columns:
 | **World objects**: `NetStaticEntitySynchronisation`, `NetEntityObject`, abstract coordinator data | 0 | 1 | 2 | 0 | Pre-placed entities are matched by data id (0076/0077) | Static entity sync; object creation and deletion as players stream the world |
 | **PvP remnants** (start flow, PvP eavesdrop) | 13 | 2 | 0 | 0 | — | Low priority |
 
-Totals: 965 messages, 118 states and 33 object types. Payload fields are decoded for 94 messages (9.7 %) and for no
-state type. Behaviour has been shown, at least in part, for parts of 6 of the 15 systems.
+Totals: 965 messages, 118 states and 33 object types.
+
+**Phase 1 done (ACU-RE-0093):** field layouts (slot, type, source) for 952 of the 963 `*MSG_NetProtocol` messages
+(4,617 fields), in `local/coop/message_payloads.json`; 11 decode empty. The "Fields decoded" column above predates it.
+No state type is decoded yet. Behaviour has been shown, at least in part, for parts of 6 of the 15 systems.
 
 ## Cross-cutting mechanisms
 

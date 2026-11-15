@@ -240,6 +240,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--atlas", type=Path, required=True, help="output of net_protocol_atlas.py")
     ap.add_argument("--expect-sha256")
     ap.add_argument("--output", type=Path, required=True)
+    ap.add_argument("--family", action="append",
+                    help="type-name prefix to decode, repeatable (default NetHumanIntention_). ACU-RE-0093 showed the "
+                         "same builder form covers every *MSG_NetProtocol family.")
+    ap.add_argument("--all", action="store_true", help="decode every *MSG_NetProtocol type record (ACU-RE-0093)")
+    ap.add_argument("--systems", type=Path, help="optional coverage_systems.json; adds each message's system")
     a = ap.parse_args(argv)
     if capstone is None:
         print("error: capstone is required", file=sys.stderr)
@@ -250,16 +255,23 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     img = atlas.Image(a.image.read_bytes())
     recs = json.loads(a.atlas.read_text(encoding="utf-8"))["type_records"]
-    names = sorted(r["name"] for r in recs
-                   if r["name"].startswith("NetHumanIntention_") and r["name"].endswith("MSG_NetProtocol"))
+    prefixes = tuple(a.family or ["NetHumanIntention_"])
+    names = sorted(r["name"] for r in recs if r["name"].endswith("MSG_NetProtocol")
+                   and (a.all or r["name"].startswith(prefixes)))
     msgs = [decode_message(img, n) for n in names]
+    if a.systems:
+        sysmap = {n: s for s, v in json.loads(a.systems.read_text(encoding="utf-8"))["systems"].items()
+                  for n in v["messages"]}
+        for m in msgs:
+            m["system"] = sysmap.get(m["name"])
     types: dict[str, int] = {}
     for m in msgs:
         for f in m["fields"]:
             types[f["type"]] = types.get(f["type"], 0) + 1
     out = {
         "schema": 1,
-        "finding": "ACU-RE-0079",
+        "finding": "ACU-RE-0093" if (a.all or a.family) else "ACU-RE-0079",
+        "selection": "all" if a.all else list(prefixes),
         "image": {"sha256": digest, "image_base": atlas.hx(B)},
         "tool_sha256": atlas.sha256(Path(__file__)),
         "constants": {"object_id_setter": atlas.hx(OBJECT_ID_SETTER),
@@ -268,7 +280,8 @@ def main(argv: list[str] | None = None) -> int:
         "summary": {"messages": len(msgs), "fields": sum(len(m["fields"]) for m in msgs),
                     "forms": {f: sum(1 for m in msgs if m["form"] == f) for f in ("A", "B")},
                     "field_types": dict(sorted(types.items())),
-                    "fields_without_source": sum(1 for m in msgs for f in m["fields"] if f["source"] is None)},
+                    "fields_without_source": sum(1 for m in msgs for f in m["fields"] if f["source"] is None),
+                    "messages_without_fields": [m["name"] for m in msgs if not m["fields"]]},
         "messages": msgs,
     }
     a.output.parent.mkdir(parents=True, exist_ok=True)
