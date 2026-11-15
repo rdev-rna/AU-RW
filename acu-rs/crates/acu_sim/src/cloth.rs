@@ -5,6 +5,7 @@
 //! The reciprocal square root defaults to the exact value; the native code uses
 //! the `rsqrtps` estimate (feature `hw-rsqrt` here uses this CPU's estimate).
 
+pub mod asset;
 pub mod collision;
 
 use glam::{Mat4, Vec3, Vec4};

@@ -11,3 +11,5 @@ publish.workspace = true
 glam.workspace = true
 serde_json.workspace = true
 acu_motion = { path = "../acu_motion" }
+acu_sim = { path = "../acu_sim" }
+acu_assets = { path = "../acu_assets" }

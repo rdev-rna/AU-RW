@@ -194,7 +194,17 @@ Reproduction: the asset queries are in the sections above (`asset_query.py sql` 
 - **Interface:** live tooling only, not product code (a game-thread equip call). Rust side
   unknown: the `c69075ab` item format is not decoded, so an `acu_assets` outfit slice needs its
   own finding.
-- **Oracle:** none run yet. Proposed by the call recipe: on the game thread, read each gear's
+- **First live run (2026-11-16, PID 131236, ACU-RE-0081):** `tools/native_probe/outfit.py`
+  drives the focus shim's game-thread modes 6 and 7 (`tools/native_probe/focus.cpp`, RVAs from
+  this finding; the visual-selection call `0x140D25540(copy of the active loadout, 0, 0)` follows
+  a lead from the ACUFixes "Gear Visual Customization 365" 1.2.5 plugin, read statically, none of
+  its code used). All five Tailored `_02` items were found among the AvatarGearManager's gears
+  (types: head 3, chest 1, forearms 2, waist 0, legs 4). Mode 6 (visual selection) and mode 7
+  (equip per item plus refresh `0x140D527F0`) both returned success without an exception. The
+  model did not visibly change in screenshots after 0, 3 and 15 s. Inference: the pinned save
+  already wears this set (its 587-particle flap body was stepping). A real change of outfit has
+  not been observed, so the redraw path stays unestablished. The saves were pinned and put back.
+- **Oracle:** not yet passed. Proposed by the call recipe: on the game thread, read each gear's
   `[gear+0x10]` block file ID and name UIString before equipping, read the loadout slots after
   `0x140D2B240`, and screenshot the model.
 - **Spawned / follow-up:**

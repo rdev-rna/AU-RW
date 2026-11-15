@@ -11,6 +11,7 @@ use acu_motion::bone_modifier::{
 use acu_motion::reflex::{PoseFrame, Reflex, ReflexConnector, ReflexLookup};
 use glam::{Quat, Vec3, Vec4};
 
+pub mod cloth;
 pub mod coat;
 pub mod stats;
 

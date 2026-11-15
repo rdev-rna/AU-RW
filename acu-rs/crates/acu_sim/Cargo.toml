@@ -7,6 +7,7 @@ publish.workspace = true
 
 [dependencies]
 glam.workspace = true
+acu_assets = { path = "../acu_assets" }
 
 [features]
 # Use this CPU's rsqrtss estimate (validation only; see acu_motion).

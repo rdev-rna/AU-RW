@@ -124,6 +124,7 @@ dependencies = [
 name = "acu_sim"
 version = "0.1.0"
 dependencies = [
+ "acu_assets",
  "glam",
 ]
 
@@ -131,7 +132,9 @@ dependencies = [
 name = "acu_tap_bridge"
 version = "0.1.0"
 dependencies = [
+ "acu_assets",
  "acu_motion",
+ "acu_sim",
  "glam",
  "serde_json",
 ]

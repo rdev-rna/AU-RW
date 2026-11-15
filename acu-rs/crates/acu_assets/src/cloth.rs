@@ -374,6 +374,7 @@ impl<'a> Blob<'a> {
         let damping = f(14)?;
         let thickness = f(26)?;
         let blend = f(30)?;
+        let s60 = f(35)?;
         // Optional tail: S+52 (max speed) defaults to 1000.
         let max_speed = if d.len() >= 65 { f(61)? } else { 1000.0 };
         match self.find(0x112e) {
@@ -422,6 +423,7 @@ impl<'a> Blob<'a> {
             max_speed,
             thickness,
             blend,
+            s60,
             drag,
             collision,
         })
@@ -542,6 +544,9 @@ pub struct Settings {
     pub thickness: f32,
     /// S+56 (opcode 5 blend toward targets).
     pub blend: f32,
+    /// S+60 (serialized byte 35). Live, the flap's particles sit at up to this multiple of
+    /// their tether length (ACU-RE-0081: 1.1 in the game, inference: a tether stretch scale).
+    pub s60: f32,
     pub drag: Drag,
     /// Opcode-7 inputs (loader `0x1423ce370`): S+7 rigid/analytic colliders,
     /// S+192 swept path, S+196 friction, S+8 mesh colliders, S+9 cloth

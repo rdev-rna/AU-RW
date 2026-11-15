@@ -11,8 +11,9 @@ State: **partially established.**
 - Ported: the solver program and every kernel the flap schedule uses, particle skinning, the
   render-vertex mapping, and swept collision against the flap's leg capsules. The viewer drives
   the Tailored flap with them (sections "Viewer" and "Collision").
-- Not established: the live substep rule, the colliders' rigid-body type, and numeric parity
-  with the game (no side-by-side capture yet).
+- Compared live (2026-11-16, section "Live comparison"): with the live body's settings, one
+  replayed step lands within 0.7–0.8 mm (mean) of the game's. The live settings come from outside
+  the blob, and the viewer does not use them yet.
 
 ## Provenance
 
@@ -402,19 +403,111 @@ Captures (`local/cloth/`, ignored): `idle-coll-160.png`, `walk-coll-90.png`, `ru
 and `run-coll-160.png`. With collision the coat still hangs at idle. In the run, the raised knee
 lifts the flap and the back panels part around the legs.
 
-**Not implemented:** no comparison with the game's cloth yet.
+**Live comparison:** see the next section.
+
+### Live comparison (2026-11-16)
+
+**Run.**
+- Game: PID 131236, `capture_run.py --save-pin capture-start-1 --until world --fps-cap 60`, exe
+  SHA-256 `748abdc6…7e40`, image base `0x140000000`. Closed with `capture_run.py --close`
+  (graceful, 1.9 s); saves put back.
+- Instrumentation: `acu_tap13.dll` rebuilt from the current `tools/native_tap/tap.cpp` (SHA-256
+  `96f6ff56…c18e`), attached with `acu_probe_launcher --attach`; focus shim `acu_focus.dll`
+  `1277cf80…54de`.
+- Outfit: `tools/native_probe/outfit.py` (focus modes 6 and 7, after the equip/refresh routines of
+  [ACU-RE-0048](ACU-RE-0048-outfit-equip.md) and the visual-selection lead from the ACUFixes
+  "Gear Visual Customization 365" 1.2.5 plugin, read statically; none of its code is used). Both
+  modes returned success with all five `_02` items found (types 3, 1, 2, 0, 4); the coat did not
+  visibly change. Inference: this save already wears the flap's outfit. A 587-particle body
+  stepped before any change was visible, and the 11-15 default-save census also had 587-particle
+  bodies. Arno's coat in the game has the same shape as the viewer's Tailored render; only the dye
+  differs (`local/native-probe/runs/cloth-live-2/screenshots/`).
+
+**Census** (`tools/native_tap/cloth_census.py`, hardware hook on the step entry `0x1423d4b60`,
+guard `48895c240848896c2410488974241857`, 0.5 s): 19 kind-1 bodies, each stepped once per
+rendered frame (gaps 16.4–17.2 ms at the 60 fps cap), all with dt = 1/30. The flap is body
+`0x173c50b70` (587 particles, 180 pinned).
+
+**Observed body layout** (`+0x10` positions, `+0x20` previous, `+0x30` particle normals, which
+the drag kernel `0x1423d72b0` reads, `+0x40` targets, `+0x50` target normals). Particles,
+targets and collider records are in a character-local, z-up frame (flap z 0.12–1.12 m), not
+world space.
+
+**Live settings differ from the blob.** The body's settings block S = body+132 holds:
+
+| Field | Body offset | Live | Blob (`11.05`/`112d`) |
+|---|---|---|---|
+| gravity | +164 | (0, 0, −20) | (0, 0, −10) after halving |
+| thickness S+48 | +180 | 0.05 | 0 |
+| S+60 | +192 | 1.1 | 1.0 |
+| friction S+196 | +328 | 0.2 | 0 |
+| drag a, b (read by `0x1423d72b0`) | +252, +256 | 30, 15 | 1.3, 0.7 |
+
+Damping (0), max speed (1000) and blend (0) agree. Inference: the values come from the external
+settings resource the LOD0 settings pointer names, `ClothSettings_Standard_Avatars`
+`00000016c61d53a1` (type `f7a7e4df`, label confidence `unknown`, in BelleEpoque), which is not
+decoded yet. Per-particle tables (body+384 block): map 0 holds 592 bytes of value 254, and the
+thickness map at +80 has 144 distinct values (`body-tables-131236.json`, SHA-256
+`4d8dbde8…43c4`).
+
+**Collider records** (step argument 5 = `{records, count}`, count 7, 160 bytes each): type 3
+(capsule) at +8, radius +144 and half-length +148 equal the LiteRagdoll's, current frame at
++16, previous frame at +80. At the next step, `+80`'s rotation rows equal this step's `+16`
+exactly, and its translation is moved by the character's motion (about 2.3 cm per step while
+walking). **This resolves the previous frame:** last step's frame carried into the new local
+space, which is the rule the viewer already used.
+
+**Captures** (`tools/native_tap/cloth_capture.py`, entry and exit snapshots filtered on the
+flap body, `local/native-probe/cloth-live/`):
+- `cloth-idle-131236.bin`: 60 steps standing (SHA-256 `70baa15b…9eae`);
+- `cloth-move-131236.bin`: 450 steps; settle, walk, jog and stop through the in-process pad
+  (SHA-256 `6cd6b57d…b65a`).
+
+**Replay** (`acu_tap_bridge` `cloth_gate`): each captured step's inputs (positions, previous,
+normals, targets, target normals, dt, wind, records) are loaded into the solver built from the
+resource (`acu_sim::cloth::asset`, shared with the viewer), stepped once, and compared with the
+game's exit. Free-particle position error:
+
+| Variant | Idle mean / max | Moving mean / max |
+|---|---|---|
+| blob settings | 30 mm / 62 mm | 30 mm / 70 mm |
+| live settings, tether × S+60, repeat 4, collision | **0.69 mm / 2.9 mm** | **0.81 mm / 9.7 mm** |
+| same, repeat 2 | 4.0 mm / 10 mm | 4.2 mm / 26 mm |
+| same, repeat 2, no collision | 4.7 mm / 19 mm | 4.8 mm / 73 mm |
+
+The game itself moves the flap's free particles 0.11 mm per step at idle and 17 mm per step
+(max 95 mm) in motion. Pinned particles and `prev` match exactly. Using the `rsqrtps` estimate
+(`hw-rsqrt`) changes nothing measurable.
+
+Findings from the replay:
+- **Repeat count:** the live step runs the full 4 repeats. Two repeats are clearly worse, so the
+  LOD rule does not reduce it here. The earlier trace's "x2" was a different body or LOD.
+- **Tether stretch (inference):** at the game's exit states, particles sit at up to 1.1005×
+  their decoded tether length (183,150 samples), never more. Scaling the tether lengths by S+60
+  removes most of the error; where the native code applies it is not located.
+- **Substep (observed):** one step per rendered frame with dt = 1/30 at a 60 fps cap. The
+  viewer's dt (1/60) is a choice, not this rule.
+- The op-by-op trace (`--trace K`) shows the remaining gap still shrinking at the last repeat:
+  the game converges slightly faster per step. The cause (another live override, or a kernel
+  difference) is open.
+- Particle normals mostly agree (mean 0.011), but a few are reversed (max distance 2.0). The
+  cause is open.
 
 ## Unknowns
 
-- Collision: the colliders' rigid-body type (static or dynamic previous frame), and the four
-  unnamed leg bone hashes.
-- The live substep mode and rate (engine `0x141d96fb0`, mode c+92, rate c+108, default 30).
-- The per-frame writer of the pinned targets (sim+504) and the LOD repeat reduction in play.
+- `ClothSettings_Standard_Avatars` (`00000016c61d53a1`): its layout, and which fields override
+  the blob (gravity, thickness, S+60, friction, drag observed live).
+- Where S+60 scales the tether lengths; the remaining 0.7 mm per-step gap; the reversed normals.
+- The four unnamed leg bone hashes.
+- Why the engine steps with dt = 1/30 every frame at 60 fps (engine `0x141d96fb0`, mode c+92,
+  rate c+108, default 30).
+- The per-frame writer of the pinned targets (sim+504); when the LOD rule reduces the repeats.
 - Parity of the `rsqrtps` estimate; float determinism is unresolved.
 - The 4-wide tether mode (unused by the flap); op 12 sub-objects.
 - The pointer kind byte; the 736-byte body class; the scarf resource; load precedence.
 - Field `77b91c50`, the mapping `Offset`, and the two bytes after the influence counts.
-- Visual and numeric parity with the game's coat: no side-by-side capture yet.
+- Visual parity with the game's coat (a per-step numeric comparison exists; no side-by-side
+  frame comparison).
 
 ## Reproduction
 
@@ -424,4 +517,9 @@ acu-rs/target/debug/acu-mat.exe "$g/DataPC_ACU_LGS_BelleEpoque_assets.forge" 588
 cd acu-rs; cargo test --locked -p acu_assets --test cloth -- --ignored
 cargo test --locked -p acu_assets --lib cloth
 cargo test --locked -p acu_sim cloth
+cargo test --locked -p acu_tap_bridge cloth
+# live (ACU in the world, acu_tap13 attached):
+python tools/native_tap/cloth_census.py <pid> 0.5
+python tools/native_tap/cloth_capture.py <pid> <body hex> idle 1.0
+cargo run --release -p acu_tap_bridge --bin cloth_gate -- local/native-probe/cloth-live/cloth-idle-<pid>.bin
 ```

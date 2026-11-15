@@ -23,8 +23,19 @@ Tailored flap's motion comes from the `Cloth` soft-body resource, not from bones
 - Collision (op 7) is ported: the swept path (`0x1423d58a0`) against the flap's seven leg
   capsules from `LiteRagdoll_SkirtHV_Leg_ArnoBrigand`, which the cloth references. The capsules
   follow the pose each tick.
-- The substep rule and the colliders' previous frame are implementation choices. There is no
-  side-by-side comparison with the game yet.
+- Live comparison (2026-11-16, PID 131236): the tap captured 60 idle and 450 walk/jog steps
+  of the game's flap body, with every solver input and the result. `acu_tap_bridge`'s
+  `cloth_gate` replays each step through the same solver (`acu_sim::cloth::asset`, now shared
+  with the viewer). With the live body's settings, free particles land within 0.69 mm (idle) and
+  0.81 mm (moving) of the game on average, max 9.7 mm, while the game moves them 17 mm per step.
+  Observed along the way:
+  - the live settings differ from the blob: gravity −20, thickness 0.05, friction 0.2, drag
+    30/15, and tether lengths × 1.1 (S+60). They evidently come from
+    `ClothSettings_Standard_Avatars`, which is not decoded yet;
+  - the game runs the full repeat count (4) and one dt = 1/30 step per frame;
+  - the colliders' previous frame is last step's, carried by the character's motion (the
+    viewer's rule).
+  The viewer still uses the blob's settings; see the ACU-RE-0081 unknowns.
 
 Lighting (2026-11-15, [ACU-RE-0073](findings/ACU-RE-0073-baked-gi-and-world-ambiance.md)): the
 arena now uses the native Paris `WorldAmbiance` settings. Default `--lighting paris-noon`;

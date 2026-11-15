@@ -200,6 +200,74 @@ static int runStartWorld(uintptr_t world, uint32_t* exception) {
         return -3;
     }
 }
+// modes 6/7 (outfit, ACU-RE-0048/0070; lead: the ACUFixes plugin "Gear Visual Customization 365"
+// 1.2.5, read statically, no code reused): the matrix bytes carry up to 8 u64 item file IDs, human =
+// their count. Each AvatarGear is found as 0x140D2FFD0 does: AGM = [[ [0x1451B4C58]+0x1970 ]], three
+// pointer arrays (+0x10 n +0x1A, +0x1C n +0x26, +0x28 n +0x32), keep gear g whose live block [g+0x10]
+// has file ID [b+0x10]. mode 6 (visual only, nothing persisted): copy the active loadout
+// (0x140D61560(PPM)), put each gear's block in the slot its type selects (0x140D33320: 0->+0,
+// 1->+8, 2->+0x10, 4->+0x20, 3->+0x18), and run the visual selection 0x140D25540 on the copy (it
+// reads the slots only; the next 0x140D527F0 restores the real loadout). mode 7 (persistent, the
+// mission scripts' sequence): 0x140D2B240(AGM, g) per gear, then 0x140D527F0(PPM). entity returns
+// the found mask (bits 0-7) and each gear's type in 4-bit fields from bit 8.
+// status: n done, -1 no PPM/loadout, -2 no AGM, -7 not every ID found, -8 non-armour gear, -3 exception.
+constexpr uintptr_t kPpmRva = 0x51B3C58, kAgmHolderRva = 0x51B4C58, kActiveLoadoutRva = 0x0D61560,
+                    kSelectVisualsRva = 0x0D25540, kEquipGearRva = 0x0D2B240, kRefreshVisualsRva = 0x0D527F0;
+static uintptr_t outfitLoadout[10];  // static: the selection must never see a dead stack copy
+static bool liveBlock(uintptr_t b) { return readable(b, 0x18) && *(int32_t*)(b + 0xC) < 0 && *(uintptr_t*)b; }
+static int runOutfit(uint32_t mode, const uint64_t* ids, uint32_t n, uint64_t* found, uint32_t* exception) {
+    if (n == 0 || n > 8) return -1;
+    __try {
+        uintptr_t ppm = *(uintptr_t*)(imageLow + kPpmRva), holder = *(uintptr_t*)(imageLow + kAgmHolderRva);
+        if (!readable(ppm + 0x1C8, 8) || !readable(holder + 0x1970, 8)) return -1;
+        uintptr_t block = *(uintptr_t*)(holder + 0x1970);
+        if (!liveBlock(block)) return -2;
+        uintptr_t agm = *(uintptr_t*)block;
+        if (!readable(agm, 0x34)) return -2;
+        uintptr_t gears[8] = {};
+        const uint32_t arrays[3][2] = {{0x10, 0x1A}, {0x1C, 0x26}, {0x28, 0x32}};
+        for (const auto& a : arrays) {
+            uintptr_t list = 0;
+            memcpy(&list, (void*)(agm + a[0]), 8);
+            uint16_t count = *(uint16_t*)(agm + a[1]);
+            if (!count || !readable(list, 8ull * count)) continue;
+            for (uint16_t k = 0; k < count; k++) {
+                uintptr_t g = ((uintptr_t*)list)[k];
+                if (!readable(g + 8, 0x10)) continue;
+                uintptr_t b = *(uintptr_t*)(g + 0x10);
+                if (!liveBlock(b)) continue;
+                uint64_t id = *(uint64_t*)(b + 0x10);
+                for (uint32_t i = 0; i < n; i++)
+                    if (id == ids[i] && !gears[i]) gears[i] = g;
+            }
+        }
+        uint64_t mask = 0;
+        for (uint32_t i = 0; i < n; i++)
+            if (gears[i]) mask |= (1ull << i) | ((uint64_t)(*(uint32_t*)(gears[i] + 8) & 0xF) << (8 + 4 * i));
+        *found = mask;
+        if ((mask & 0xFF) != (1ull << n) - 1) return -7;
+        if (mode == 6) {
+            uintptr_t loadout = ((uintptr_t(__fastcall*)(uintptr_t))(imageLow + kActiveLoadoutRva))(ppm);
+            if (!readable(loadout, sizeof outfitLoadout)) return -1;
+            memcpy(outfitLoadout, (void*)loadout, sizeof outfitLoadout);
+            for (uint32_t i = 0; i < n; i++) {
+                uint32_t type = *(uint32_t*)(gears[i] + 8);
+                if (type > 4) return -8;
+                uint32_t slot = type == 3 ? 3 : type;
+                outfitLoadout[slot] = *(uintptr_t*)(gears[i] + 0x10);
+            }
+            ((double(__fastcall*)(uintptr_t*, uintptr_t, uintptr_t))(imageLow + kSelectVisualsRva))(outfitLoadout, 0, 0);
+        } else {
+            for (uint32_t i = 0; i < n; i++)
+                ((double(__fastcall*)(uintptr_t, uintptr_t))(imageLow + kEquipGearRva))(agm, gears[i]);
+            ((double(__fastcall*)(uintptr_t))(imageLow + kRefreshVisualsRva))(ppm);
+        }
+        return (int)n;
+    } __except (*exception = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
+        return -3;
+    }
+}
+
 // Travel guard (ACU-RE-0049 obs. 14/15): during a world change the holder's World is 0 for ~3 s and
 // the new World has no player for ~15-20 s more; every arrival makes a new World and player entity,
 // so a pointer taken before the trip is stale. -5: the travel manager [0x145219860] state +644 is
@@ -239,6 +307,19 @@ static void serviceTeleport() {
     for (int i = 0; i < 16; i++) matrix[i] = t->matrix[i];
     uint32_t exception = 0;
     float readback = -1;
+    if (t->mode == 6 || t->mode == 7) {
+        uint64_t ids[8], found = 0;
+        memcpy(ids, matrix, sizeof ids);
+        int guard = worldGuard();
+        int status = guard ? guard : runOutfit(t->mode, ids, (uint32_t)t->human, &found, &exception);
+        t->entity = found;
+        t->exception = exception;
+        t->status = status;
+        InterlockedIncrement(&teleports);
+        MemoryBarrier();
+        t->done = t->request;
+        return;
+    }
     int guard = t->mode <= 2 ? playerGuard((uintptr_t)t->entity) : (t->mode == 3 || t->mode == 4) ? worldGuard() : 0;
     int status = guard ? guard
                : t->mode == 0 ? runTeleport((uintptr_t)t->human, (uintptr_t)t->entity, matrix, &exception)
