@@ -226,6 +226,9 @@ deliverable and acceptance criterion. Phases 1-5 are static. Phase 7 is dynamic.
   - Live run 2: the co-op mission start in LAN mode enters the private-match host flow
     (`PRIVATE_MATCH_HOST`, start-alone off), creates the mission session and waits for a partner. The map
     hides other missions meanwhile. Next: two mode-1 games, the second trying to join.
+  - Live run 3 (two games, one PC): the second game gets no Storm sockets (UDP 3074/6250/6300 held by the
+    first), so its Private loads the mission solo. Storm bound to the ZeroTier adapter. Next: a second
+    machine in mode 1 on the same LAN or ZeroTier network (the friend test).
 
 ### Phase 3 - Replication model (static)
 - Echo objects: how a replica is created and deleted, what an "object shape" is

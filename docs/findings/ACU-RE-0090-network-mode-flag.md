@@ -253,10 +253,56 @@ because the start-alone flag is off. The map hides the other missions while this
 partner here, and it is the state a second LAN game would have to join (`PRIVATE_MATCH_JOIN`). This is not
 verified.
 
+## Live run 3 — two LAN games on one PC (2026-11-15)
+
+Setup:
+- Game 1 (host, PID 106876) stayed in `PRIVATE_MATCH_HOST` from live run 2.
+- Game 2 (PID 122388) was launched beside it with `capture_run.py ... --direct --until world --fps-cap 30
+  --cpu-cores 4-5 --allow-user-input`. The flag was written to `1` at 1.485 s (`lan-two-20261115/lanflag2.json`
+  `7a9d98c8…`, `run2/capture.json` `6a37e1c8…`).
+- Before the launch, the user's two save files were copied and hash-checked to `local/game-backups/`, since
+  both games share one save folder.
+- Both games got the four LAN event-type getter hooks (`coop_lan_hooks` set `getters`) for 830 s:
+  `host-lan.jsonl` `f30f6be3…`, `join-lan.jsonl` `45600474…`.
+
+In game 2 the user chose the same co-op mission. **Public** did nothing visible. **Private** loaded game 2
+straight into the mission, while game 1 stayed in its lobby.
+
+Observations:
+23. LAN getter hooks: 0 hits in both games over the whole run.
+24. State after the join attempt (read-only; `state-after-join.jsonl` `867a2504…`).
+
+    Game 1:
+    - matchmaking context `PRIVATE_MATCH_HOST`;
+    - Storm `+688` = 2;
+    - game, party and mission sessions with local peers 1, 2 and 3;
+    - mission peer list counts (0, 0).
+
+    Game 2:
+    - no Storm session at all: game, party and mission peers `-1`, IDs empty;
+    - Storm `+688` = **1** (start-up did not complete);
+    - mission state `+196` = 0;
+    - no `PRIVATE_MATCH_*` context string.
+25. UDP sockets (`netstat -ano -p udp`, `udp-ports.txt` `ce42bc65…`). Game 1 holds `0.0.0.0:3074`, plus
+    ports 6250 and 6300 bound to the address of a **ZeroTier One** virtual adapter. Game 2 holds no UDP
+    socket.
+
+Inferences:
+- On one PC only the first game gets Storm networking. The second probably cannot bind the fixed port
+  3074 (or 6250/6300), so its Storm start-up stops at state 1. With Storm down, Private takes the solo
+  path and loads the mission alone. That matches what online-mode Private does (ACU-RE-0089). Game 2 never
+  saw game 1's session. The bind failure itself was not observed (no socket hooks), and whether the
+  ports can be configured is unknown.
+- Storm bound its session ports to the ZeroTier adapter, not the physical LAN address. So a real second
+  machine on the same ZeroTier network, such as the user's friend, should be reachable by these sockets.
+  That is a two-machine LAN test. Not tested.
+
 Unknowns / coverage:
 - Who sets the start-alone flag (statechart `+236`), and what the private-match host waits for before it
   launches (a joined peer, a host confirm, or both).
-- Whether a second mode-1 game can discover and join the `PRIVATE_MATCH_HOST` session.
+- Whether a second mode-1 game on another machine (same LAN or ZeroTier network) discovers and joins the
+  `PRIVATE_MATCH_HOST` session; on one PC the second game gets no Storm sockets.
+- How Storm picks the adapter for 6250/6300, and whether its ports can be changed.
 - Whether a second mode-1 game finds the session (LAN discovery), and what a joiner needs.
 - What mode 1 does to the online services (selector 7, ACU-RE-0088). The custom loader has no online.
 - Stability over a longer session.
