@@ -141,13 +141,18 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
       it takes a `FightDamageEvent` from the event pool (`sub_140BC7BE0`), fills it with
       `sub_140BDE710(event, …, attacker, victim, …, damage)` and `sub_140BDB050`, then delivers it (corpus lines
       509–539):
-      - **victim is human** (`(victim+212 & 7) == 2`, sets `v149`) and bit `0x40000000000000` of `victim+136` is set:
+      - **victim kind 2** (`(victim+212 & 7) == 2`, sets `v149`; live: NPC humans, observation 17) and bit
+        `0x40000000000000` of `victim+136` is set:
         direct apply via `sub_140FDEEC0(component(victim+96), victim, event)`;
-      - **victim is human** otherwise: NHI `SendFightDamageEventToMaster` via `sub_1407348A0`, using the victim's
+      - **victim kind 2** otherwise: NHI `SendFightDamageEventToMaster` via `sub_1407348A0`, using the victim's
         NetHumanIntention component (`sub_140708FC0`). `sub_1407348A0` builds
         `"<type>SendFightDamageEventToMasterMSG_NetProtocol_ID"` and starts the intention with mode 4;
-      - **victim is an AI NPC** (`(victim+212 & 7) == 1`): NBAI `SendFightDamageEventToMaster` via the victim's AI
-        component (`sub_140C17990` → `sub_141ACDF40`) → `sub_1406D40D0` → starter `0x1405DA480`.
+      - **any other kind** (the `else` branch; live, kind 1 is the player avatar, observation 17): NBAI
+        `SendFightDamageEventToMaster` via the component that `sub_140C17990` → `sub_141ACDF40` returns →
+        `sub_1406D40D0` → starter `0x1405DA480`.
+      - Correction (observation 17): this finding first called kind 2 "human" and kind 1 "AI NPC". The live census
+        shows the opposite assignment of players and NPCs, so the *names* NetHumanIntention / NetBehaviorAI do not
+        say who the victim is.
     - Mode 4 is ACU-RE-0081's case table. The intention router decides the delivery from the victim component's
       state: on a replica the message goes to the master; on the master it stays local. The hit code itself does not
       check ownership.
@@ -181,7 +186,8 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
         `CSrvHealth` (`+72`) with the master's value.
       - It caches the value at `+24` and notifies through its vtable `+112`.
     - Role bits: the hit routine (observation 10) tests `(attacker+212 & 0xC0000) == 0x40000` for the locally
-      controlled case. `0x80000` is the replica case here. Kind bits `& 7`: 1 = AI NPC, 2 = human.
+      controlled case. `0x80000` is the replica case here. Kind bits `& 7`: 1 = player avatar, 2 = NPC human
+      (live census, observation 17; corrected).
     - Live (`damage7.jsonl`, life setter hooked in both games, about 100 s during the "STEAL the documents" phase):
       - **Regeneration.** The setter ran about once per second for each player-health object in both games, called
         by the health state machine (`0x140ED04A0` ← `0x1427605F0`, from rule updates `0x142102100` /
@@ -287,7 +293,9 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
         `{event, handle}` to a pending array on the victim's component; it does not post the event;
       - in every other case the event goes out as an intention.
     - Live (`damagewatch9`, `damage9.jsonl`), with hooks on both executors and both shared send points:
-      - Twice in the joiner, an NPC simulated by the joiner hit the joiner's own player.
+      - The NHI executor runs for kind-2 victims (NPC humans, observation 17). So in both cases the victim was an
+        NPC owned by the joiner, most likely hit by the joiner's player. The first draft said "the joiner's own player"
+        and was corrected.
       - Each time, the NHI executor ran (return `0x1407346D2`, inside the guard). Its intention held `+84` = 7,
         `+92` = 11, `+120` = 8 and `+125`/`+126` = 1, with `+80` = 0 the first time and 30 the second.
       - In the same poll and on the same thread (tids 111372 and 130688), the NHI `SendFightDamageEventToMaster` block
@@ -295,8 +303,8 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
         broadcast ID; see observation 15 for the routing). Its caller chain was
         builder ← `0x141C4718D` ← `0x1405695C7` ← `0x141C664D4` ← `0x1405695C7` ← starter `0x1405DA9E0`.
       - The executors never ran in the host, and the host sent nothing.
-    - So a hit on a game's own avatar is applied by that game and then broadcast under the same message name, with no
-      unicast. A replica's guard fails, so the broadcast copy cannot apply damage a second time. Health then reaches
+    - So a hit on an entity the game owns is applied by that game and then sent on under the same message name (route
+      2, no target peer). A replica's guard fails, so the broadcast copy cannot apply damage a second time. Health then reaches
       the other game through `RFCSetMasterLife` (observation 11).
 
 15. **A forwarded hit, live: request to the master, execute there, reply to one peer** (live, then static):
@@ -312,12 +320,15 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
       - the NBAI execute `sub_1406D3FA0` ran (its master guard passed). Its intention held `+80` = 30, `+84` = 7,
         `+92` = 11, `+120` = 8 and `+125`/`+126` = 1, the same values as the joiner's local hits;
       - on the same thread, the NBAI block ran with `r14b` = 1, which loads `0x4BE42FC0`, the `_ID_UNICAST` hash.
-    - So the joiner's player hit an NPC that the host owns:
-      1. the joiner sent the damage request to the NPC's master;
+    - The NBAI path is the hit routine's `else` branch, which covers non-kind-2 victims; live, the player avatars are
+      kind 1 (observation 17). So the victim was the *host's player*, which is a replica in the joiner. The attacker
+      was most likely an NPC that the joiner simulates:
+      1. the joiner sent the damage request to the player's master;
       2. the host rebuilt it and executed it, so it was applied on the master;
       3. the host then sent the message on, addressed to one peer.
 
-      That the NPC's life fell was not checked in this run.
+      Godmode was on in both games, and the host's life change was not checked. The first draft read this as "the
+      joiner's player hit a host-owned NPC" and was corrected.
     - **Static: where the branch flag comes from.**
       - The builder's flag is its fourth argument (`movzx r14d, r9b` at `0x14069F21C`, `movzx r12d, r9b` at
         `0x14071F0AC`).
@@ -339,7 +350,7 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
     - Inference: `obj+56` = 1 marks a replica of the object, so the request goes to its master on the plain `_ID`.
       A master uses `_ID_UNICAST` to address one peer, here most likely the requester, or `_ID` (route 2) to address
       everyone.
-      - The joiner's hits on its own avatar (observation 14) fit route 2: master, flag 0, no target peer.
+      - The joiner's hits on its own NPCs (observation 14) fit route 2: master, flag 0, no target peer.
       - The atlas labels "broadcast"/"unicast" only name the two hashes (`_ID`, `_ID_UNICAST`). They do not mean
         "to all" and "to one" in every case.
 
@@ -358,6 +369,39 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
     - Together with observation 13 (host-owned NPC → joiner replica), life replication is now observed in both
       directions, with each NPC owned by the game that fought it.
 
+17. **Role census and where NPC roles are set** (live, then static):
+    - **Census.** `world_entities.py` (80 m radius) listed the animated entities in both games, then `READ entity+212`
+      in each. The run was in the "STEAL the documents" phase, both players near (930–935, 228–230):
+
+      | Game | Animated | Kind 2, master | Kind 2, replica | Kind 1 |
+      |---|---|---|---|---|
+      | host | 313 | 289 | 9 | `0x40001` at its own player's position, `0x80001` at the joiner's player |
+      | joiner | 310 | 296 | 5 | `0x40001` at its own player, `0x80001` at the host's player, matched within 0.3 m |
+
+      - Kind 1 is the player avatar (`player` flag from `world_entities.py`).
+      - Kind 2 entities are NPC humans. Nearly all are local masters in *both* games: crowds are simulated per game,
+        not replicated.
+      - The few kind-2 replicas are the mission NPCs. Raw values `0x8000a`, `0x80012` and `0x80102` were seen; the
+        bits above the kind are unknown. Several replicas in the host (for example (901–903, 239–240) and
+        (918.7, 230.9)) had no entity within 1.5 m in the joiner's scan. Positions are only roughly synchronised, or
+        the master was outside the scan.
+    - **Static: roles are written once, at creation.** Two of the three functions that clear bits 18–19 in the corpus
+      (`0xFFF3FFFF`) are relevant:
+      - `sub_140C1E360` (line 51) creates an entity (`sub_141CC3230`) and sets `entity+212` bits 18–19 to
+        `2 - (a3 != 0)`: `a3` ≠ 0 gives master (`0x40000`), `a3` = 0 gives replica (`0x80000`). It then adds the
+        entity to the world (`sub_141CBEC30`) and starts its behaviour (`sub_140D0AAD0`). Its only callers are:
+        - `0x1419F2DE0`, which passes 1 (local creation, from `0x141988870` / `0x1419C7610`);
+        - `0x14191A730`, which passes 0 and copies a creation record (`r8`, fields `+84`…`+104`). It has no direct
+          caller and is referenced by data pointers at `0x144098B60` and 5 more.
+      - `sub_140C92B80` unpacks the same bitfield from a stream (`(v & 3) << 18`), so the role can also arrive as
+        serialized data.
+      - Which system owns `a1+7304` / `a1+3380` in those callers is not identified. Hooks on both callers did not fire
+        while the players were teleported between courtyard positions (`spawn1.jsonl`), so they are not the crowd
+        spawner.
+    - Inference: ownership is decided when an entity is created, by whichever creation path runs. There is a local
+      creator that makes masters and a data-driven creator that makes replicas. Crowd humans are created locally
+      in every game and never shared. No live role change of an existing entity was observed.
+
 ## Inferences
 
 - **NPC simulation sits with one machine at a time, and it was not the mission host.** The enemy's intentions flowed
@@ -371,8 +415,8 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
   - Prediction, not yet tested: the block runs when a player hits an NPC that the other machine owns, or when an NPC
     hits the other machine's player.
 - **Damage is always an intention addressed to the victim's owner (observation 10).** The attacker's game never
-  writes the victim's health. It starts `SendFightDamageEventToMaster` on the victim's own net component: human
-  victims use NetHumanIntention, NPC victims use NetBehaviorAI. The ownership-aware intention router then either
+  writes the victim's health. It starts `SendFightDamageEventToMaster` on the victim's own net component: kind-2
+  victims (NPC humans) use NetHumanIntention, and other kinds (player avatars are kind 1) use NetBehaviorAI. The ownership-aware intention router then either
   runs it locally or sends it to the master. This one mechanism covers player→NPC, NPC→player and NPC→NPC hits, and
   the gameplay code needs no co-op branches.
 - **The full damage loop, as far as observed (observations 7–11):**
@@ -386,11 +430,12 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
 
   Step 3 runs as a master-gated execute callback. The callback rebuilds a `FightDamageEvent` and posts it to the
   victim's event dispatcher (observation 14). It was caught live for local hits. A forwarded hit was caught
-  live for an NPC victim (observation 15): replica request on `_ID` → master execute → master message on
+  live for a player victim (observation 15): replica request on `_ID` → master execute → master message on
   `_ID_UNICAST` to one peer.
 - **The request lane exists and runs (observation 7).** In the spy fight, the joiner, which simulated the attacking
   spies, sent `SendFightDamageEventToMaster` while the host's player was being hurt. One hit, with no caller
-  captured, so this is consistent with the prediction but does not prove it. The master rebuilds the event as an
+  captured, so this is consistent with the prediction but does not prove it. Correction (observation 17): that block was
+  the NHI one, which serves kind-2 victims (NPC humans), so its victim was an NPC, not the host's player. The master rebuilds the event as an
   intention and runs it locally (observation 9), then broadcasts the outcome on the `SetLastDamageEvent` lane with
   the identical record (observation 8).
 - **For the AC4 mod:** a hit on a puppet does not have to be replayed on the puppet. The machine that owns the
@@ -405,8 +450,8 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
 - whether ownership was the joiner's because of proximity or for another reason (the host was 5 m away, the joiner 1 m);
 - the HUD health asymmetry: replica health may be local-only, or the HUD may show each game's view of the partner;
 - the meaning of each field of the shared damage record (`+0x30`, `+0x80`…`+0x90`, `+0xa8`…`+0xaf`, `+0xc8`);
-- a forwarded hit on a *player* victim (NHI). Only NPC victims (NBAI) were caught forwarded (observation 15).
-  Whether the forwarded NPC hit lowered the NPC's life was not checked;
+- a forwarded hit on an *NPC* victim (NHI, kind 2). Only a player victim (NBAI) was caught forwarded
+  (observation 15). Godmode hid whether the forwarded hit lowered the player's life;
 - what `obj+56` is (inferred: the replica marker), and who the host's `_ID_UNICAST` target peer was;
 - what the `victim+136` bit `0x40000000000000` means, and who drains the pending `{event, handle}` array that
   `sub_140FDEEC0` fills;
