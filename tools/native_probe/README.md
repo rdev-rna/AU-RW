@@ -186,6 +186,63 @@ slot with the pulse and confirms release before replay.
 Use separately labelled entry and verified post-call sites for traversal tests
 and raycast arguments/results when those native layouts are recovered.
 
+### Several ACU instances at once (one per session)
+
+The safety rules hold for every instance, unchanged:
+
+- **Close a game only with `python tools/native_probe/capture_run.py --close <pid>`**, and only
+  your own PID. Never `taskkill` by image name: that would close every session's game.
+- **Never hot-swap or remove the shim on a running game** (`focus.py remove`, or `remove` then
+  `install`); both took over the user's mouse and keyboard on 2026-11-14.
+- **Always launch with an explicit `--fps-cap` of 300 or lower** (`30..240` is plenty), never
+  `--fps-cap 0`. Several capped games are fine; one uncapped game stalled the PC. Cap each
+  instance so the total load stays reasonable.
+
+What `capture_run.py` does so that sessions do not grab each other's game:
+
+- `launch()` records the running ACU PIDs, starts `uplay://launch/720/0` and waits for an engine
+  window (`ScimitarEngineWindowClass`) whose PID is new. The shim, probe, watchdog and
+  `shutdown()` key on that PID only. If no new instance appears within 120 s it fails with
+  "Ubisoft Connect did not start a second instance" and touches no existing game. If two new
+  PIDs appear at once (a launch outside `capture_run`), it refuses both.
+- Launches are serialised by `local/native-probe/launch.lock` (held from the PID snapshot until the
+  new window appears), so two sessions launching together each get their own game. Shim installs
+  are serialised by `focus-install.lock`: `focus.install` writes the one shared `acu_focus.ini`
+  (fps cap, input block, return window), which the shim reads while it loads. Lock files are
+  created with `O_CREAT|O_EXCL` and taken over when stale; delete one by hand only when no
+  capture runs.
+- The window the shim hands the foreground back to is the user's current foreground window,
+  unless that window belongs to an ACU.exe (another session's game); then none (0).
+- `--attach <pid>` is unchanged; pass your own game's PID.
+
+**Untested:** no second instance has been launched with this code yet. Whether Ubisoft Connect
+starts a second ACU for `uplay://launch/720/0` while one runs (or only focuses the running one or
+shows a dialog) is unverified, and so is whether two games can share the save folder and
+launcher session. The first session to try it should record the result here.
+
+Saves (`--save-pin`): all instances share the one `savegames/<user>/720` folder, so a pin cannot
+be swapped per game. Runs share a lease instead, `local/game-backups/save-pins/_lease.json`
+(`{pin, snapshot, holders:[{holder, pid, owner_pid, since_unix}]}`, guarded by `_lease.lock`):
+
+- the first run (no lease, no ACU running) swaps the pin in and opens the lease;
+- a run on the same pin joins without copying; it loads the slot as it is now, which another
+  running game may have autosaved over, so `capture.json` records `live_matches_pin`;
+- a run on a different pin is refused, and so is `--save-pin` while any ACU runs without a lease
+  ("saves cannot be swapped under it; run without --save-pin");
+- each run's holder is its run directory, tied to its game PID after launch; holders whose game
+  (or, before launch, whose `capture_run` process) is gone are pruned;
+- the last holder to release puts the saves back only when no ACU.exe runs at all; otherwise
+  the lease waits for `python tools/save_pin.py settle`. A lease left with no live holders and no
+  game is put back by the next `acquire`, which then starts over.
+- `--until world` keeps the lease for as long as the game runs and prints the release command;
+  after `capture_run.py --close <pid>` run `python tools/save_pin.py release "<run dir>"`.
+- `python tools/save_pin.py lease` shows the lease and which holders are alive; `pin`, `use` and
+  `putback` still refuse while any ACU runs.
+
+Coordination: the game-process lock (GitHub issue #30, ACQUIRE/RELEASE comments) becomes
+per-PID with several instances. ACQUIRE and RELEASE name the PID you launched (from the
+`launch` stage in `capture.json`); never act on a PID another session acquired.
+
 ## Background runs: focus shim and in-process controller
 
 For a whole capture in one command (launch, load the save, scenario, decode, close) use
