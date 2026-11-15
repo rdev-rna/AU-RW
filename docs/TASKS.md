@@ -513,8 +513,11 @@ Lighting slice 1 (ACU-RE-0073, done): GI containers decoded (exact end); Paris
 WorldAmbiance exposure and shadow settings applied (`--lighting paris-noon`).
 Lighting slice 2 (ACU-RE-0073, done): GICP codec and `GIDecodeYCbCr` decoded with tests;
 native Paris GI applied around Arno as one Bevy irradiance volume.
+Lighting slice 3 (ACU-RE-0073 / 0084, done): forward GI evaluation read; live sun, GI and
+lighting-scale constants applied; cloth template surface (detail normals, gloss, specular) ported.
 Next, in order:
-- the forward GI evaluation and `g_WorldGIIndirection` (confirms SH form, voxel axes, scale);
+- the sky SH (`g_SkySHConstants`) live, and the velvet lobe in a custom Bevy lighting path;
+- the `CN_Skin_Wrinkle` and `CN_Hair` G-buffer shaders, then other outfits' templates;
 - a live in-game comparison of the GI at the anchor spot;
 - the time-of-day sun / LayeredSky;
 - the remaining PostEffects, Wind and WorldFog.

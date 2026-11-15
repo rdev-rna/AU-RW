@@ -29,8 +29,12 @@ arena now uses the native Paris `WorldAmbiance` settings. Default `--lighting pa
   `GIDecodeYCbCr` combination into RGB L1 SH texels.
 - Bevy (`gi_volume`): the Paris GI around the spot where Arno stood live (496.66, −7.31, −0.25) is
   resampled from every tree level (finest wins) into one 24 × 24 × 8 m irradiance volume and
-  replaces the synthetic ambient fill. SH evaluation `dot(L1, n) + L0`, the voxel axes and the
-  intensity (median lit L0 → the old 4000 fill) are inferred or synthetic.
+  replaces the synthetic ambient fill. The SH form `dot(L1, n) + L0` and the voxel axes are now
+  read from ACU's deferred lighting shader; cells decode at 32³ (live `InvVolumeSize`).
+- Live constants (read-only scan of ACU's `g_Frame`): sun direction and colour
+  (`SunColor` (44.62, 20.22, 3.64)), GI sampling constants, `m_GlobalLightingScale` (1, 1).
+  Bevy lights the scene with the live sun; one synthetic lux-per-ACU-unit factor scales both the sun
+  and the GI, keeping their native ratio.
 - Shadow tail roles confirmed natively (`sub_1421F9030`, with the user's HardShadowPatch names):
   split distances `+3396`, blend regions `+3412`, per-cascade biases `+3380..`.
 - `acu_assets::ambiance` decodes part of WorldAmbiance: the SSAO / HDR camera prefix and the fixed
@@ -38,8 +42,19 @@ arena now uses the native Paris `WorldAmbiance` settings. Default `--lighting pa
   - EV100 12.94 (f/5.6, 1/250 s, `ISO` 100; aperture and shutter roles inferred);
   - shadow map 1024;
   - cascade bounds 5 / 14 / 38 / 72 m.
-- Still synthetic: sun direction and magnitude, sky, GI intensity scale.
-- Captures: `outputs/lighting/arno-paris-noon-gi.png` (native GI), `arno-paris-noon.png` (before GI),
+- Still synthetic: the absolute exposure scale (lux per ACU unit), the sky (`g_SkySHConstants`
+  not captured), and the sun at other times of day.
+- Character shader ([ACU-RE-0084](findings/ACU-RE-0084-character-template-gbuffer.md)): the cloth
+  template's 36 parameter records decoded (register map for all `cb3` constants and t32–t39);
+  its full G-buffer pixel shader is ported per pixel in `character.wgsl`:
+  - band weights from mask G and detail normals (reoriented normal mapping);
+  - gloss from the normal alpha combined with detail gloss, mapped to roughness through ACU's own
+    GGX `alpha² = 2 / (2^(19 g) + 2)`;
+  - specular reflectance from albedo hue and band intensities, and specular occlusion from mask B.
+  Not ported: the velvet lobe, back-light translucency, the skin and hair templates, other outfits.
+- Captures: `outputs/lighting/arno-paris-noon-cloth.png` (live sun + cloth surface; the warm low sun
+  and long shadows come from the live `SunColor`, with a synthetic sky fill),
+  `arno-paris-noon-gi.png` (native GI), `arno-paris-noon.png` (before GI),
   `arno-synthetic.png`.
 
 Locomotion parity (2026-11-15, [ACU-RE-0072](findings/ACU-RE-0072-flat-ground-locomotion-parity.md),

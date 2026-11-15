@@ -10,11 +10,11 @@
 //!   biases `+3380..` are reported, not applied: Bevy has one overlap proportion and one
 //!   depth bias per light, and ACU's bias units are not established.
 //!
-//! - baked GI: native Paris irradiance cells around Arno replace the ambient fill
-//!   (`gi_volume`), with a SYNTHETIC intensity calibration.
+//! - baked GI (bounce): native Paris irradiance cells around Arno (`gi_volume`);
+//! - sun colour and direction: a live `g_Frame` sample; the sun / GI ratio is native.
 //!
-//! Still synthetic: sun direction, sun / sky illuminance and colour (the time-of-day
-//! manager computes them; not decoded), the clear colour, SSAO (decoded, not applied).
+//! Still synthetic: the lux-per-ACU-unit scale, the sky fill (ACU's sky SH is a runtime
+//! constant not captured), the clear colour, SSAO (decoded, not applied).
 
 use acu_assets::{Limits, ambiance, forge::Forge, package};
 use bevy::camera::Exposure;
@@ -90,31 +90,46 @@ pub fn report(native: Option<&Native>) -> serde_json::Value {
                 "hdr_value132": n.ambiance.hdr.value132,
                 "ssao": &n.ambiance.ssao,
             },
-            "synthetic": ["sun direction", "sun illuminance/colour", "GI intensity calibration",
-                          "clear colour"],
+            "live_sun": {"direction_native": LIVE_SUN_DIRECTION, "sun_color_acu": LIVE_SUN_COLOR,
+                         "source": "g_Frame read live 2026-11-15 (pinned save's time of day)"},
+            "lux_per_acu_unit_synthetic": lux_per_acu_unit(),
+            "synthetic": ["lux per ACU unit (sun luminance = Bevy DIRECT_SUNLIGHT)",
+                          "sky fill (sky SH not captured)", "clear colour"],
         }),
     }
 }
 
-/// Synthetic ambient brightness the native preset used before GI was decoded.
-const SYNTHETIC_AMBIENT: f32 = 4_000.0;
+/// SYNTHETIC sky fill: ACU adds an L2 sky SH times the GI sky visibility; the sky SH is a
+/// runtime constant not captured yet, so a sky-like ambient stands in for it.
+const SYNTHETIC_SKY_FILL: f32 = 4_000.0;
 
-/// SYNTHETIC: scale native GI so its median lit L0 luminance equals the former synthetic
-/// ambient brightness. ACU's GI scale relative to exposure is not established.
-pub fn gi_intensity(median_luminance: Option<f32>) -> f32 {
-    match median_luminance {
-        Some(l) if l > 0.0 => SYNTHETIC_AMBIENT / l,
-        _ => 1.0,
-    }
+/// Live `g_Frame` sample (ACU-RE-0073): read-only, ACU pid 101640, 2026-11-15, Paris at
+/// (496.663, -7.305, -0.253) from the pinned save `capture-start-1` (its time of day; the Season
+/// was not identified). `m_SunLight.m_Direction` (towards the sun, native Z-up) and
+/// `m_VolumetricFog.SunColor` (`m_SunLight.m_Color` = SunColor / pi). `m_GlobalLightingScale` =
+/// (1, 1, 0, 0). Local copy: `local/lighting/live/g_frame-live-1.json`.
+pub const LIVE_SUN_DIRECTION: [f32; 3] = [0.700_562, 0.509_13, 0.5];
+pub const LIVE_SUN_COLOR: [f32; 3] = [44.624_485, 20.215_647, 3.637_588];
+
+fn live_sun_luminance() -> f32 {
+    0.2126 * LIVE_SUN_COLOR[0] + 0.7152 * LIVE_SUN_COLOR[1] + 0.0722 * LIVE_SUN_COLOR[2]
 }
 
-/// Spawn the lights and return the camera exposure to attach. With `native_gi` the ambient
-/// fill is left to the irradiance volumes.
-pub fn spawn(
-    commands: &mut Commands,
-    native: Option<&Native>,
-    native_gi: bool,
-) -> Option<Exposure> {
+/// SYNTHETIC: Bevy lux per ACU lighting unit, chosen so the live sun has Bevy's
+/// `DIRECT_SUNLIGHT` luminance. Native: the sun / GI ratio. ACU's deferred pass shades the sun as
+/// `albedo * SunColor/pi * NdotL` and GI as `albedo * (dot(L1, n) + L0)`, so the same factor maps
+/// SunColor to lux and GI texels to Bevy irradiance-volume units.
+pub fn lux_per_acu_unit() -> f32 {
+    lux::DIRECT_SUNLIGHT / live_sun_luminance()
+}
+
+/// GI irradiance-volume intensity on the native sun / GI ratio.
+pub fn gi_intensity() -> f32 {
+    lux_per_acu_unit()
+}
+
+/// Spawn the lights and return the camera exposure to attach.
+pub fn spawn(commands: &mut Commands, native: Option<&Native>) -> Option<Exposure> {
     let sun_rotation = Quat::from_euler(EulerRot::YXZ, 0.6, -0.9, 0.0);
     let fill_rotation = Quat::from_euler(EulerRot::YXZ, -2.4, -0.4, 0.0);
     let Some(n) = native else {
@@ -157,22 +172,28 @@ pub fn spawn(
     } else {
         CascadeShadowConfig::default()
     };
-    // SYNTHETIC magnitudes on a physical scale, so the native exposure has something
-    // sensible to expose: Bevy's direct-sunlight constant and a sky-like fill.
     commands.insert_resource(GlobalAmbientLight {
         color: Color::srgb(0.70, 0.81, 1.0),
-        brightness: if native_gi { 0.0 } else { SYNTHETIC_AMBIENT },
+        brightness: SYNTHETIC_SKY_FILL,
         ..default()
     });
+    // Live native sun: colour and direction; magnitude on the synthetic lux scale.
+    let max = LIVE_SUN_COLOR.iter().copied().fold(f32::MIN, f32::max);
+    let [x, y, z] = LIVE_SUN_DIRECTION;
+    let towards_sun = crate::native_z_up_to_bevy_y_up() * Vec3::new(x, y, z).normalize();
     commands.spawn((
         DirectionalLight {
-            color: Color::srgb(1.0, 0.95, 0.88),
-            illuminance: lux::DIRECT_SUNLIGHT,
+            color: Color::linear_rgb(
+                LIVE_SUN_COLOR[0] / max,
+                LIVE_SUN_COLOR[1] / max,
+                LIVE_SUN_COLOR[2] / max,
+            ),
+            illuminance: lux_per_acu_unit() * max,
             shadow_maps_enabled: true,
             ..default()
         },
         cascades,
-        Transform::from_rotation(sun_rotation),
+        Transform::default().looking_to(-towards_sun, Vec3::Y),
     ));
     n.ambiance.hdr.ev100().map(|ev100| Exposure { ev100 })
 }

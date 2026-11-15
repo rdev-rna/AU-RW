@@ -230,6 +230,27 @@ No FH parser module was imported.
   Its `ShadowResolution` patches other objects (`0x1422D9985` `[rbp+0xDCC]` in `sub_1422D9320`;
   `0x1421E409F` / `0x1421E41E2` `[rdi+0x128]`), not `+3356`.
 
+- Live frame constants (2026-11-15, ACU pid 101640 launched by `capture_run.py --until world`
+  from the pin `capture-start-1`, Arno at (496.663, -7.305, -0.253); read-only
+  `ReadProcessMemory`, scripts `local/lighting/live/scan_suncolor.py`, `read_frame.py`,
+  `scan_bytes.py`; values in `local/lighting/live/g_frame-live-1.json`, `g_pass-live-1.json`):
+  - The constant-buffer upload wrapper `sub_1421A6B90` (UpdateSubresource, vtable `+0x180`) carries
+    per-draw data in 64 KB ring chunks; the per-frame `g_Frame` was found instead by its
+    `m_VolumetricFog.SunColor` / `SunColorByOneOverPi` pair (second = first / pi): copies every
+    0x1B00 bytes in a ring (e.g. base `0xF618B000`). Identity check: `m_MainPlayerPosition` =
+    (496.6625, -7.3048, -0.2528), Arno's position.
+  - `m_SunLight.m_Direction` (0.700562, 0.509130, 0.5) (towards the sun, about 30 degrees up);
+    `m_SunLight.m_Color` (14.2044, 6.4348, 1.1579) = `SunColor` (44.6245, 20.2156, 3.6376) / pi.
+  - `m_GIConsts`: `Params` (1, 1, 0, 0); `WSToIndirectionScale` 1/16 (16 m indirection cells);
+    `WSToIndirectionBias` (61, 55, 9); `InvVolumeSize` 1/32 (each cell decodes to 32^3);
+    `InvVolumeAtlasSize` (1/512, 1/512, 1/32).
+  - `m_ShadowMapSize` 2048, `m_NoiseScale` 3, `m_CharacterEffectMultiplier` 1. The user's
+    HardShadowPatch was loaded (`ACUFixes/plugins/HardShadowPatch.dll`, adjustable split distances
+    on), so live shadow values are not vanilla.
+  - `g_Pass` (ring stride 0x300, found by `m_VPosToUV` = (1/1280, 1/720)): `m_GlobalLightingScale`
+    (1, 1, 0, 0).
+  - Not found: `g_SkySHConstants` (no signature yet).
+
 ### Inferences (labelled; not proven)
 
 - GILoader `+16` / `+32` are the world-space minimum and size of the GI domain (Paris:
@@ -252,9 +273,9 @@ No FH parser module was imported.
 
 ### Unknowns
 
-- The runtime values of `m_GlobalLightingScale`, `m_SunLight`, `g_SkySHConstants` and the
-  per-cell `UnitToVolume` inset (texel placement inside a cell). Without the sky SH the Bevy port
-  shows bounce light only, at a synthetic scale.
+- The sky SH values (`g_SkySHConstants`), the per-cell `UnitToVolume` inset, and the sun for
+  other times of day (only one live sample). Without the sky SH the Bevy port keeps a synthetic
+  sky fill.
 - `GIData +96` (7 / 15), `+105`; the RGB (`sub_1421C44F0`) path is implemented only as the
   decoder's channel count (Paris data does not exercise it).
 - Sun direction and intensity (the time-of-day manager), the `LayeredSky` layout, the 24 later post
@@ -310,8 +331,10 @@ powershell -File tools/run_arno.ps1 -Capture outputs/lighting/arno-paris-noon.pn
   finest leaf first (Noon: four level-0, one each of levels 1, 2, 5, 7, 9; 0 uncovered voxels;
   `GIResult Center` = tree min checked for every cell). One Bevy `IrradianceVolume` holds the
   ambient cube faces `max(0, L0 +- L1_axis)` in Bevy axes and replaces the synthetic ambient fill.
-  The intensity scales the median lit L0 luminance (0.00837 at Noon) to the former 4000 fill
-  (SYNTHETIC). Observation: the fine leaves stop at the street surface; the air above the street
+  Cells are decoded at 32^3 (live `InvVolumeSize`). Scale: one SYNTHETIC factor (Bevy lux per ACU
+  unit, set so the live `SunColor` has Bevy's `DIRECT_SUNLIGHT` luminance) maps both the sun and
+  the GI, keeping the native sun / GI ratio. The live sun's colour and direction light the scene;
+  a synthetic sky fill stands in for the uncaptured sky SH. Observation: the fine leaves stop at the street surface; the air above the street
   is covered only by levels 5+.
 - Capture: `outputs/lighting/arno-paris-noon-gi.png` (scene report
   `local/captures/lighting/scene-gi.json`).

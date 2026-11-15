@@ -7,7 +7,7 @@
 //! colour is `dot(L1, n) + L0` with `n` the world normal and atlas u, v, w = world x, y, z; the
 //! volumes hold bounce light only (sky light = an L2 sky SH times GIData 3's visibility, not
 //! ported: the sky SH is a runtime constant).
-//! Inferred: texel centres at `min + (i + 0.5) * size / 16` (the native `UnitToVolume` inset is a
+//! Inferred: texel centres at `min + (i + 0.5) * size / 32` (the native `UnitToVolume` inset is a
 //! runtime value), and "finest containing leaf wins" (the native indirection grid is built at
 //! runtime).
 //! Synthetic: the arena, the resampling grid, and the `intensity` calibration (ACU's GI scale
@@ -31,8 +31,8 @@ const REGION_VOXELS: [usize; 3] = [24, 24, 8];
 /// Coarsest tree level gathered (level 0 = 8 m leaves, each level doubles; Paris goes to 9).
 /// Fine leaves stop at the street surface, so the air above is only covered by coarse levels.
 const MAX_LEVEL: u32 = 9;
-/// GI output grid per cell (the decoder resamples every input to it).
-const GRID: u32 = 16;
+/// GI output grid per cell: 32, the live `g_Frame.m_GIConsts.InvVolumeSize` (1/32).
+const GRID: u32 = 32;
 /// `GILoader` resources in `DataPC_ACU_Paris.forge` entry 21267, by lighting preset.
 const LOADER_ENTRY: usize = 21267;
 const LOADERS: [(&str, &str); 4] = [
@@ -359,7 +359,7 @@ mod tests {
             .collect();
         let c = Cell {
             min: [0.0; 3],
-            size: 16.0,
+            size: GRID as f32,
             level: 1,
             datablock: 0,
             result: 0,
@@ -368,6 +368,7 @@ mod tests {
         assert_eq!(c.sample([3.5, 8.5, 8.5])[0][0], 3.0);
         assert!((c.sample([4.0, 8.5, 8.5])[1][0] - 3.5).abs() < 1e-6);
         assert_eq!(c.sample([0.1, 0.1, 0.1])[2][0], 0.0, "clamped at the edge");
-        assert!(c.contains([15.9, 0.0, 0.0]) && !c.contains([16.0, 0.0, 0.0]));
+        let edge = GRID as f32;
+        assert!(c.contains([edge - 0.1, 0.0, 0.0]) && !c.contains([edge, 0.0, 0.0]));
     }
 }

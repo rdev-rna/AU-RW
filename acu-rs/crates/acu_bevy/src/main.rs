@@ -214,7 +214,7 @@ fn setup_world(
         }),
         None => None,
     };
-    let gi_intensity = lighting::gi_intensity(native_gi.as_ref().map(|g| g.median_luminance));
+    let gi_intensity = lighting::gi_intensity();
     let mut lighting_report = lighting::report(native_lighting.as_ref());
     lighting_report["gi"] = gi_volume::report(native_gi.as_ref(), gi_intensity);
     println!("lighting: {lighting_report}");
@@ -324,7 +324,25 @@ fn setup_world(
             let normal_texture = material
                 .normal_texture
                 .and_then(|i| texture_handles[i].clone());
-            let has_normal = normal_texture.is_some();
+            let mut extension = character_material::CharacterSurface::plain(normal_texture);
+            if let Some(surface) = &material.surface
+                && extension.packed_normal.is_some()
+            {
+                let handle = |i: Option<usize>| i.and_then(|i| texture_handles[i].clone());
+                let details = surface.details.map(handle);
+                let bits = details
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, d)| d.is_some())
+                    .fold(0, |b, (slot, _)| b | 1 << slot);
+                let [metal, cloth, base] = details;
+                extension.params =
+                    character_material::CharacterParams::cloth(&surface.params, bits);
+                extension.mask = handle(Some(surface.mask));
+                extension.detail_metal = metal;
+                extension.detail_cloth = cloth;
+                extension.detail_base = base;
+            }
             character_materials.add(character_material::CharacterMaterial {
                 base: StandardMaterial {
                     base_color: Color::WHITE,
@@ -339,10 +357,7 @@ fn setup_world(
                     cull_mode: None,
                     ..default()
                 },
-                extension: character_material::CharacterSurface {
-                    packed_normal: normal_texture,
-                    params: Vec4::new(if has_normal { 1.0 } else { 0.0 }, 1.0, 0.0, 0.0),
-                },
+                extension,
             })
         })
         .collect();
@@ -412,10 +427,7 @@ fn setup_world(
             perceptual_roughness: 0.85,
             ..default()
         },
-        extension: character_material::CharacterSurface {
-            packed_normal: None,
-            params: Vec4::new(0.0, 1.0, 0.0, 0.0),
-        },
+        extension: character_material::CharacterSurface::plain(None),
     });
     let ground_material = arena_materials.add(arena::ArenaMaterial {
         base: StandardMaterial {
@@ -545,7 +557,7 @@ fn setup_world(
     }
 
     // Lighting (ACU-RE-0073): native Paris WorldAmbiance settings, synthetic remainder.
-    let exposure = lighting::spawn(&mut commands, native_lighting.as_ref(), native_gi.is_some());
+    let exposure = lighting::spawn(&mut commands, native_lighting.as_ref());
     if let Some(gi) = &native_gi {
         gi_volume::spawn(&mut commands, &mut images, gi, gi_intensity);
     }

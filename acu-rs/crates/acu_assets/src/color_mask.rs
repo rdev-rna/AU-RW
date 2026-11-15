@@ -6,8 +6,9 @@
 //! its red channel; the diffuse colour is rotated in hue and scaled in
 //! saturation and brightness with the shader's YIQ-style matrix. Values are
 //! (hue in turns, saturation, brightness); (1, 1, 1) is the identity.
-//! Not modelled: the distance dissolve factor (1 away from its centre), and
-//! the specular/velvet outputs, which do not change albedo.
+//! [`Surface`] holds the template's normal, gloss and specular parameters
+//! (ACU-RE-0084); the Bevy character shader evaluates them per pixel.
+//! Not modelled: the distance dissolve factor (1 away from its centre).
 
 use serde::Serialize;
 
@@ -213,6 +214,163 @@ impl Prepared {
     }
 }
 
+/// Texture parameters of the template (records with registers 160..167 =
+/// t32..t39). t37 is a noise map used only by the dissolve.
+pub const DIFFUSE_SELECTOR: u32 = 0x1371_c615; // t32
+pub const NORMAL_SELECTOR: u32 = 0x4c67_1014; // t33 (RG normal, A gloss)
+pub const DETAIL_METAL: u32 = 0x14c6_a86b; // t36, weighted by metal * cb3[11]
+pub const NOISE: u32 = 0x4ddb_34ee; // t37
+pub const DETAIL_CLOTH: u32 = 0xe306_9623; // t38, cloth * cb3[4] + mid * cb3[3]
+pub const DETAIL_BASE: u32 = 0xd7e5_0c4a; // t39, base * cb3[1]
+pub const DETAIL_UV_SCALE: u32 = 0x8f6d_6273; // cb3[23]
+
+/// Scalar parameters (`cb3` register in the comment) that drive the
+/// template's normal, gloss and specular outputs (G-buffer pixel shaders of
+/// the template, ACU-RE-0084). Registers 7-9 and 27 (dissolve) and 13 / 16
+/// (translucency) are not modelled here.
+pub const DETAIL_BASE_WEIGHT: u32 = 0x4cba_78d8; // cb3[1]
+pub const METAL_HUE_SCALE: u32 = 0xc541_6a6d; // cb3[2]
+pub const DETAIL_MID_WEIGHT: u32 = 0xd8b0_b4e3; // cb3[3]
+pub const DETAIL_CLOTH_WEIGHT: u32 = 0x50bf_8584; // cb3[4]
+pub const CLOTH_SPECULAR: u32 = 0x84f7_2d37; // cb3[5]
+pub const WET_BIAS: u32 = 0x99f3_1a87; // cb3[6]
+pub const DETAIL_METAL_WEIGHT: u32 = 0xccc4_a04b; // cb3[11]
+pub const CLOTH_SATURATION: u32 = 0xc9c7_3faf; // cb3[12]
+pub const METAL_SATURATION: u32 = 0xd3cd_1895; // cb3[14]
+pub const MID_SPECULAR: u32 = 0xebc1_dd6d; // cb3[15]
+pub const HUE_SCALE: u32 = 0xe640_aad7; // cb3[17]
+pub const MID_THRESHOLD: u32 = 0x5f7a_6196; // cb3[18]
+
+/// Per-texel band weights from mask G. `metal + cloth + mid + base == 1`
+/// unless the first three already exceed 1 (then base is 0).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct Weights {
+    pub metal: f32,
+    pub cloth: f32,
+    pub mid: f32,
+    pub base: f32,
+}
+
+pub fn weights(g: f32, mid_threshold: f32) -> Weights {
+    let metal = ((0.247_059 - g) * 4.047_619).clamp(0.0, 1.0);
+    let cloth = ((g - 0.752_941) * 4.047_619).clamp(0.0, 1.0);
+    let mid = (1.0 - cloth) * (g - mid_threshold).clamp(0.0, 1.0) * 8.0;
+    let base = 1.0 - (metal + mid + cloth).min(1.0);
+    Weights {
+        metal,
+        cloth,
+        mid,
+        base,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct Surface {
+    pub detail_base: f32,
+    pub metal_hue: f32,
+    pub detail_mid: f32,
+    pub detail_cloth: f32,
+    pub cloth_specular: f32,
+    pub wet_bias: f32,
+    pub detail_metal: f32,
+    pub cloth_saturation: f32,
+    pub metal_saturation: f32,
+    pub mid_specular: f32,
+    pub hue_scale: f32,
+    pub mid_threshold: f32,
+    pub detail_uv_scale: [f32; 2],
+}
+
+fn float(m: &Material, hash: u32) -> Option<f32> {
+    let name = format!("{hash:08x}");
+    m.parameters
+        .iter()
+        .find(|p| p.name_hash == name)
+        .and_then(|p| match p.value {
+            ParameterValue::Float(v) => Some(v),
+            _ => None,
+        })
+}
+
+impl Surface {
+    /// Read the material's own values; `None` when a parameter is absent.
+    pub fn from_material(m: &Material) -> Option<Self> {
+        let uv = vec3(m, DETAIL_UV_SCALE)?;
+        Some(Self {
+            detail_base: float(m, DETAIL_BASE_WEIGHT)?,
+            metal_hue: float(m, METAL_HUE_SCALE)?,
+            detail_mid: float(m, DETAIL_MID_WEIGHT)?,
+            detail_cloth: float(m, DETAIL_CLOTH_WEIGHT)?,
+            cloth_specular: float(m, CLOTH_SPECULAR)?,
+            wet_bias: float(m, WET_BIAS)?,
+            detail_metal: float(m, DETAIL_METAL_WEIGHT)?,
+            cloth_saturation: float(m, CLOTH_SATURATION)?,
+            metal_saturation: float(m, METAL_SATURATION)?,
+            mid_specular: float(m, MID_SPECULAR)?,
+            hue_scale: float(m, HUE_SCALE)?,
+            mid_threshold: float(m, MID_THRESHOLD)?,
+            detail_uv_scale: [uv[0], uv[1]],
+        })
+    }
+
+    /// Specular reflectance (the template's `t_SpecularReflectance` output)
+    /// from the tinted albedo before the band scale (only its hue and
+    /// saturation matter) and the band weights.
+    pub fn specular(&self, albedo: [f32; 3], w: Weights) -> [f32; 3] {
+        let (hue, sat) = hue_saturation(albedo);
+        let saturation = (w.metal * self.metal_saturation + w.cloth * self.cloth_saturation) * sat;
+        let h = hue * ((w.cloth + w.mid) * self.hue_scale + w.metal * self.metal_hue);
+        let hue_rgb = [
+            ((h * 6.0 - 3.0).abs() - 1.0).clamp(0.0, 1.0),
+            (2.0 - (h * 6.0 - 2.0).abs()).clamp(0.0, 1.0),
+            (2.0 - (h * 6.0 - 4.0).abs()).clamp(0.0, 1.0),
+        ];
+        let intensity = w.base * 0.04
+            + w.cloth * self.cloth_specular
+            + w.mid * self.mid_specular
+            + w.metal * 0.9;
+        hue_rgb.map(|c| ((c - 1.0) * saturation + 1.0) * intensity)
+    }
+
+    /// Velvet-lobe blend (the template's `t_MiscProps.x`): 1 cloth, 0.5 mid,
+    /// 0.1 base, 0 metal, reduced by wetness.
+    pub fn velvet(&self, w: Weights, wet: f32) -> f32 {
+        (w.cloth + 0.5 * w.mid + 0.1 * w.base - wet).clamp(0.0, 1.0)
+    }
+}
+
+/// RGB -> (hue in turns, saturation) as the template computes it; both are 0
+/// for a grey input.
+pub fn hue_saturation([r, g, b]: [f32; 3]) -> (f32, f32) {
+    let max = r.max(g).max(b);
+    let range = max - r.min(g).min(b);
+    if range == 0.0 {
+        return (0.0, 0.0);
+    }
+    let d = [(max - b) / range, (max - r) / range, (max - g) / range];
+    // each channel equal to the maximum offers a candidate; the largest wins
+    let candidate = |is_max: bool, v: f32| if is_max { v } else { 0.0 };
+    let h = candidate(r >= max, d[0] - d[2] + 6.0)
+        .max(candidate(b >= max, d[2] - d[1] + 4.0))
+        .max(candidate(g >= max, d[1] - d[0] + 2.0));
+    ((h / 6.0).fract(), range / max)
+}
+
+/// Combine the base gloss (normal-map alpha) with the blended detail gloss:
+/// the specular powers `2^(19 g)` add as reciprocals, then wetness pushes the
+/// result towards `1.5 * max(g, 0.1)`.
+pub fn combine_gloss(base: f32, detail: f32, wet: f32) -> f32 {
+    let inv = (-19.0 * base).exp2() + (-19.0 * detail).exp2();
+    let g = ((1.0 / inv).log2() / 19.0).clamp(0.0, 1.0);
+    g + wet * (g.max(0.1) * 1.5 - g)
+}
+
+/// ACU's deferred pass evaluates GGX with `alpha^2 = 2 / (2^(19 g) + 2)`;
+/// Bevy's perceptual roughness is `sqrt(alpha)`.
+pub fn gloss_to_perceptual_roughness(g: f32) -> f32 {
+    (2.0 / ((19.0 * g).exp2() + 2.0)).powf(0.25)
+}
+
 pub fn srgb_to_linear(c: u8) -> f32 {
     let c = c as f32 / 255.0;
     if c <= 0.04045 {
@@ -345,5 +503,103 @@ mod tests {
         for c in [0u8, 1, 10, 64, 128, 200, 255] {
             assert_eq!(linear_to_srgb(srgb_to_linear(c)), c);
         }
+    }
+
+    fn surface() -> Surface {
+        // Arno's upper-body values (DataPC_ACU_LGS_BelleEpoque.forge entry 370).
+        Surface {
+            detail_base: 4.0,
+            metal_hue: 1.0,
+            detail_mid: 4.0,
+            detail_cloth: 4.0,
+            cloth_specular: 0.042_278,
+            wet_bias: 0.0,
+            detail_metal: 1.0,
+            cloth_saturation: 1.0,
+            metal_saturation: 1.0,
+            mid_specular: 0.02,
+            hue_scale: 1.0,
+            mid_threshold: 0.55,
+            detail_uv_scale: [9.0, 18.0],
+        }
+    }
+
+    #[test]
+    fn band_weights_partition_mask_green() {
+        let t = 0.55;
+        let w = weights(0.0, t);
+        assert_eq!((w.metal, w.cloth, w.mid, w.base), (1.0, 0.0, 0.0, 0.0));
+        let w = weights(1.0, t);
+        assert_eq!((w.metal, w.cloth, w.mid, w.base), (0.0, 1.0, 0.0, 0.0));
+        let w = weights(0.5, t);
+        assert_eq!((w.metal, w.cloth, w.mid, w.base), (0.0, 0.0, 0.0, 1.0));
+        // just above the mid threshold: 8x ramp
+        let w = weights(0.6, t);
+        assert!(
+            (w.mid - 0.4).abs() < 1e-5 && (w.base - 0.6).abs() < 1e-5,
+            "{w:?}"
+        );
+    }
+
+    #[test]
+    fn hue_matches_hsv() {
+        let close =
+            |a: (f32, f32), b: (f32, f32)| (a.0 - b.0).abs() < 1e-6 && (a.1 - b.1).abs() < 1e-6;
+        assert!(close(hue_saturation([1.0, 0.0, 0.0]), (0.0, 1.0)));
+        assert!(close(hue_saturation([0.0, 1.0, 0.0]), (1.0 / 3.0, 1.0)));
+        assert!(close(hue_saturation([0.0, 0.0, 1.0]), (2.0 / 3.0, 1.0)));
+        assert!(close(hue_saturation([1.0, 1.0, 0.0]), (1.0 / 6.0, 1.0)));
+        assert!(close(hue_saturation([0.5, 0.25, 0.5]), (5.0 / 6.0, 0.5)));
+        assert_eq!(hue_saturation([0.3, 0.3, 0.3]), (0.0, 0.0));
+    }
+
+    #[test]
+    fn specular_bands() {
+        let s = surface();
+        let red = [0.8, 0.2, 0.2];
+        // base band: grey dielectric 0.04 regardless of albedo
+        let f = s.specular(red, weights(0.5, s.mid_threshold));
+        assert!(f.iter().all(|c| (c - 0.04).abs() < 1e-6), "{f:?}");
+        // metal band: 0.9 times the albedo hue at the albedo's saturation (0.75)
+        let f = s.specular(red, weights(0.0, s.mid_threshold));
+        assert!((f[0] - 0.9).abs() < 1e-5, "{f:?}");
+        assert!(
+            (f[1] - 0.9 * 0.25).abs() < 1e-5 && (f[2] - f[1]).abs() < 1e-5,
+            "{f:?}"
+        );
+        // cloth band on grey: the velvet intensity, uncoloured
+        let f = s.specular([0.5, 0.5, 0.5], weights(1.0, s.mid_threshold));
+        assert!(f.iter().all(|c| (c - 0.042_278).abs() < 1e-6), "{f:?}");
+        // hue and saturation are scale invariant: the band scale does not matter
+        let a = s.specular([0.1, 0.3, 0.6], weights(0.0, 0.55));
+        let b = s.specular([0.2, 0.6, 1.2], weights(0.0, 0.55));
+        assert!(a.iter().zip(b).all(|(x, y)| (x - y).abs() < 1e-6));
+    }
+
+    #[test]
+    fn velvet_blend_by_band() {
+        let s = surface();
+        assert_eq!(s.velvet(weights(1.0, 0.55), 0.0), 1.0);
+        assert_eq!(s.velvet(weights(0.0, 0.55), 0.0), 0.0);
+        assert!((s.velvet(weights(0.5, 0.55), 0.0) - 0.1).abs() < 1e-6);
+    }
+
+    #[test]
+    fn gloss_combination_and_roughness() {
+        // detail gloss 4 (no detail weight): base gloss passes through
+        for g in [0.0, 0.3, 0.7, 1.0] {
+            assert!((combine_gloss(g, 4.0, 0.0) - g).abs() < 1e-4, "{g}");
+        }
+        // equal powers halve: g drops by 1/19
+        let g = combine_gloss(0.5, 0.5, 0.0);
+        assert!((g - (0.5 - 1.0 / 19.0)).abs() < 1e-5, "{g}");
+        // full wetness: 1.5 * max(g, 0.1)
+        assert!((combine_gloss(0.0, 4.0, 1.0) - 0.15).abs() < 1e-5);
+        assert!((combine_gloss(0.4, 4.0, 1.0) - 0.6).abs() < 1e-4);
+        // roughness endpoints: g = 0 gives alpha^2 = 2/3
+        let r = gloss_to_perceptual_roughness(0.0);
+        assert!((r.powi(4) - 2.0 / 3.0).abs() < 1e-6);
+        assert!(gloss_to_perceptual_roughness(1.0) < 0.05);
+        assert!(gloss_to_perceptual_roughness(0.3) > gloss_to_perceptual_roughness(0.6));
     }
 }

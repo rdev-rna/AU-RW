@@ -80,6 +80,41 @@ pub struct LoadedMaterial {
     /// Colour-set recolouring applied to this material (ACU-RE-0071).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub color_mask: Option<serde_json::Value>,
+    /// Template surface inputs (mask, detail maps, parameters; ACU-RE-0084).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cloth_surface: Option<serde_json::Value>,
+    /// Registered textures and parameters for the per-pixel cloth shader.
+    #[serde(skip)]
+    pub surface: Option<ClothSurface>,
+}
+
+/// Inputs of the cloth template's per-pixel surface (ACU-RE-0084).
+#[derive(Debug, Clone)]
+pub struct ClothSurface {
+    pub params: color_mask::Surface,
+    /// t34 mask (linear): R colour zone, G band, B specular occlusion.
+    pub mask: usize,
+    /// Detail normal + gloss maps t36 (metal), t38 (cloth / mid), t39 (base).
+    pub details: [Option<usize>; 3],
+}
+
+/// DXGI formats the Bevy view uploads (`main.rs`).
+const UPLOADABLE: [u32; 13] = [71, 72, 74, 75, 77, 78, 98, 99, 28, 29, 87, 91, 83];
+
+/// The texture map a material's `TextureSelector` parameter names.
+fn selector_map(m: &material::Material, hash: u32) -> Option<String> {
+    let name = format!("{hash:08x}");
+    m.parameters
+        .iter()
+        .find(|p| p.name_hash == name)
+        .and_then(|p| match &p.value {
+            material::ParameterValue::Object(o) => match &o.data {
+                material::ObjectData::TextureSelector(s) => Some(s.texture_map.file_id.clone()),
+                _ => None,
+            },
+            _ => None,
+        })
+        .filter(|id| id != "0000000000000000")
 }
 
 #[derive(Debug)]
@@ -353,7 +388,7 @@ impl Loader {
         let tint_index = self
             .texture(&tint_id, package, entry, true)?
             .ok_or_else(|| format!("tint map {tint_id} unavailable"))?;
-        let tint = uniform_red(&self.scene.textures[tint_index])?;
+        let tint = uniform_tint(&self.scene.textures[tint_index])?;
         let (width, height, pixels, mips) = bake_color_mask(
             &self.scene.textures[diffuse],
             &self.scene.textures[mask],
@@ -387,6 +422,64 @@ impl Loader {
                 "mask": mask_id, "tint_map": tint_id, "tint": tint, "baked_texture": index,
                 "size": [width, height], "template": color_mask::TEMPLATE_CLOTH_COLOR_MASKED_ALPHA_TEST}),
         )))
+    }
+
+    /// Resolve the cloth template's mask and detail maps for the per-pixel
+    /// surface shader.
+    fn cloth_surface(
+        &mut self,
+        m: &material::Material,
+        package: Option<&package::Package>,
+        entry: usize,
+    ) -> Result<(ClothSurface, serde_json::Value)> {
+        let params = color_mask::Surface::from_material(m)
+            .ok_or("material lacks the template's surface parameters")?;
+        let mask_id = selector_map(m, color_mask::MASK_SELECTOR).ok_or("no mask (t34) selector")?;
+        let mask = self
+            .texture(&mask_id, package, entry, false)?
+            .ok_or_else(|| format!("mask {mask_id} unavailable"))?;
+        let t = &self.scene.textures[mask];
+        if !UPLOADABLE.contains(&t.dxgi_format) || t.gamma != 0 {
+            return Err(format!(
+                "mask {mask_id}: format {} gamma {} not supported",
+                t.dxgi_format, t.gamma
+            )
+            .into());
+        }
+        let mut details = [None; 3];
+        let mut report = Vec::new();
+        for (slot, hash) in [
+            color_mask::DETAIL_METAL,
+            color_mask::DETAIL_CLOTH,
+            color_mask::DETAIL_BASE,
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let id = selector_map(m, hash);
+            let index = match &id {
+                Some(id) => self.texture(id, package, entry, false)?,
+                None => None,
+            }
+            .filter(|&i| UPLOADABLE.contains(&self.scene.textures[i].dxgi_format));
+            details[slot] = index;
+            report.push(serde_json::json!({
+                "param": format!("{hash:08x}"),
+                "map": id,
+                "texture": index.map(|i| self.scene.textures[i].name.clone()),
+                "dxgi_format": index.map(|i| self.scene.textures[i].dxgi_format),
+            }));
+        }
+        let surface = ClothSurface {
+            params,
+            mask,
+            details,
+        };
+        Ok((
+            surface,
+            serde_json::json!({"params": params, "mask": mask_id, "details": report,
+                "template": color_mask::TEMPLATE_CLOTH_COLOR_MASKED_ALPHA_TEST}),
+        ))
     }
 
     fn catalog(&mut self) -> Result<&mut Catalog> {
@@ -610,9 +703,21 @@ impl Loader {
                 Err(e) => notes.push(format!("colour mask not applied: {e}")),
             }
         }
+        let (mut surface, mut cloth_surface) = (None, None);
+        if parsed.template.file_id == color_mask::TEMPLATE_CLOTH_COLOR_MASKED_ALPHA_TEST {
+            match self.cloth_surface(&parsed, package, entry) {
+                Ok((s, report)) => {
+                    surface = Some(s);
+                    cloth_surface = Some(report);
+                }
+                Err(e) => notes.push(format!("cloth surface not applied: {e}")),
+            }
+        }
         let index = self.scene.materials.len();
         self.scene.materials.push(LoadedMaterial {
             color_mask: color_mask_report,
+            cloth_surface,
+            surface,
             normal_map,
             normal_texture,
             alpha_test_enabled: parsed.flags.alpha_test_enabled,
@@ -697,9 +802,11 @@ impl Loader {
     }
 }
 
-/// The red value of a uniform texture (the template's t35 tint map); fails on
-/// a non-uniform map, whose UV transform this bake does not model.
-fn uniform_red(t: &LoadedTexture) -> Result<f32> {
+/// The blue value of a uniform texture (the template's t35 tint map: the
+/// shader samples it with swizzle `.xzwy` into `.yz`, so the tint mix is
+/// channel z and the coverage factor channel w); fails on a non-uniform map,
+/// whose UV transform this bake does not model.
+fn uniform_tint(t: &LoadedTexture) -> Result<f32> {
     if t.dxgi_format != 71 {
         return Err(format!(
             "tint map {}: unsupported storage {}",
@@ -708,8 +815,8 @@ fn uniform_red(t: &LoadedTexture) -> Result<f32> {
         .into());
     }
     let px = bc1::decode(t.width, t.height, &t.pixels)?;
-    let r = px[0][0];
-    if px.iter().any(|p| p[0] != r) {
+    let r = px[0][2];
+    if px.iter().any(|p| p[2] != r) {
         return Err(format!(
             "tint map {} is not uniform; its UV transform is not modelled",
             t.file_id
