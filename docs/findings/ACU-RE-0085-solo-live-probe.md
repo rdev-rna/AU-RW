@@ -13,6 +13,12 @@ State: partially established.
 Binary path / SHA-256 / image base / VA / RVA: installed `D:/Games/Assassin's Creed Unity/ACU.exe`,
 SHA-256 `748abdc6456397fe7d8080f975f2a5ed3123bce548e7bf1c68b23f47e8b27e40`, live image base `0x140000000`
 (the preferred base, so VAs equal the static ones). Static follow-up on the mapped image `9a1124f1…0520`.
+Loader note (found after the run): the install's active `uplay_r1_loader64.dll` is not Ubisoft's. It is
+unsigned, 156,672 bytes, SHA-256 prefix `532faf5284334a65`, dated 2014-11-18. The Ubisoft-signed loader
+(575,192 bytes, prefix `0e06fee61bc4090c`) sits beside it as `.dll.bak` (2026-02-09) and `.3dm`. The
+project has no record of this swap. The routines measured here are inside `ACU.exe` (hash-checked), not
+the loader, but the session and startup state may differ from a stock install. Treat these rates as
+observed with that loader until they are repeated with the signed one.
 Corpus path and lines / export identity status: not used.
 Archive identity / byte range / range hash / file ID (hex string): not applicable.
 Stored and decoded lengths / SHA-256: not applicable.
