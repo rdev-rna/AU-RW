@@ -309,6 +309,33 @@ Follow-up (same day):
     Also unknown is whether LAN discovery then still reaches between the two, since discovery may need a
     shared port.
 
+## Live run 4 — moving the second game's ports (2026-11-16)
+
+After the user uninstalled ZeroTier and Tailscale, both games were restarted. The host (PID 130944) has the
+flag only, and now binds `0.0.0.0:3074` plus 6250 and 6300 on the Wi-Fi LAN address. In free roam it
+has game and party sessions (peers 1 and 2) and no mission session. The user explains that ACU has
+**multiplayer free roam**, where players join each other's worlds, separate from co-op missions, and
+that co-op missions can be launched from it. This matches the game/party sessions existing before any
+mission session.
+
+The second game was launched with `lanports.py` (scratchpad). It writes the flag, then replaces the three
+`mov eax, imm32` port immediates in `0x141B46C90` (VAs `0x141B46E1E`, `0x141B46E29`, `0x141B46E5D`) with
+3084/6260/6310. Each write checked the original bytes first and read back the new value.
+
+Observations:
+28. Patched right at unpack (1.468 s, `lanports-join.json`): the game exited with `0xC0000005` before
+    opening a window.
+29. Patched 5 s after the flag write (6.765 s, `lanports-join2.json`): the game opened its window, was
+    attached at 9.7 s, then lost its window during the load, and the process was gone.
+    `capture_run` stopped with "game window has no client area". No Application event log entry
+    named ACU.exe.
+30. The flag-only second game in live run 3 loaded fine. So the code patch is the difference.
+
+Inference: changing those code bytes kills the game. This probably comes from an integrity or anti-tamper
+check, or from the unpacker re-touching those pages; the cause is not established. Moving the ports needs
+a data-level change instead: the config object's `+8`/`+412`/`+416` after construction and before the
+sockets are bound. That object's address and timing are not yet known.
+
 Unknowns / coverage:
 - Who sets the start-alone flag (statechart `+236`), and what the private-match host waits for before it
   launches (a joined peer, a host confirm, or both).
