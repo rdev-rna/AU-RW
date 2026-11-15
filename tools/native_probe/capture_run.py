@@ -144,11 +144,79 @@ def game_exe() -> Path:
     return Path(game) / "ACU.exe"
 
 
-def spawn_direct(exe: Path) -> subprocess.Popen:
-    """Start ACU.exe itself from the game folder, detached from this console."""
-    flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-    return subprocess.Popen([str(exe)], cwd=str(exe.parent), creationflags=flags, close_fds=True,
+PRIORITY_CLASS = {"normal": 0x20, "below_normal": 0x4000, "idle": 0x40}
+CREATE_SUSPENDED = 0x4
+PROCESS_SET_INFORMATION, PROCESS_QUERY_INFORMATION, PROCESS_SUSPEND_RESUME = 0x0200, 0x0400, 0x0800
+kernel.SetProcessAffinityMask.argtypes = [W.HANDLE, C.c_size_t]
+kernel.GetProcessAffinityMask.argtypes = [W.HANDLE, C.POINTER(C.c_size_t), C.POINTER(C.c_size_t)]
+kernel.SetPriorityClass.argtypes = [W.HANDLE, W.DWORD]
+kernel.TerminateProcess.argtypes = [W.HANDLE, W.UINT]
+ntdll = C.WinDLL("ntdll")
+ntdll.NtResumeProcess.argtypes = [W.HANDLE]
+
+
+def parse_cores(spec: str, cpu_count: int | None = None) -> int:
+    """'0-3,5' -> affinity mask 0b101111. Cores must exist on this machine (logical processors)."""
+    count = cpu_count or os.cpu_count() or 1
+    mask = 0
+    for part in spec.split(","):
+        part = part.strip()
+        if not part:
+            raise ValueError(f"empty core list entry in {spec!r}")
+        lo, _, hi = part.partition("-")
+        first, last = int(lo), int(hi or lo)
+        if not 0 <= first <= last < min(count, 64):
+            raise ValueError(f"cores {part!r} outside 0..{min(count, 64) - 1}")
+        for core in range(first, last + 1):
+            mask |= 1 << core
+    return mask
+
+
+def set_cpu(pid: int, affinity: int = 0, priority: str = "normal") -> dict:
+    """Restrict `pid` to the cores in `affinity` (0: leave as is) and set its priority class.
+    Returns what the process reports afterwards."""
+    handle = kernel.OpenProcess(PROCESS_SET_INFORMATION | PROCESS_QUERY_INFORMATION, False, pid)
+    if not handle:
+        raise RuntimeError(f"cannot open process {pid} to set CPU affinity/priority")
+    try:
+        if affinity and not kernel.SetProcessAffinityMask(handle, affinity):
+            raise RuntimeError(f"SetProcessAffinityMask(0x{affinity:x}) failed (win32 {C.get_last_error()})")
+        if not kernel.SetPriorityClass(handle, PRIORITY_CLASS[priority]):
+            raise RuntimeError(f"SetPriorityClass({priority}) failed (win32 {C.get_last_error()})")
+        process_mask, system_mask = C.c_size_t(), C.c_size_t()
+        kernel.GetProcessAffinityMask(handle, C.byref(process_mask), C.byref(system_mask))
+        return {"affinity": f"0x{process_mask.value:x}", "priority": priority}
+    finally:
+        kernel.CloseHandle(handle)
+
+
+def spawn_direct(exe: Path, affinity: int = 0, priority: str = "normal") -> subprocess.Popen:
+    """Start ACU.exe itself from the game folder, detached from this console.
+
+    It starts suspended so that the core set and priority hold from its first instruction (the
+    engine sizes its worker threads at startup); then it is resumed. If they cannot be set, the
+    never-run process is terminated."""
+    flags = (subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | CREATE_SUSPENDED
+             | PRIORITY_CLASS[priority])
+    proc = subprocess.Popen([str(exe)], cwd=str(exe.parent), creationflags=flags, close_fds=True,
                             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    handle = kernel.OpenProcess(PROCESS_SUSPEND_RESUME | 0x0001, False, proc.pid)  # | PROCESS_TERMINATE
+    if not handle:
+        proc.kill()
+        raise RuntimeError(f"cannot open the suspended ACU.exe (PID {proc.pid}) to resume it; terminated")
+    try:
+        try:
+            proc.cpu = set_cpu(proc.pid, affinity, priority)
+        except Exception:
+            kernel.TerminateProcess(handle, 1)
+            raise
+        status = ntdll.NtResumeProcess(handle) & 0xFFFFFFFF
+        if status:
+            kernel.TerminateProcess(handle, 1)
+            raise RuntimeError(f"NtResumeProcess failed: 0x{status:08x}; the suspended game was terminated")
+    finally:
+        kernel.CloseHandle(handle)
+    return proc
 
 
 def release_own_guard(run: Run, pid: int):
@@ -162,14 +230,18 @@ def release_own_guard(run: Run, pid: int):
     run.stage("guard", pid=pid, released=True, closed=closed)
 
 
-def launch(run: Run, timeout: float, direct: bool = False) -> tuple[int, int]:
+def launch(run: Run, timeout: float, direct: bool = False, affinity: int = 0,
+           priority: str = "normal") -> tuple[int, int]:
     """Start one more ACU and return (pid, hwnd) of exactly that instance; never another session's.
 
     direct=False: uplay://launch/720/0, which never starts a second game.
     direct=True: CreateProcess of ACU.exe from the game folder (works with the loader installed on
     2026-11-15, see ACU-RE-0086). The new game's PID is the spawned one. A second game starts only
     when no running ACU holds the single-instance semaphore; a holder this run did not launch is
-    refused by name instead of touched."""
+    refused by name instead of touched.
+
+    affinity (core mask, 0 = all) and priority: set before the direct game runs its first
+    instruction; for the uplay path, once its window is found."""
     with save_pin.file_lock(LAUNCH_LOCK, stale=timeout + 60, timeout=timeout + 120):
         before = set(acu_running())
         spawned = None
@@ -181,7 +253,7 @@ def launch(run: Run, timeout: float, direct: bool = False) -> tuple[int, int]:
                     "so a direct launch would exit at once. If that game is yours, run "
                     f"`python tools/native_probe/instance_guard.py release <pid>`; never release another "
                     "session's game. No game was touched.")
-            spawned = spawn_direct(game_exe())
+            spawned = spawn_direct(game_exe(), affinity, priority)
         else:
             subprocess.run(["cmd", "/c", "start", "", "uplay://launch/720/0"], check=True)
         deadline = time.monotonic() + timeout
@@ -191,8 +263,11 @@ def launch(run: Run, timeout: float, direct: bool = False) -> tuple[int, int]:
                 raise RuntimeError(f"a new ACU window belongs to PID {found[0]}, not the spawned {spawned.pid}; "
                                    "another launch ran outside capture_run, so none was touched")
             if found:
+                cpu = getattr(spawned, "cpu", None) if spawned else None
+                if not spawned and (affinity or priority != "normal"):
+                    cpu = set_cpu(found[0], affinity, priority)
                 run.stage("launch", pid=found[0], window=f"{found[1]:x}", already_running=sorted(before),
-                          method="direct" if direct else "uplay")
+                          method="direct" if direct else "uplay", cpu=cpu)
                 # Inside the launch lock: the next launch must not see this game's guard.
                 release_own_guard(run, found[0])
                 return found
@@ -338,6 +413,10 @@ def main():
                          "attached (for live RE); title: the same, but stop at the title screen right after "
                          "attaching; with --save-pin the lease stays held: after --close run the printed "
                          "`save_pin.py release <run dir>`")
+    ap.add_argument("--cpu-cores", help="restrict the game to these logical processors, e.g. 0-3 or 4,5 "
+                    "(default: all)")
+    ap.add_argument("--priority", choices=sorted(PRIORITY_CLASS), default="normal",
+                    help="process priority class for the game (default normal)")
     ap.add_argument("--direct", action="store_true",
                     help="start ACU.exe directly instead of uplay://launch/720/0 (the only way to run several "
                          "games at once; see instance_guard.py and multi_launch.py)")
@@ -348,6 +427,12 @@ def main():
         ap.error("--save-pin with --keep-game cannot put the saves back; use --until world for live sessions")
     if a.until in ("world", "title"):
         a.keep_game = True
+    try:
+        affinity = parse_cores(a.cpu_cores) if a.cpu_cores else 0
+    except ValueError as error:
+        ap.error(f"--cpu-cores: {error}")
+    if a.attach and (affinity or a.priority != "normal"):
+        ap.error("--cpu-cores/--priority apply at launch; not with --attach")
     steps = [s.get("name") for s in json.loads(a.moves.read_text())["steps"]]
     unknown = [s for s in a.screenshot_step if s not in steps]
     if unknown:
@@ -377,7 +462,7 @@ def main():
                       pin_sha256={k: v["sha256"] for k, v in lease["pin_files"].items()})
         user_window = return_focus_window()  # handed back once the game grabs the foreground
         if launched:
-            pid, hwnd = launch(run, 120, direct=a.direct)
+            pid, hwnd = launch(run, 120, direct=a.direct, affinity=affinity, priority=a.priority)
             if leased:
                 save_pin.set_holder_pid(holder, pid)
         else:

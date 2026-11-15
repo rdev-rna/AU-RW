@@ -110,8 +110,10 @@ class DirectLaunchTest(LaunchTest):
         self.spawned = mock.Mock(pid=20, returncode=None)
         self.spawned.poll.return_value = None
 
-        def fake_spawn(exe):
+        def fake_spawn(exe, affinity=0, priority="normal"):
             self.started.append(["spawn", str(exe)])
+            self.spawn_cpu = (affinity, priority)
+            self.spawned.cpu = {"affinity": f"0x{affinity:x}", "priority": priority}
             self.windows = list(self.after_start)
             self.running = sorted({pid for pid, _ in self.windows})
             return self.spawned
@@ -187,6 +189,51 @@ class DirectLaunchTest(LaunchTest):
         with mock.patch.object(capture_run.save_pin, "file_lock", lock):
             capture_run.launch(self.run, timeout=5, direct=True)
         self.assertEqual(held, [capture_run.LAUNCH_LOCK])
+
+
+class CpuTest(LaunchTest):
+    def test_direct_passes_cores_and_priority_to_the_spawn(self):
+        self.after_start = [(10, 0xA0), (20, 0xB0)]
+        spawned = mock.Mock(pid=20, returncode=None)
+        spawned.poll.return_value = None
+        calls = []
+
+        def fake_spawn(exe, affinity=0, priority="normal"):
+            calls.append((affinity, priority))
+            spawned.cpu = {"affinity": f"0x{affinity:x}", "priority": priority}
+            self.windows = list(self.after_start)
+            self.running = [10, 20]
+            return spawned
+        with mock.patch.object(capture_run, "spawn_direct", fake_spawn),                 mock.patch.object(capture_run, "game_exe", lambda: Path("D:/Game/ACU.exe")),                 mock.patch.object(capture_run.instance_guard, "holders", lambda pids: []),                 mock.patch.object(capture_run, "set_cpu") as set_cpu:
+            capture_run.launch(self.run, timeout=5, direct=True, affinity=0x30, priority="below_normal")
+        self.assertEqual(calls, [(0x30, "below_normal")])
+        set_cpu.assert_not_called()  # set at creation, not afterwards
+        launch = next(s for s in self.run.record["stages"] if s["stage"] == "launch")
+        self.assertEqual(launch["cpu"], {"affinity": "0x30", "priority": "below_normal"})
+
+    def test_uplay_sets_cpu_on_the_new_pid_only(self):
+        self.after_start = [(10, 0xA0), (20, 0xB0)]
+        with mock.patch.object(capture_run, "set_cpu", return_value={"affinity": "0xf", "priority": "normal"}) as set_cpu:
+            capture_run.launch(self.run, timeout=5, affinity=0xF)
+        set_cpu.assert_called_once_with(20, 0xF, "normal")
+
+    def test_uplay_default_leaves_cpu_alone(self):
+        self.after_start = [(10, 0xA0), (20, 0xB0)]
+        with mock.patch.object(capture_run, "set_cpu") as set_cpu:
+            capture_run.launch(self.run, timeout=5)
+        set_cpu.assert_not_called()
+
+
+class ParseCoresTest(unittest.TestCase):
+    def test_ranges_and_singles(self):
+        self.assertEqual(capture_run.parse_cores("0-3", 6), 0b1111)
+        self.assertEqual(capture_run.parse_cores("4,5", 6), 0b110000)
+        self.assertEqual(capture_run.parse_cores("0-1, 5", 6), 0b100011)
+
+    def test_rejects_missing_or_reversed_cores(self):
+        for spec in ("6", "0-6", "3-1", "", "a", "-1"):
+            with self.assertRaises(ValueError, msg=spec):
+                capture_run.parse_cores(spec, 6)
 
 
 class GuardNameTest(unittest.TestCase):
