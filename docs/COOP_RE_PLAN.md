@@ -152,6 +152,13 @@ deliverable and acceptance criterion. Phases 1-5 are static. Phase 7 is dynamic.
   The seam is Storm's event interface, and `NetSessionController` is a session-event relay. NAT traversal
   takes its server URLs from ubiservices (backend row 1). The LAN-path test is still **unresolved**.
   Backend register started: [coop/BACKEND_BOUNDARY.md](coop/BACKEND_BOUNDARY.md).
+- **Status 2026-11-15 (LAN path, static):** [ACU-RE-0087](findings/ACU-RE-0087-lan-path-static.md).
+  - No direct-call path from game code reaches Storm's LAN events. The four LAN type getters are requested
+    only by Storm's own registration functions, which have no direct callers.
+  - `LanSessionsPage` ships and is listed in `MenuManagerGame` beside `PlayTogetherPage` and the two join
+    pages. It borrows the `Menu_Online_Invite_Friends_New` layout and adds no code of its own.
+  - Next: count hits on the four getters in a running game (startup, menus, co-op lobby).
+  - Two local games can now run at once (ACU-RE-0086, PR #142), so a live two-instance test is possible.
 
 ### Phase 3 - Replication model (static)
 - Echo objects: how a replica is created and deleted, what an "object shape" is
