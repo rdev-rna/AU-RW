@@ -120,7 +120,8 @@ class DirectLaunchTest(LaunchTest):
 
         for p in (mock.patch.object(capture_run, "spawn_direct", fake_spawn),
                   mock.patch.object(capture_run, "game_exe", lambda: Path("D:/Game/ACU.exe")),
-                  mock.patch.object(capture_run.instance_guard, "holders", lambda pids: list(self.holders))):
+                  mock.patch.object(capture_run.instance_guard, "holders", lambda pids: list(self.holders)),
+                  mock.patch.object(capture_run.loader_swap, "require", lambda target: None)):
             p.start()
             self.patches.append(p)
 
@@ -132,6 +133,15 @@ class DirectLaunchTest(LaunchTest):
         self.assertEqual((launch["stage"], launch["method"], launch["already_running"]), ("launch", "direct", [10]))
         self.assertEqual((guard["stage"], guard["pid"], guard["released"]), ("guard", 20, True))
         self.assertEqual(self.released, [20])  # only the new game, never PID 10
+
+    def test_original_loader_is_refused_before_anything_starts(self):
+        def refuse(target):
+            raise RuntimeError("the custom uplay loader is required but original loader is active")
+        with mock.patch.object(capture_run.loader_swap, "require", refuse):
+            with self.assertRaises(RuntimeError) as raised:
+                capture_run.launch(self.run, timeout=5, direct=True)
+        self.assertIn("custom uplay loader", str(raised.exception))
+        self.assertEqual((self.started, self.released), ([], []))
 
     def test_running_guard_holder_is_refused_untouched(self):
         self.holders = [10]
@@ -204,7 +214,11 @@ class CpuTest(LaunchTest):
             self.windows = list(self.after_start)
             self.running = [10, 20]
             return spawned
-        with mock.patch.object(capture_run, "spawn_direct", fake_spawn),                 mock.patch.object(capture_run, "game_exe", lambda: Path("D:/Game/ACU.exe")),                 mock.patch.object(capture_run.instance_guard, "holders", lambda pids: []),                 mock.patch.object(capture_run, "set_cpu") as set_cpu:
+        with mock.patch.object(capture_run, "spawn_direct", fake_spawn), \
+                mock.patch.object(capture_run, "game_exe", lambda: Path("D:/Game/ACU.exe")), \
+                mock.patch.object(capture_run.instance_guard, "holders", lambda pids: []), \
+                mock.patch.object(capture_run.loader_swap, "require", lambda target: None), \
+                mock.patch.object(capture_run, "set_cpu") as set_cpu:
             capture_run.launch(self.run, timeout=5, direct=True, affinity=0x30, priority="below_normal")
         self.assertEqual(calls, [(0x30, "below_normal")])
         set_cpu.assert_not_called()  # set at creation, not afterwards

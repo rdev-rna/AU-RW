@@ -22,6 +22,9 @@ Load (defaults, to keep two games light on one PC):
   --secondary-priority below_normal is opt-in and starved a second game on a busy machine.
   `none` turns this off; an explicit split is "0-3/4-5" (one core list per game).
 
+Loader: several games need the custom uplay loader active (`python tools/loader_swap.py use custom`,
+no ACU running). For a single game, `use original` restores the Ubisoft-signed one.
+
 Rules that hold for every game (tools/native_probe/README.md):
 - an explicit --fps-cap of 240 or lower per game (default 60); never 0;
 - close only with `capture_run.py --close <pid>`; never remove or swap the shim on a running game;
@@ -139,6 +142,12 @@ def main():
     if any(c < 15 for c in caps):
         print("warning: below 15 fps ACU's physics sub-steps (ACU-RE-0051); that game simulates differently",
               file=sys.stderr)
+    sys.path.insert(0, str(ROOT / "tools"))
+    import loader_swap  # noqa: E402
+    try:
+        loader_swap.require("custom")
+    except RuntimeError as error:
+        sys.exit(str(error))
     stamp = time.strftime("%Y%m%d-%H%M%S")
     RUNS.mkdir(parents=True, exist_ok=True)
     runs = []

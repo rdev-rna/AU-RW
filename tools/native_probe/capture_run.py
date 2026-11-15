@@ -56,6 +56,7 @@ import instance_guard  # noqa: E402
 import player_state  # noqa: E402
 from client import checked, command  # noqa: E402
 import save_pin  # noqa: E402  (tools/; file_lock and the shared save-pin lease)
+import loader_swap  # noqa: E402  (tools/; which uplay loader is active)
 
 GAME_SHA256 = focus.GAME_SHA256
 ENGINE_CLASS = "ScimitarEngineWindowClass"
@@ -246,6 +247,7 @@ def launch(run: Run, timeout: float, direct: bool = False, affinity: int = 0,
         before = set(acu_running())
         spawned = None
         if direct:
+            loader_swap.require("custom")  # the original loader does not run a directly started ACU.exe
             held = instance_guard.holders(sorted(before))
             if held:
                 raise RuntimeError(

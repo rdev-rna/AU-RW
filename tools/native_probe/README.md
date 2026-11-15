@@ -231,6 +231,12 @@ python tools/native_probe/instance_guard.py list                    # PIDs still
   `local/project.json`). It does not go through `uplay://`. The spawned PID is the game. This works
   with the `uplay_r1_loader64.dll` installed on 2026-11-15 (not Ubisoft's, see ACU-RE-0085); it
   has not been tried with the signed loader.
+- Loaders: `python tools/loader_swap.py use custom` before running several games, and
+  `use original` for single-game runs (Ubisoft-signed loader, stock state). Swaps are renames between
+  `uplay_r1_loader64.dll`, `.dll.bak` (original) and `.dll.custom` (custom), checked by SHA-256 and
+  refused while any ACU.exe runs. `.3dm` is a spare copy of the original and is never touched. The log is
+  `local/game-backups/loader-swap/log.jsonl`. `--direct` and `multi_launch.py` refuse unless the custom
+  loader is active. `status` shows which loader is in use.
 - ACU's single-instance check: a second `ACU.exe` exits with code 0 before opening a window while a
   running game holds the named semaphore `scimitar_semaphore` (count 1 of 1, held by nobody).
   Inside the launch lock, once the new game's window is up, `capture_run` closes that game's own
