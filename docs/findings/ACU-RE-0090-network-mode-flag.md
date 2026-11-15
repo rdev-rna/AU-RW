@@ -567,6 +567,39 @@ because no game flow asked for a search. The next step is to find ACU's own call
 `JOIN_PARTY_INVITE`). Then drive that caller with `CALLAT`, using the discovered record, rather than building
 Storm's arguments by hand.
 
+## Static follow-up — ACU's join path (2026-11-16)
+
+Method: RIP-relative references to `qword_145212ED0` in the hash-bound mapped image, then indirect calls through
+interface slots 17–22 (displacements `0x88`–`0xB0`) within 260 bytes of each reference.
+
+Observations:
+59. Callers found per slot:
+    - slot 17 (Create): `0x141C46B10`, `0x141C46E30`, `0x141C470A0`, `0x1425406D0` (the first two are known from
+      run 1);
+    - slot 19 (AcceptTicket): **`0x141C40A60`**;
+    - slot 20: `0x141C6E810` and `0x141C6E860`;
+    - slot 22: `0x141C450C0` and `0x141C59D60`;
+    - slot 21 (AcceptFollowHost): none found by this pattern.
+60. `0x141C40A60(session)` is ACU's join request:
+    1. it copies the descriptor at `session + 56` into `session + 8` (`sub_1426ADF40`, the same copy that mission
+       create uses for its session descriptor);
+    2. it builds a request from it (`0x141B47830`, `0x141B2F960`);
+    3. it calls slot 19 with a handler named `"AcceptTicketRequest"` (`sub_141C42780(qword_1451C5F78 + 1256, ...)`)
+       and the request's id.
+61. Its only caller is `0x141C52C90`, slot 8 (on-enter) of a `StatechartState` (vtable pointer at `0x14300E780`). It
+    calls `0x141C40A60(qword_145212F48 + 32)`, which is the **game (free-roam) session**, then fires a statechart
+    event (`dword_145212EF8`). The LAN discovery on/off pair (`0x141C52BA0` and `0x141C52CF0`, observation 35)
+    belongs to a sibling `StatechartState` (pointers at `0x14300E900` and `0x14300E908`). The states are
+    created by small factories (`0x141C35480` → constructor `0x141C38F50`, and `0x141C354F0`), chosen by an index
+    at `+96`. So the state machine is built from data. Its graph (state names and transitions) is not read yet.
+
+Inference: the free-roam game session's state machine has its own LAN discovery state and an "accept ticket"
+join state. Joining means putting the target session's descriptor at `game session + 56` and entering that
+state. Directly, that is `0x141C40A60(game session)`, which `CALLAT` can do. Open before trying it:
+- the layout of the session descriptor (it is copied with `sub_1426ADF40` and may hold pointers);
+- how a discovered record (observation 55) maps to that descriptor;
+- what normally writes `+56` and drives the state machine into the join state.
+
 Unknowns / coverage:
 - Who sets the start-alone flag (statechart `+236`), and what the private-match host waits for before it
   launches (a joined peer, a host confirm, or both).
