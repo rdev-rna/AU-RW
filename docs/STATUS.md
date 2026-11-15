@@ -1,5 +1,15 @@
 # Project status
 
+Several ACU games at once (2026-11-15, [ACU-RE-0086](findings/ACU-RE-0086-multi-instance-direct-launch.md)):
+`python tools/native_probe/multi_launch.py 2 --until world --save-pin capture-start-1` ran two games
+in the world side by side (PIDs 129608, 121808), each with its own shim (60 fps cap) and probe.
+- Ubisoft Connect starts only one game. `capture_run.py --direct` starts ACU.exe itself, which works
+  with the non-Ubisoft loader installed (ACU-RE-0085); not tried with the signed one.
+- The single-instance check is the named semaphore `scimitar_semaphore`. Each `--direct` run
+  closes its own game's handle (`instance_guard.py`) and refuses, by PID, a holder it did not launch.
+- Not located: the game code that creates and checks the semaphore. Both games share the loader's
+  player identity (`3DMGAME`), which may matter for co-op.
+
 Coat cloth (2026-11-15, [ACU-RE-0081](findings/ACU-RE-0081-cloth-softbody-resource.md)): the
 Tailored flap's motion comes from the `Cloth` soft-body resource, not from bones.
 - `acu_assets::cloth` decodes the resource prefix and LOD0's tagged simulation blob, with the native

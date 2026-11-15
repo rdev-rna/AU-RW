@@ -36,7 +36,9 @@ class LaunchTest(unittest.TestCase):
             mock.patch.object(capture_run, "acu_running", lambda: list(self.running)),
             mock.patch.object(capture_run.save_pin, "file_lock", lambda *a, **k: contextlib.nullcontext()),
             mock.patch.object(capture_run.time, "sleep", lambda _: None),
+            mock.patch.object(capture_run.instance_guard, "release", self.fake_release),
         ]
+        self.released = []
         for p in self.patches:
             p.start()
 
@@ -44,12 +46,18 @@ class LaunchTest(unittest.TestCase):
         for p in self.patches:
             p.stop()
 
+    def fake_release(self, pid):
+        self.released.append(pid)
+        return [{"handle": "0x3a4", "type": "Semaphore", "name": r"\Sessions\1\BaseNamedObjects\scimitar_semaphore"}]
+
     def test_returns_the_new_pid_not_the_running_game(self):
         self.after_start = [(10, 0xA0), (20, 0xB0)]
         self.assertEqual(capture_run.launch(self.run, timeout=5), (20, 0xB0))
         self.assertEqual(self.started, [["cmd", "/c", "start", "", "uplay://launch/720/0"]])
-        stage = self.run.record["stages"][-1]
+        stage, guard = self.run.record["stages"][-2:]
         self.assertEqual((stage["stage"], stage["pid"], stage["already_running"]), ("launch", 20, [10]))
+        self.assertEqual((guard["stage"], guard["pid"]), ("guard", 20))
+        self.assertEqual(self.released, [20])  # the uplay game is this run's own too
 
     def test_new_pid_listed_first_still_found(self):
         self.after_start = [(30, 0xC0), (10, 0xA0)]
@@ -91,6 +99,104 @@ class LaunchTest(unittest.TestCase):
         with mock.patch.object(capture_run.save_pin, "file_lock", lock):
             capture_run.launch(self.run, timeout=5)
         self.assertEqual(held, [capture_run.LAUNCH_LOCK])
+
+
+class DirectLaunchTest(LaunchTest):
+    """CreateProcess of ACU.exe: the spawned PID is the game; a guard held elsewhere is refused."""
+
+    def setUp(self):
+        super().setUp()
+        self.holders = []
+        self.spawned = mock.Mock(pid=20, returncode=None)
+        self.spawned.poll.return_value = None
+
+        def fake_spawn(exe):
+            self.started.append(["spawn", str(exe)])
+            self.windows = list(self.after_start)
+            self.running = sorted({pid for pid, _ in self.windows})
+            return self.spawned
+
+        for p in (mock.patch.object(capture_run, "spawn_direct", fake_spawn),
+                  mock.patch.object(capture_run, "game_exe", lambda: Path("D:/Game/ACU.exe")),
+                  mock.patch.object(capture_run.instance_guard, "holders", lambda pids: list(self.holders))):
+            p.start()
+            self.patches.append(p)
+
+    def test_returns_the_new_pid_not_the_running_game(self):
+        self.after_start = [(10, 0xA0), (20, 0xB0)]
+        self.assertEqual(capture_run.launch(self.run, timeout=5, direct=True), (20, 0xB0))
+        self.assertEqual(self.started, [["spawn", str(Path("D:/Game/ACU.exe"))]])
+        launch, guard = self.run.record["stages"][-2:]
+        self.assertEqual((launch["stage"], launch["method"], launch["already_running"]), ("launch", "direct", [10]))
+        self.assertEqual((guard["stage"], guard["pid"], guard["released"]), ("guard", 20, True))
+        self.assertEqual(self.released, [20])  # only the new game, never PID 10
+
+    def test_running_guard_holder_is_refused_untouched(self):
+        self.holders = [10]
+        with self.assertRaises(RuntimeError) as raised:
+            capture_run.launch(self.run, timeout=5, direct=True)
+        self.assertIn("[10]", str(raised.exception))
+        self.assertEqual((self.started, self.released, self.run.record["stages"]), ([], [], []))
+
+    def test_spawned_exit_is_reported(self):
+        self.spawned.poll.return_value = 0
+        self.spawned.returncode = 0
+        with self.assertRaises(RuntimeError) as raised:
+            capture_run.launch(self.run, timeout=5, direct=True)
+        self.assertIn("exited with code 0", str(raised.exception))
+        self.assertEqual(self.released, [])
+
+    def test_window_from_another_pid_is_refused(self):
+        self.after_start = [(10, 0xA0), (33, 0xC0)]
+        with self.assertRaises(RuntimeError) as raised:
+            capture_run.launch(self.run, timeout=5, direct=True)
+        self.assertIn("not the spawned 20", str(raised.exception))
+        self.assertEqual(self.released, [])
+
+    def test_no_second_instance_fails_without_touching_the_game(self):
+        with self.assertRaises(RuntimeError) as raised:
+            capture_run.launch(self.run, timeout=0.01, direct=True)
+        self.assertIn("left running", str(raised.exception))
+        self.assertEqual(self.released, [])
+
+    def test_first_instance_timeout_keeps_the_old_message(self):
+        self.windows, self.running, self.after_start = [], [], []
+        with self.assertRaises(RuntimeError) as raised:
+            capture_run.launch(self.run, timeout=0.01, direct=True)
+        self.assertIn("no engine window", str(raised.exception))
+
+    def test_two_new_instances_are_refused(self):
+        self.after_start = [(10, 0xA0), (20, 0xB0), (21, 0xB1)]
+        with self.assertRaises(RuntimeError) as raised:
+            capture_run.launch(self.run, timeout=5, direct=True)
+        self.assertIn("[20, 21]", str(raised.exception))
+
+    def test_one_new_pid_with_two_windows_is_fine(self):
+        self.after_start = [(10, 0xA0), (20, 0xB0), (20, 0xB1)]
+        self.assertEqual(capture_run.launch(self.run, timeout=5, direct=True), (20, 0xB0))
+
+    def test_launch_holds_the_launch_lock(self):
+        held = []
+
+        @contextlib.contextmanager
+        def lock(path, **_):
+            held.append(path)
+            yield
+
+        self.after_start = [(10, 0xA0), (20, 0xB0)]
+        with mock.patch.object(capture_run.save_pin, "file_lock", lock):
+            capture_run.launch(self.run, timeout=5, direct=True)
+        self.assertEqual(held, [capture_run.LAUNCH_LOCK])
+
+
+class GuardNameTest(unittest.TestCase):
+    def test_guard_in_any_namespace(self):
+        is_guard = capture_run.instance_guard.is_guard
+        self.assertTrue(is_guard("Semaphore", r"\Sessions\1\BaseNamedObjects\scimitar_semaphore"))
+        self.assertTrue(is_guard("Semaphore", r"\BaseNamedObjects\scimitar_semaphore"))
+        self.assertFalse(is_guard("Mutant", r"\Sessions\1\BaseNamedObjects\scimitar_semaphore"))
+        self.assertFalse(is_guard("Semaphore", r"\Sessions\1\BaseNamedObjects\scimitar_semaphore2"))
+        self.assertFalse(is_guard("Semaphore", None))
 
 
 class ReturnFocusTest(unittest.TestCase):

@@ -215,10 +215,39 @@ What `capture_run.py` does so that sessions do not grab each other's game:
   unless that window belongs to an ACU.exe (another session's game); then none (0).
 - `--attach <pid>` is unchanged; pass your own game's PID.
 
-**Untested:** no second instance has been launched with this code yet. Whether Ubisoft Connect
-starts a second ACU for `uplay://launch/720/0` while one runs (or only focuses the running one or
-shows a dialog) is unverified, and so is whether two games can share the save folder and
-launcher session. The first session to try it should record the result here.
+**Ubisoft Connect starts only one game** (tested 2026-11-15): with one ACU running,
+`uplay://launch/720/0` started no second one within 120 s. Use `--direct` for more than one game.
+
+#### Direct launch (`--direct`) and `multi_launch.py`
+
+```powershell
+python tools/native_probe/multi_launch.py 2                         # two games, title screen
+python tools/native_probe/multi_launch.py 2 --until world --save-pin capture-start-1
+python tools/native_probe/capture_run.py local/native-probe/runs/<name> --direct --until world
+python tools/native_probe/instance_guard.py list                    # PIDs still holding the guard
+```
+
+- `--direct` starts `ACU.exe` itself from the game folder (`ACU_GAME_DIR` or
+  `local/project.json`). It does not go through `uplay://`. The spawned PID is the game. This works
+  with the `uplay_r1_loader64.dll` installed on 2026-11-15 (not Ubisoft's, see ACU-RE-0085); it
+  has not been tried with the signed loader.
+- ACU's single-instance check: a second `ACU.exe` exits with code 0 before opening a window while a
+  running game holds the named semaphore `scimitar_semaphore` (count 1 of 1, held by nobody).
+  Inside the launch lock, once the new game's window is up, `capture_run` closes that game's own
+  handle (`instance_guard.release`, `DuplicateHandle` with `DUPLICATE_CLOSE_SOURCE`). This is
+  recorded as the `guard` stage. The next launch then starts. The uplay path does the same for its
+  game.
+- A game that still holds the guard (launched some other way) blocks `--direct`. `capture_run`
+  then stops and names the PID; it never closes another session's handle. If that game is yours,
+  run `instance_guard.py release <pid>`.
+- `multi_launch.py N` (1..4) runs N `capture_run.py --direct --until title|world` runs, staggered
+  by 2 s; the launch lock serialises them. Each run gets its own shim, probe and save-pin lease
+  holder. Output: `local/native-probe/runs/multi-<stamp>-<i>/` plus a `multi-<stamp>.json`
+  summary with the close and `save_pin.py release` commands for each game.
+- `--until title` stops after attaching (shim and probe in, game at the title screen).
+- Evidence and limits: [ACU-RE-0086](../../docs/findings/ACU-RE-0086-multi-instance-direct-launch.md).
+  The game code that creates and checks the semaphore is not located. The game keeps the closed
+  handle value. Closing it has caused no visible fault so far.
 
 Saves (`--save-pin`): all instances share the one `savegames/<user>/720` folder, so a pin cannot
 be swapped per game. Runs share a lease instead, `local/game-backups/save-pins/_lease.json`

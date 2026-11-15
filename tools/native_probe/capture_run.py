@@ -26,7 +26,9 @@ Stages (each recorded with timings in capture.json):
 A minimised game stops rendering; a watchdog restores it without activating it. Nothing here
 touches game files: run tools/intro_skip.py and tools/capture_preset.py beforehand if wanted.
 
-Several instances: launches are serialised (local/native-probe/launch.lock) so that two sessions
+Several instances: --direct starts ACU.exe itself (Ubisoft Connect never starts a second game) and
+closes the new game's single-instance semaphore once its window is up (instance_guard.py), so the
+next --direct launch can start; multi_launch.py starts several. Launches are serialised (local/native-probe/launch.lock) so that two sessions
 cannot mistake each other's new game for their own, and shim installs are serialised
 (focus-install.lock) because focus.install writes the one shared acu_focus.ini that the shim
 reads while it loads. --save-pin uses the shared lease in tools/save_pin.py.
@@ -50,6 +52,7 @@ ROOT = HERE.parents[1]
 sys.path.insert(0, str(HERE))
 sys.path.insert(0, str(ROOT / "tools"))
 import focus  # noqa: E402
+import instance_guard  # noqa: E402
 import player_state  # noqa: E402
 from client import checked, command  # noqa: E402
 import save_pin  # noqa: E402  (tools/; file_lock and the shared save-pin lease)
@@ -133,18 +136,73 @@ def new_engine_window(before: set[int]) -> tuple[int, int] | None:
     return new[0] if new else None
 
 
-def launch(run: Run, timeout: float) -> tuple[int, int]:
-    """Start one more ACU and return (pid, hwnd) of exactly that instance; never another session's."""
+def game_exe() -> Path:
+    from acu import settings  # noqa: E402  (project path resolution: ACU_GAME_DIR, local/project.json)
+    game = settings()[1]["game_dir"]
+    if not game or not (Path(game) / "ACU.exe").is_file():
+        raise RuntimeError("ACU game folder not configured (ACU_GAME_DIR or local/project.json)")
+    return Path(game) / "ACU.exe"
+
+
+def spawn_direct(exe: Path) -> subprocess.Popen:
+    """Start ACU.exe itself from the game folder, detached from this console."""
+    flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+    return subprocess.Popen([str(exe)], cwd=str(exe.parent), creationflags=flags, close_fds=True,
+                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+
+def release_own_guard(run: Run, pid: int):
+    """Close the single-instance semaphore in the game this run launched, so the next launch can
+    start (instance_guard.py). Only ever applied to `pid`, never to another session's game."""
+    try:
+        closed = instance_guard.release(pid)
+    except (OSError, RuntimeError) as error:
+        run.stage("guard", pid=pid, released=False, error=str(error))
+        return
+    run.stage("guard", pid=pid, released=True, closed=closed)
+
+
+def launch(run: Run, timeout: float, direct: bool = False) -> tuple[int, int]:
+    """Start one more ACU and return (pid, hwnd) of exactly that instance; never another session's.
+
+    direct=False: uplay://launch/720/0, which never starts a second game.
+    direct=True: CreateProcess of ACU.exe from the game folder (works with the loader installed on
+    2026-11-15, see ACU-RE-0086). The new game's PID is the spawned one. A second game starts only
+    when no running ACU holds the single-instance semaphore; a holder this run did not launch is
+    refused by name instead of touched."""
     with save_pin.file_lock(LAUNCH_LOCK, stale=timeout + 60, timeout=timeout + 120):
         before = set(acu_running())
-        subprocess.run(["cmd", "/c", "start", "", "uplay://launch/720/0"], check=True)
+        spawned = None
+        if direct:
+            held = instance_guard.holders(sorted(before))
+            if held:
+                raise RuntimeError(
+                    f"ACU PIDs {held} still hold the single-instance semaphore ({instance_guard.GUARD_NAME}), "
+                    "so a direct launch would exit at once. If that game is yours, run "
+                    f"`python tools/native_probe/instance_guard.py release <pid>`; never release another "
+                    "session's game. No game was touched.")
+            spawned = spawn_direct(game_exe())
+        else:
+            subprocess.run(["cmd", "/c", "start", "", "uplay://launch/720/0"], check=True)
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             found = new_engine_window(before)
+            if found and spawned and found[0] != spawned.pid:
+                raise RuntimeError(f"a new ACU window belongs to PID {found[0]}, not the spawned {spawned.pid}; "
+                                   "another launch ran outside capture_run, so none was touched")
             if found:
-                run.stage("launch", pid=found[0], window=f"{found[1]:x}", already_running=sorted(before))
+                run.stage("launch", pid=found[0], window=f"{found[1]:x}", already_running=sorted(before),
+                          method="direct" if direct else "uplay")
+                # Inside the launch lock: the next launch must not see this game's guard.
+                release_own_guard(run, found[0])
                 return found
+            if spawned and spawned.poll() is not None:
+                raise RuntimeError(f"ACU.exe (PID {spawned.pid}) exited with code {spawned.returncode} before "
+                                   f"opening a window (ACU already running: PIDs {sorted(before)})")
             time.sleep(.25)
+        if spawned and spawned.poll() is None:
+            raise RuntimeError(f"no engine window from the directly started ACU.exe (PID {spawned.pid}) within "
+                               f"{timeout}s; it is left running: close it with capture_run.py --close {spawned.pid}")
     if before:
         raise RuntimeError(f"Ubisoft Connect did not start a second instance within {timeout}s (ACU already "
                            f"running: PIDs {sorted(before)}); no existing game was touched")
@@ -275,16 +333,20 @@ def main():
     ap.add_argument("--save-pin", help="start from this pinned save through the shared lease (tools/save_pin.py); "
                     "the saves found before are put back once the last holder releases and no ACU runs")
     ap.add_argument("--keep-run-save", action="store_true", help="with --save-pin: leave the run's autosave")
-    ap.add_argument("--until", choices=("done", "world"), default="done",
+    ap.add_argument("--until", choices=("done", "world", "title"), default="done",
                     help="world: stop once in the world and leave the game running with shim and probe "
-                         "attached (for live RE); with --save-pin the lease stays held: after --close run "
-                         "the printed `save_pin.py release <run dir>`")
+                         "attached (for live RE); title: the same, but stop at the title screen right after "
+                         "attaching; with --save-pin the lease stays held: after --close run the printed "
+                         "`save_pin.py release <run dir>`")
+    ap.add_argument("--direct", action="store_true",
+                    help="start ACU.exe directly instead of uplay://launch/720/0 (the only way to run several "
+                         "games at once; see instance_guard.py and multi_launch.py)")
     a = ap.parse_args()
     if a.save_pin and a.attach:
         ap.error("--save-pin needs a launch (no --attach)")
     if a.save_pin and a.keep_game and a.until == "done":
         ap.error("--save-pin with --keep-game cannot put the saves back; use --until world for live sessions")
-    if a.until == "world":
+    if a.until in ("world", "title"):
         a.keep_game = True
     steps = [s.get("name") for s in json.loads(a.moves.read_text())["steps"]]
     unknown = [s for s in a.screenshot_step if s not in steps]
@@ -315,7 +377,7 @@ def main():
                       pin_sha256={k: v["sha256"] for k, v in lease["pin_files"].items()})
         user_window = return_focus_window()  # handed back once the game grabs the foreground
         if launched:
-            pid, hwnd = launch(run, 120)
+            pid, hwnd = launch(run, 120, direct=a.direct)
             if leased:
                 save_pin.set_holder_pid(holder, pid)
         else:
@@ -347,10 +409,10 @@ def main():
                   block_user_input=shim.get("block_user_input"), returned_focus=shim.get("returned_focus"),
                   client=[rect.right, rect.bottom])
 
-        if launched:
+        if launched and a.until != "title":
             reach_world(pid, run, a.load_timeout, hwnd)
-        if a.until == "world":
-            run.stage("until_world", pid=pid, note="game left running; shim and probe attached")
+        if a.until in ("world", "title"):
+            run.stage(f"until_{a.until}", pid=pid, note="game left running; shim and probe attached")
             if leased:
                 print(f"save-pin lease kept for this game; after `capture_run.py --close {pid}` run:\n"
                       f"  {release_command(holder)}", flush=True)
