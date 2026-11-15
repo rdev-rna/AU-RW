@@ -876,7 +876,9 @@ mod tests {
     /// Flat-ground locomotion against the live captures (docs/LOCOMOTION_PARITY.md). Native
     /// bands come from `local/native-probe/runs/`:
     /// - loco-params-1 `live-state2.jsonl` + `params2.jsonl` (30 Hz, aligned by QPC);
-    /// - loco-turn-delta-1 / -2 and loco-turns-1 (`live-state.jsonl`, 30 / 60 Hz).
+    /// - loco-turn-delta-1 / -2 and loco-turns-1 (`live-state.jsonl`, 30 / 60 Hz);
+    /// - loco-stops-2 (60 Hz: eight walk stops at varied hold times, two half-stick stops, a clear
+    ///   sprint).
     ///
     /// Only open-ground segments are used (no wall-brace, crowd-avoid or slope clip dominant).
     /// Known differences are printed and listed; any other difference fails.
@@ -912,7 +914,7 @@ mod tests {
         let s = script(&mut driver, &walk);
         print_segments("walk full stick, stop", &s);
         let start = segment_at(&s, 1.05);
-        // Native PreNavWalkMid_Lt0/Rt0_tr_Walk dominant 0.60-1.12 s (7 starts).
+        // Native PreNavWalkMid_Lt0/Rt0_tr_Walk dominant 0.55-1.12 s (8 starts).
         check(
             start.2.starts_with("PreNavWalkMid_") && start.2.contains("t0_tr_Walk"),
             format!(
@@ -923,7 +925,7 @@ mod tests {
         let len = start.1 - start.0;
         check(
             (0.55..=1.15).contains(&len),
-            format!("walk start {len:.2} s (native 0.60-1.12 s)"),
+            format!("walk start {len:.2} s (native 0.55-1.12 s)"),
         );
         // Native first dominant frame within one 30 Hz sample of MovementSpeed > 0.
         check(
@@ -934,27 +936,27 @@ mod tests {
             segment_at(&s, 4.0).2 == "Walk_3-Loop",
             format!("walk loop {} (native Walk_3-Loop)", segment_at(&s, 4.0).2),
         );
-        // Native open-ground Walk_3-Loop over 0.5 s windows: 1.75-1.99 m/s (loco-turn-delta-1),
-        // 2.22-2.31 m/s (loco-params-1 fwd_again and turns); TimeScale varies 0.9-1.3 there.
+        // Native open-ground Walk_3-Loop: 1.75-1.99 m/s (loco-turn-delta-1, 0.5 s windows),
+        // 1.99-2.28 m/s per segment and 2.16-2.36 m/s in 0.5 s windows (loco-stops-2).
         let v = speed(&s, 4.0, 5.0);
         check(
             (1.7..=2.4).contains(&v),
-            format!("walk speed {v:.2} m/s (native 1.75-2.31)"),
+            format!("walk speed {v:.2} m/s (native 1.75-2.36)"),
         );
         let stop = segment_at(&s, 5.3);
         check(
             stop.2.starts_with("WalkStop_RC"),
             format!(
-                "walk stop clip {} (native WalkStop_RC in 4/4 stops)",
+                "walk stop clip {} (native WalkStop_RC in 13/13 stops)",
                 stop.2
             ),
         );
-        // Native stop travel 0.39-0.45 m from the stop clip's first frame (4 stops).
+        // Native WalkStop_RC travel 0.28-0.45 m from the stop clip's first frame (12 stops).
         let first = (stop.0 / acu_sim::DT) as usize;
         let travel = (s[s.len() - 1].pos - s[first].pos).length();
         check(
             (0.3..=0.55).contains(&travel),
-            format!("walk stop travel {travel:.2} m (native 0.39-0.45)"),
+            format!("walk stop travel {travel:.2} m (native 0.28-0.45)"),
         );
         check(
             segment_at(&s, 7.9).2.starts_with("IdleLow_Foot"),
@@ -976,17 +978,18 @@ mod tests {
                 segment_at(&s, 4.0).2
             ),
         );
-        // Native WalkSlow_3-Loop at MovementSpeed 0.621: 0.76-0.87 m/s (TimeScale 0.7-0.84).
+        // Native WalkSlow_3-Loop at MovementSpeed 0.621: 0.72-0.87 m/s (loco-params-1,
+        // loco-stops-2).
         let v = speed(&s, 4.0, 5.0);
         check(
             (0.7..=0.95).contains(&v),
-            format!("half-stick speed {v:.2} m/s (native 0.76-0.87)"),
+            format!("half-stick speed {v:.2} m/s (native 0.72-0.87)"),
         );
         let stop = segment_at(&s, 5.5);
         check(
             stop.2.starts_with("WalkSlow_Stop"),
             format!(
-                "half-stick stop {} (native WalkSlow_Stop_LP, 1 stop)",
+                "half-stick stop {} (native WalkSlow_Stop_LP/LC, 3/3)",
                 stop.2
             ),
         );
@@ -1005,12 +1008,12 @@ mod tests {
             first_sprint.is_some_and(|t| (0.9..=1.9).contains(&t)),
             format!("time to sprint {first_sprint:?} s (native 1.00-1.82)"),
         );
-        // Native Sprint_3-Loop_V02: 5.26 (60 Hz, loco-turn-delta-2), 5.79-5.95 m/s (30 Hz
-        // windows, partly blended with avoid clips).
+        // Native Sprint_3-Loop_V02: 5.96 m/s over a clear 1.59 s segment (loco-stops-2, 60 Hz);
+        // 5.26 (loco-turn-delta-2) and 5.79-5.95 m/s (loco-params-1, blended) elsewhere.
         let v = speed(&s, 4.0, 5.0);
         check(
             (5.2..=6.0).contains(&v),
-            format!("sprint speed {v:.2} m/s (native 5.26-5.95)"),
+            format!("sprint speed {v:.2} m/s (native 5.96 clear, 5.26-5.95 others)"),
         );
         let stop = segment_at(&s, 5.4);
         check(
@@ -1034,7 +1037,7 @@ mod tests {
         let after = segment_at(&s, stop.1 + 0.05).2;
         check(
             after.starts_with("IdleHigh_tr_IdleLow"),
-            format!("after the sprint stop {after} (native IdleHigh_tr_IdleLow_footl, 2/2)"),
+            format!("after the sprint stop {after} (native IdleHigh_tr_IdleLow_foot*, 3/3)"),
         );
 
         // Walking turn: stick 90 degrees right after 2.5 s of walking.

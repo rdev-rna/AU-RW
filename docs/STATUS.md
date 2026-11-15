@@ -10,13 +10,14 @@ existing live captures by the ignored test `installed_locomotion_segments` (`acu
   the hub's walk -> idle/stop rule saw an empty event list. `start_in` now primes the forced
   states' events, and the start is `IdleLow_Footr` (`IDLE_START`). Live replay agreement rose
   from 649 to 674 of 1051.
+- New capture `loco-stops-2` (60 Hz; eight walk stops at varied hold times, two half-stick stops,
+  a clear sprint; capped at 60 fps, closed with `--close`, saves put back).
 - Different:
-  - Rust's walk stop alternates RP/RC with phase, where native picked RC in 5 of 5 stops;
+  - Rust's walk stop alternates RP/RC with phase, where native picked RC in 13 of 13 stops;
   - the half-stick stop clip;
-  - sprint 6.3 m/s against native 5.3–5.95 m/s;
+  - sprint 6.3 m/s against native 5.96 m/s on clear ground;
   - the post-sprint `IdleHigh_tr_IdleLow` lives outside the hub the interpreter is rooted at.
-- Unverified: bank/avoid clips in turns, the free-run turn law, TimeScale. No new capture was
-  taken.
+- Unverified: bank/avoid clips in turns, the free-run turn law, TimeScale.
 
 Outfit (2026-11-15, [ACU-RE-0070](findings/ACU-RE-0070-arnos-tailored-visual-pieces.md)): the default
 Arno now wears Arno's Tailored. The seven pieces are hood, coat, flap, scarf, belts, bracers and

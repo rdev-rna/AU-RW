@@ -3,11 +3,11 @@
 Locomotion parity (2026-11-15, ACU-RE-0072, `docs/LOCOMOTION_PARITY.md`): flat-ground idle /
 walk / sprint / stops / walking turn are checked by `installed_locomotion_segments` against the
 live captures. The reset defect is fixed. Open, in order:
-1. Walk stop selection (native RC in 5/5; Rust alternates RP/RC with phase). Look at
+1. Walk stop selection (native RC in 13/13; Rust alternates RP/RC with phase). Look at
    SelectBestMatchingTags `0x1400ECD90` / cost `0x1400CDE10` and the sync handoff into graph state
    3723.
-2. A capture with repeated walk stops at varied hold times and a sprint along a clear line
-   (native sprint speed, stop statistics).
+2. Sprint speed: Rust 6.3-6.4 m/s against native 5.96 m/s. Sample the sprint TimeScale live
+   (`graph_params.py`).
 3. The machine owning state 8947 (`IdleHigh_tr_IdleLow` after a sprint stop), which is
    outside the navigation hub.
 4. The half-stick stop (`WalkSlow_Stop_LP`), possibly through damp nodes.

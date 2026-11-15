@@ -24,7 +24,14 @@ State: **partially established**.
   - `loco-params-1/params2.jsonl` `0b387926…`, QPC-aligned with `live-state2`;
   - `loco-turns-1/live-state.jsonl` `692a628c…`;
   - `loco-turn-delta-1/live-state.jsonl` `e9b41ca8…`;
-  - `loco-turn-delta-2/live-run.jsonl` `301607ea…`.
+  - `loco-turn-delta-2/live-run.jsonl` `301607ea…`;
+  - **`loco-stops-2/live-state.jsonl` `d98eb08e…`** (new, 60 Hz, PID 127160):
+    - moves file `local/native-probe/loco-stops-1-moves.json`;
+    - launched with `capture_run.py --until world --keep-game --save-pin capture-start-1
+      --fps-cap 60`, executable hash checked;
+    - start at (496.664, −7.308), forward (0.9989, 0.0479);
+    - closed with `capture_run.py --close` (graceful, 2.1 s); saves put back with the pinned
+      hashes.
 
   Each was launched with `capture_run.py … --fps-cap 60` and closed with `--close`
   (ACU-RE-0067, ACU-RE-0069 obs. 13).
@@ -38,16 +45,21 @@ State: **partially established**.
 
 1. **Native flat-ground values** (open-ground segments only):
    - Idle `IdleLow_Footr/Footl` at 0 m/s.
-   - Walk start `PreNavWalkMid_Lt0/Rt0_tr_Walk` dominant for 0.60–1.12 s (7 starts).
-   - Full-stick `Walk_3-Loop` at 1.75–1.99 m/s (`loco-turn-delta-1`, 0.5 s windows) and
-     2.22–2.31 m/s (`loco-params-1`).
-   - Half-stick `WalkSlow_3-Loop` at 0.76–0.87 m/s.
-   - Walk stop `WalkStop_RC` in 5 of 5 stops (walk clip time at the stop 0.226, 0.41, 0.552,
-     0.673, 0.734 s), with 0.39–0.45 m of travel.
-   - Free run reaches `Sprint_3-Loop_V02` 1.00–1.82 s after input. Sprint 5.26 m/s (60 Hz) and
-     5.79–5.95 m/s (30 Hz, blended).
+   - Walk start `PreNavWalkMid_Lt0/Rt0_tr_Walk` dominant for 0.55–1.12 s (8 starts). 180°
+     starts (`Rt180`/`Lt180`) last 0.55–1.13 s.
+   - Full-stick `Walk_3-Loop`:
+     - 1.99–2.28 m/s per segment and 2.16–2.36 m/s in 0.5 s windows (`loco-stops-2`);
+     - 1.75–1.99 m/s (`loco-turn-delta-1`).
+   - Half-stick `WalkSlow_3-Loop` at 0.72–0.87 m/s.
+   - Walk stop `WalkStop_RC` in 13 of 13 stops, with 0.28–0.45 m of travel:
+     - 5 older stops, walk clip times 0.226, 0.41, 0.552, 0.673 and 0.734 s;
+     - 8 `loco-stops-2` stops after holds of 1.8–4.25 s, in 0.35 s steps.
+   - Half-stick stop `WalkSlow_Stop_LP/LC` in 3 of 3, travelling 0.17 m.
+   - Free run reaches `Sprint_3-Loop_V02` 1.00–1.82 s after input. Sprint:
+     - 5.96 m/s over a clear 1.59 s segment (`loco-stops-2`);
+     - 5.26 and 5.79–5.95 m/s elsewhere, with blending.
    - `SprintStop_Fd100cm` lasts 0.74–0.78 s and travels 0.60–0.81 m. It is followed by
-     `IdleHigh_tr_IdleLow_footl` (2 of 2).
+     `IdleHigh_tr_IdleLow_footl/footr`, 1.09–1.1 s (3 of 3).
    - Walking turn: 2.14–2.15° per 60 Hz frame.
    - Walking reversal: `WalkFwd_PlantAndTurnLt180_ProperRP` (0.52 s, 175.5°) or `_Improper`
      (0.78 s, 177.5°).
@@ -63,7 +75,7 @@ State: **partially established**.
    - Graph state 3723 holds `WalkStop_RP/RC` and `WalkSlow_Stop_LP/LC`.
    - From `Walk_3-Loop` times 0.03–1.11 s it picks RP(m) / RC(m) / RP / RC / RP(m) in bands of
      about 0.24 s.
-   - At the five native release times it would pick RC in about one of five.
+   - So it picks RP about half the time; native never did (13 stops spread over the cycle).
 4. **`IdleHigh_tr_IdleLow_footl` lies outside the hub.**
    - It appears only in graph states 8951, 8952 and 8954, under machines 8950 / 8953 /
      8949 / 8947.
@@ -84,7 +96,8 @@ State: **partially established**.
 
 ## Unknowns
 
-- Native walk-stop choice over a controlled set of phases; native open-ground sprint speed.
+- Native sprint TimeScale and a second clean sprint (the forward one in `loco-stops-2` ran into
+  a crowd).
 - The machine that owns state 8947 and how native moves between it and the hub.
 - Damp-node law (could pick `WalkSlow_Stop` after a half-stick walk); TimeScale source.
 
