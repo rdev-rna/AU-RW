@@ -168,13 +168,16 @@ deliverable and acceptance criterion. Phases 1-5 are static. Phase 7 is dynamic.
     user's game: session fields and execute counters, no input blocking.
   - Next (static): what the backend hands Storm when a join succeeds (peer addresses, session ID), so our own
     lobby can supply it. Trace from the `0xb0040001` error back to the connect step.
-- **Status 2026-11-15 (error code, static):** [ACU-RE-0088](findings/ACU-RE-0088-online-error-code.md).
+- **Status 2026-11-15 (error code, static plus live):** [ACU-RE-0088](findings/ACU-RE-0088-online-error-code.md).
   - The popup code is built at runtime from an error record: `(category << 28) | code`, appended by
-    `0x141C551C0`. So `0xb0040001` is category 11, code `0x40001`.
-  - The error-category registry has IDs -1, 0, 1, 2, 3, 6, 7, 8 and 9 (Online 2, UbiServices 7, Hermes 9).
-    No category 11 is registered, so it falls back to the generic message `544619` (inferred).
-  - Not found statically: the code that raises it. Next (live, read-only): hook `0x141C551C0`, press Play in
-    Public, read the record and the return-address chain. That names the connect step.
+    `0x141C551C0`. The category is ORed in without masking the code.
+  - The error-category registry has IDs -1, 0, 1, 2, 3, 6, 7, 8 and 9 (OSDK 3, UbiServices 7, Hermes 9).
+  - Live (hook on the formatter, user pressed Play in Public twice): the record is `{3 OSDK, 0x80040001}`, which
+    maps to message `544321`. The static guess of "category 11" was wrong.
+  - Path: OSDK result → async job finished by `0x1425712A0` → completion callback `0x1425045A0` → message
+    table → popup. No Storm session is involved.
+  - Next (live, read-only): hook `0x1425712A0`'s entry to see which of its four callers finished the job and
+    which OSDK request failed. That request is a backend boundary (B1): record it, don't decode it.
 
 ### Phase 3 - Replication model (static)
 - Echo objects: how a replica is created and deleted, what an "object shape" is
