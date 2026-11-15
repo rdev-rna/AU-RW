@@ -469,6 +469,37 @@ Ubisoft service involved. The open questions are what the discovery handler (ins
 `0x141B34FC0`) does when a host answers, and whether that leads into a join. Answering them needs a second LAN
 game that can open sockets (moved ports, plan step 4) or a second machine (step 5).
 
+## Live run 9 — a built-in port offset; two LAN games with Storm on one PC (2026-11-16)
+
+Static observations:
+46. The live Storm port config sits at `*(qword_1451C5F78) + 1536`; `qword_1451C5F78` is set by constructor
+    `0x141C39890`. The host's live read gave 3074 / 6250 / 6300 at `+8` / `+412` / `+416`, the defaults from
+    `0x141B46C90`. Before start-up, `0x141C72980` adjusts that config. It **adds the byte `byte_145218C33` to the
+    main port (`+8`)**, and in non-online mode it also adds it to `+416`. `+412` (6250) is never offset. The byte's
+    other readers are two developer login paths (`0x1424D0830`, `0x1424E5C50`, near a `@ubisoft.com` string). This
+    reads like a developer instance index. No RIP-relative write to it was found.
+
+Live observations:
+47. Writing the byte once at unpack did not hold: the second game later read 0, and its ports stayed 3074 etc.
+    (`lan-offset-20261116/lanoffset.json`). `lanoffset2.py` (scratchpad) instead rewrote it every ~1 ms. Startup
+    reset it twice (at 2.1 s and 3.4 s). The config object appeared at 4.6 s with 3074/6250/6300, and at 9.5 s the
+    config read **3084 / 6250 / 6310** (`lanoffset2.json`).
+48. With that, the second game (PID 114608) bound `0.0.0.0:3084`, LAN `:6250` (shared with the host, which also
+    holds LAN `:6250`) and LAN `:6310`. Storm `+688` reached 2, and the game and party sessions came up with local
+    peers 1 and 2. This makes **two LAN games running Storm side by side on one PC**, with no code changes.
+49. The host (PID 131964) still had discovery on from run 8. Over 20 s, hooks in both games
+    (`host-lanev.jsonl`, `join-lanev.jsonl`) showed the following. The host built the BroadcastLanDiscovery2 event
+    40 times (constructor `0x141B95F20`, from the LAN dispatcher at `0x141B8A8BB`), so each DiscoverSession
+    becomes a broadcast. The second game hit none of the three dispatcher branches (`0x141BA2950`,
+    `0x141BA2E40`, `0x141BA33E0`) and built no broadcast.
+
+Inferences:
+- Port `+412` (6250) stays the same on purpose, so that LAN instances share it. It is probably the discovery
+  port. The second game binds it beside the host, which implies address reuse; that is not checked.
+- The second game is in plain free roam and not advertising anything, so it may simply ignore discovery.
+  Untested. The next test is to make it a host (Private on a co-op mission, `PRIVATE_MATCH_HOST`) while game 1
+  searches.
+
 Unknowns / coverage:
 - Who sets the start-alone flag (statechart `+236`), and what the private-match host waits for before it
   launches (a joined peer, a host confirm, or both).

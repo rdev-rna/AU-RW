@@ -397,7 +397,9 @@ Steps, in order. Each one is a small stride with its own finding update:
    DiscoverSession reply produces (a session list, or a join request) and what starts the join:
    - `PRIVATE_MATCH_JOIN`, `JOIN_PARTY_INVITE` or `GHOST_JIP` in the matchmaking statechart;
    - Storm `RequestAddPlayer` (interface slot 31).
-4. **Two games on one PC.** The second game needs its own ports, set as data (not code). Find the Storm config
+4. **Done (ACU-RE-0090 run 9):** the built-in port offset `byte_145218C33`, rewritten during startup, gives the
+   second game 3084/6310 (6250 shared); both games run Storm. Original step:
+   **Two games on one PC.** The second game needs its own ports, set as data (not code). Find the Storm config
    object built by `0x141B46C90`, and the time between its construction and the socket bind. Then write `+8`,
    `+412` and `+416` in that window.
    - Open question: discovery may need a shared broadcast port. If so, the one-PC test may need only the main
