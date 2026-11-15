@@ -343,6 +343,21 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
       - The atlas labels "broadcast"/"unicast" only name the two hashes (`_ID`, `_ID_UNICAST`). They do not mean
         "to all" and "to one" in every case.
 
+16. **The reverse direction: a joiner-owned NPC's death replicated to the host** (live, `damage10.jsonl`):
+    - The last spy of "KILL the Austrian spies" was killed by the joiner.
+    - **Joiner, at t = 631.72 s:**
+      - the damage handler `0x140EBBFD0` ran (event `+16` = 41, `+20` = 1, `+24` = 1, `+32` = 20, flags `0x598`);
+      - the life setter then wrote 0 through `0x140EBCCFB` → `0x14124BC30` → `0x14121295D` → `0x14124BC3D`.
+    - **Joiner, at 635.95 s:** a second event (`+24` = 5, `+32` = 0, flags `0x1598`) wrote −1.
+    - **Host:**
+      - its copy wrote 0 at 631.80 s and −1 at 635.95 s, through the `RFCSetMasterLife` receive handler (return
+        `0x140B2558F`, dispatch `0x140B237E0`);
+      - with 0.5 s polling, the first value arrived within one poll (80 ms apart).
+    - No NBAI request or execute ran in either game. The kill was local to the NPC's owner, the joiner.
+    - The mission then advanced to "STEAL the documents" in both games.
+    - Together with observation 13 (host-owned NPC → joiner replica), life replication is now observed in both
+      directions, with each NPC owned by the game that fought it.
+
 ## Inferences
 
 - **NPC simulation sits with one machine at a time, and it was not the mission host.** The enemy's intentions flowed
