@@ -16,8 +16,9 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use acu_assets::{
-    Limits, Result,
+    Limits, Result, bc1, build_table,
     catalog::{Catalog, CatalogLimits},
+    color_mask,
     forge::Forge,
     material, mesh, package, sha256, texture,
 };
@@ -76,6 +77,9 @@ pub struct LoadedMaterial {
     /// Registered diffuse texture, for rendering only.
     #[serde(skip)]
     pub diffuse_texture: Option<usize>,
+    /// Colour-set recolouring applied to this material (ACU-RE-0071).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub color_mask: Option<serde_json::Value>,
 }
 
 #[derive(Debug)]
@@ -159,6 +163,8 @@ pub struct Scene {
     pub pieces: Vec<PieceReport>,
     pub materials: Vec<LoadedMaterial>,
     pub textures: Vec<LoadedTexture>,
+    /// Selected `CN_P_Avatars_ColorSets` row and what it writes.
+    pub color_set: Option<serde_json::Value>,
 }
 
 /// Loaded scene: render payload plus the reportable chain.
@@ -178,6 +184,27 @@ pub struct Loader {
     materials: HashMap<String, usize>,
     textures: HashMap<String, usize>,
     scene: Scene,
+    color_set: Option<usize>,
+    /// Decoded once: the selected colour-set row's material overrides.
+    color_row: Option<Option<ColorSetRow>>,
+}
+
+/// `CN_P_Avatars_ColorSets` (BelleEpoque 334/127), ACU-RE-0071.
+const COLOR_SET_TABLE: &str = "0000001e7c52e192";
+
+#[derive(Debug, Clone)]
+struct ColorOverride {
+    column: i32,
+    /// Material match mask of the column's `MaterialPropertyPathNodeSolver`.
+    mask: [u8; 16],
+    target: u32,
+    value: [f32; 4],
+}
+
+#[derive(Debug, Clone)]
+struct ColorSetRow {
+    row: usize,
+    overrides: Vec<ColorOverride>,
 }
 
 impl Loader {
@@ -212,7 +239,154 @@ impl Loader {
             materials: HashMap::new(),
             textures: HashMap::new(),
             scene: Scene::default(),
+            color_set: options.color_set,
+            color_row: None,
         }
+    }
+
+    /// Decode the colour-set table once and keep the selected row's
+    /// single-property material writes. Other columns are reported, not applied.
+    fn color_row(&mut self) -> Result<Option<ColorSetRow>> {
+        if let Some(row) = &self.color_row {
+            return Ok(row.clone());
+        }
+        let Some(index) = self.color_set else {
+            self.color_row = Some(None);
+            return Ok(None);
+        };
+        let resolved = self
+            .resolve(COLOR_SET_TABLE, None, 0)?
+            .ok_or("colour-set table 0000001e7c52e192 not found in the selected archives")?;
+        let table = build_table::parse(&resolved.payload, COLOR_SET_TABLE)?;
+        let row = table.rows.get(index).ok_or_else(|| {
+            format!(
+                "--color-set {index}: table has rows 0..{}",
+                table.rows.len()
+            )
+        })?;
+        let (mut overrides, mut skipped) = (Vec::new(), Vec::new());
+        for (column, property) in &row.components {
+            let path = &table
+                .column(*column)
+                .ok_or("row references a missing column")?
+                .path;
+            let solver = path.first().and_then(|n| n.solver.as_ref());
+            let targets: Vec<&str> = path
+                .iter()
+                .filter(|n| n.solver.is_none())
+                .map(|n| n.target_property.as_str())
+                .collect();
+            match (solver, targets.as_slice(), &property.value) {
+                (Some(s), [t], build_table::Value::Vector4(v)) => overrides.push(ColorOverride {
+                    column: *column,
+                    mask: s.match_mask,
+                    target: u32::from_str_radix(t, 16)?,
+                    value: *v,
+                }),
+                _ => skipped.push(serde_json::json!({
+                    "column": column, "path": targets, "value": property.value,
+                    "reason": "not a single-property vector write; no albedo effect modelled"})),
+            }
+        }
+        self.scene.color_set = Some(serde_json::json!({
+            "row": index, "tag": format!("{:08x}", row.tag), "weight": row.weight,
+            "table": COLOR_SET_TABLE, "source": resolved.source,
+            "payload_sha256": resolved.payload_sha256, "rows": table.rows.len(),
+            "applied_columns": overrides.iter().map(|o| serde_json::json!({
+                "column": o.column, "target": format!("{:08x}", o.target), "value": o.value})).collect::<Vec<_>>(),
+            "skipped_columns": skipped,
+            "finding": "ACU-RE-0071"}));
+        let row = ColorSetRow {
+            row: index,
+            overrides,
+        };
+        self.color_row = Some(Some(row.clone()));
+        Ok(Some(row))
+    }
+
+    /// Bake the template's recoloured albedo for one material, or `None` when
+    /// no colour set is selected.
+    fn color_mask_bake(
+        &mut self,
+        m: &material::Material,
+        diffuse: usize,
+        package: Option<&package::Package>,
+        entry: usize,
+    ) -> Result<Option<(usize, serde_json::Value)>> {
+        let Some(row) = self.color_row()? else {
+            return Ok(None);
+        };
+        let mut params = color_mask::Params::from_material(m)
+            .ok_or("material lacks the template's colour parameters")?;
+        let own = params;
+        let mut applied = Vec::new();
+        for o in &row.overrides {
+            let matches = o
+                .mask
+                .iter()
+                .zip(&m.match_mask.material_match_mask)
+                .any(|(a, b)| a & b != 0);
+            if matches && params.set(o.target, o.value) {
+                applied.push(format!("{:08x}", o.target));
+            }
+        }
+        let selector = |hash: u32| {
+            let name = format!("{hash:08x}");
+            m.parameters
+                .iter()
+                .find(|p| p.name_hash == name)
+                .and_then(|p| match &p.value {
+                    material::ParameterValue::Object(o) => match &o.data {
+                        material::ObjectData::TextureSelector(s) => {
+                            Some(s.texture_map.file_id.clone())
+                        }
+                        _ => None,
+                    },
+                    _ => None,
+                })
+        };
+        let mask_id = selector(color_mask::MASK_SELECTOR).ok_or("no mask (t34) selector")?;
+        let tint_id = selector(color_mask::TINT_SELECTOR).ok_or("no tint (t35) selector")?;
+        let mask = self
+            .texture(&mask_id, package, entry, false)?
+            .ok_or_else(|| format!("mask {mask_id} unavailable"))?;
+        let tint_index = self
+            .texture(&tint_id, package, entry, true)?
+            .ok_or_else(|| format!("tint map {tint_id} unavailable"))?;
+        let tint = uniform_red(&self.scene.textures[tint_index])?;
+        let (width, height, pixels, mips) = bake_color_mask(
+            &self.scene.textures[diffuse],
+            &self.scene.textures[mask],
+            tint,
+            &params.prepare(),
+        )?;
+        let d = &self.scene.textures[diffuse];
+        let baked = LoadedTexture {
+            srgb: true,
+            file_id: d.file_id.clone(),
+            name: format!("{} recoloured (colour set row {})", d.name, row.row),
+            source: format!(
+                "derived: diffuse {} + mask {mask_id} + ColorSets row {} (ACU-RE-0071)",
+                d.file_id, row.row
+            ),
+            payload_sha256: String::new(),
+            pixel_sha256: sha256(&pixels),
+            dxgi_format: 29,
+            gamma: 1,
+            width,
+            height,
+            mip_count: mips,
+            storage: "derived",
+            pixels,
+        };
+        let index = self.scene.textures.len();
+        self.scene.textures.push(baked);
+        Ok(Some((
+            index,
+            serde_json::json!({"row": row.row, "own": own, "applied": applied, "params": params,
+                "mask": mask_id, "tint_map": tint_id, "tint": tint, "baked_texture": index,
+                "size": [width, height], "template": color_mask::TEMPLATE_CLOTH_COLOR_MASKED_ALPHA_TEST}),
+        )))
     }
 
     fn catalog(&mut self) -> Result<&mut Catalog> {
@@ -422,8 +596,23 @@ impl Loader {
                 diffuse
             ));
         }
+        let mut diffuse_texture = diffuse_texture;
+        let mut color_mask_report = None;
+        if let Some(di) = diffuse_texture
+            && parsed.template.file_id == color_mask::TEMPLATE_CLOTH_COLOR_MASKED_ALPHA_TEST
+        {
+            match self.color_mask_bake(&parsed, di, package, entry) {
+                Ok(Some((index, report))) => {
+                    diffuse_texture = Some(index);
+                    color_mask_report = Some(report);
+                }
+                Ok(None) => {}
+                Err(e) => notes.push(format!("colour mask not applied: {e}")),
+            }
+        }
         let index = self.scene.materials.len();
         self.scene.materials.push(LoadedMaterial {
+            color_mask: color_mask_report,
             normal_map,
             normal_texture,
             alpha_test_enabled: parsed.flags.alpha_test_enabled,
@@ -506,6 +695,143 @@ impl Loader {
         self.textures.insert(file_id.to_string(), index);
         Ok(Some(index))
     }
+}
+
+/// The red value of a uniform texture (the template's t35 tint map); fails on
+/// a non-uniform map, whose UV transform this bake does not model.
+fn uniform_red(t: &LoadedTexture) -> Result<f32> {
+    if t.dxgi_format != 71 {
+        return Err(format!(
+            "tint map {}: unsupported storage {}",
+            t.file_id, t.dxgi_format
+        )
+        .into());
+    }
+    let px = bc1::decode(t.width, t.height, &t.pixels)?;
+    let r = px[0][0];
+    if px.iter().any(|p| p[0] != r) {
+        return Err(format!(
+            "tint map {} is not uniform; its UV transform is not modelled",
+            t.file_id
+        )
+        .into());
+    }
+    Ok(if t.gamma == 1 {
+        color_mask::srgb_to_linear(r)
+    } else {
+        r as f32 / 255.0
+    })
+}
+
+fn bilinear(px: &[[f32; 4]], w: u32, h: u32, u: f32, v: f32) -> [f32; 4] {
+    let (w, h) = (w as i64, h as i64);
+    let x = u * w as f32 - 0.5;
+    let y = v * h as f32 - 0.5;
+    let (x0, y0) = (x.floor(), y.floor());
+    let (fx, fy) = (x - x0, y - y0);
+    let at = |xi: i64, yi: i64| px[(yi.rem_euclid(h) * w + xi.rem_euclid(w)) as usize];
+    let (x0, y0) = (x0 as i64, y0 as i64);
+    let (a, b, c, d) = (
+        at(x0, y0),
+        at(x0 + 1, y0),
+        at(x0, y0 + 1),
+        at(x0 + 1, y0 + 1),
+    );
+    std::array::from_fn(|i| {
+        let top = a[i] + (b[i] - a[i]) * fx;
+        let bottom = c[i] + (d[i] - c[i]) * fx;
+        top + (bottom - top) * fy
+    })
+}
+
+/// CPU bake of the colour-masked template albedo (ACU-RE-0071) at the larger
+/// of the diffuse/mask resolutions, with a box-filtered mip chain. Returns
+/// (width, height, RGBA8 sRGB levels, level count).
+fn bake_color_mask(
+    diffuse: &LoadedTexture,
+    mask: &LoadedTexture,
+    tint: f32,
+    prepared: &color_mask::Prepared,
+) -> Result<(u32, u32, Vec<u8>, u32)> {
+    if diffuse.dxgi_format != 71 || mask.dxgi_format != 71 {
+        return Err(format!(
+            "unsupported storage: diffuse {} mask {} (BC1 only)",
+            diffuse.dxgi_format, mask.dxgi_format
+        )
+        .into());
+    }
+    if mask.gamma != 0 {
+        return Err(format!("mask {} is not linear (gamma {})", mask.file_id, mask.gamma).into());
+    }
+    let decode = |c: u8| {
+        if diffuse.gamma == 1 {
+            color_mask::srgb_to_linear(c)
+        } else {
+            c as f32 / 255.0
+        }
+    };
+    let d: Vec<[f32; 4]> = bc1::decode(diffuse.width, diffuse.height, &diffuse.pixels)?
+        .iter()
+        .map(|p| {
+            [
+                decode(p[0]),
+                decode(p[1]),
+                decode(p[2]),
+                p[3] as f32 / 255.0,
+            ]
+        })
+        .collect();
+    let k: Vec<[f32; 4]> = bc1::decode(mask.width, mask.height, &mask.pixels)?
+        .iter()
+        .map(|p| p.map(|c| c as f32 / 255.0))
+        .collect();
+    let (w, h) = (
+        diffuse.width.max(mask.width),
+        diffuse.height.max(mask.height),
+    );
+    let mut level: Vec<[f32; 4]> = (0..(w * h) as usize)
+        .map(|i| {
+            let (x, y) = ((i % w as usize) as f32, (i / w as usize) as f32);
+            let (u, v) = ((x + 0.5) / w as f32, (y + 0.5) / h as f32);
+            let c = bilinear(&d, diffuse.width, diffuse.height, u, v);
+            let m = bilinear(&k, mask.width, mask.height, u, v);
+            let a = prepared.albedo([c[0], c[1], c[2]], [m[0], m[1], m[2]], tint);
+            [a[0], a[1], a[2], c[3]]
+        })
+        .collect();
+    let (mut lw, mut lh) = (w as usize, h as usize);
+    let mut out = Vec::new();
+    let mut mips = 0;
+    loop {
+        for p in &level {
+            out.extend([
+                color_mask::linear_to_srgb(p[0]),
+                color_mask::linear_to_srgb(p[1]),
+                color_mask::linear_to_srgb(p[2]),
+                (p[3].clamp(0.0, 1.0) * 255.0 + 0.5) as u8,
+            ]);
+        }
+        mips += 1;
+        if lw == 1 && lh == 1 {
+            break;
+        }
+        let (nw, nh) = ((lw / 2).max(1), (lh / 2).max(1));
+        level = (0..nw * nh)
+            .map(|i| {
+                let (x, y) = (i % nw, i / nw);
+                let mut acc = [0.0f32; 4];
+                for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+                    let p = level[(y * 2 + dy).min(lh - 1) * lw + (x * 2 + dx).min(lw - 1)];
+                    for (a, v) in acc.iter_mut().zip(p) {
+                        *a += v * 0.25;
+                    }
+                }
+                acc
+            })
+            .collect();
+        (lw, lh) = (nw, nh);
+    }
+    Ok((w, h, out, mips))
 }
 
 fn load_piece(loader: &mut Loader, forge: &mut Forge, piece: &Piece) -> Result<LoadedPiece> {

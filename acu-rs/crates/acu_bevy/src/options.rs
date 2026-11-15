@@ -75,6 +75,10 @@ pub struct Options {
     pub no_textures: bool,
     /// Optional JSON report of the resolution chain and its provenance.
     pub report: Option<PathBuf>,
+    /// Row of `CN_P_Avatars_ColorSets` applied to colour-masked cloth
+    /// materials (ACU-RE-0071); `None` renders the raw diffuse. Row 1 is the
+    /// table's default-weighted row ("Color 1", the default assassin blue).
+    pub color_set: Option<usize>,
 }
 
 fn parse_piece(
@@ -132,6 +136,7 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut size: (u32, u32) = (1280, 720);
     let mut texture_archives: Vec<String> = Vec::new();
     let mut no_textures = false;
+    let mut color_set: Option<usize> = Some(1);
     let mut static_scene = false;
     let mut scenario = "idle".to_string();
     let mut ticks = 0u32;
@@ -180,6 +185,18 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
                 texture_archives.push(args.next().ok_or("--texture-archive needs a value")?)
             }
             "--no-textures" => no_textures = true,
+            "--color-set" => {
+                let value = args.next().ok_or("--color-set needs a value")?;
+                color_set = if value == "none" {
+                    None
+                } else {
+                    Some(
+                        value
+                            .parse()
+                            .map_err(|e| format!("--color-set {value:?}: {e}"))?,
+                    )
+                };
+            }
             "--static" => static_scene = true,
             "--scenario" => {
                 scenario = args.next().ok_or("--scenario needs a value")?;
@@ -327,6 +344,7 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
             .collect()
     };
     Ok(Options {
+        color_set,
         rigged,
         scenario,
         ticks,
@@ -373,6 +391,8 @@ OPTIONS:
                        (repeatable; default: DataPC_SharedGroup_00.forge,
                        DataPC.forge)
     --no-textures      Render the grey fallback without touching materials
+    --color-set N|none Colour-set row for colour-masked cloth (default 1, the
+                       default assassin blue; none = raw diffuse)
     --static           Disable rig and test movement (old inspection mode)
     --scenario NAME    idle/bind/deform/walk/run/turn/jump/contact/profile-up/profile-down; walk/run-left/right/back/circle
                        reversals: visible loop, four right/left pairs (2 s each)

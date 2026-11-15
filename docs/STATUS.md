@@ -7,6 +7,13 @@ breeches, all `CN_P_FR_*_Arnaud_V2_LOD0` from BelleEpoque entries 364–370. The
 pass picked it by mistake, and ACU-RE-0048's `_03` was off by one. Item → row matches by name.
 Colour sets are not applied.
 
+Colours (2026-11-15, [ACU-RE-0071](findings/ACU-RE-0071-avatar-color-sets.md)): the gear colours
+come from the `CN_P_Avatars_ColorSets` BuildTable, whose 28 rows write HSB vectors into
+colour-masked cloth materials. `acu_bevy` now decodes it, applies `--color-set` (default row 1,
+the default assassin blue) and bakes the template's recoloured albedo. That albedo comes from the
+mask zones and the YIQ hue rotation, re-derived from the template's ps_5_0 code. Not compared
+against an in-game capture.
+
 Latest (2026-11-15, the arena walks and runs on the native NewDemo graph;
 [ACU-RE-0069](findings/ACU-RE-0069-atomgraph-evaluation-sync-and-mirroring.md)):
 - `acu_bevy` no longer uses the For Honor style matcher. `motion::load_graph` loads NewDemo

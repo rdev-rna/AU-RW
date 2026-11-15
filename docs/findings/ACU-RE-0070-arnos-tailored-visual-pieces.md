@@ -89,8 +89,9 @@ Upperbody, Hood, Pants, Belts, ThrowBlade and Strap; V3 has no scarf.
 - Bind, walk (120 ticks) and run (90 ticks) captures deform without visible tearing.
 - These are captures of the synthetic arena, not an in-game appearance claim.
 
-**Not covered.** Colour sets (`CN_P_Avatars_ColorSets`, 334/127) are not applied; the default
-diffuse is rendered. Hood-down, Hood_Position, the IconicWeapon V2 mesh and LOD1+ are not used.
+**Colour.** Colour sets are decoded and applied in [ACU-RE-0071](ACU-RE-0071-avatar-color-sets.md).
+
+**Not covered.** Hood-down, Hood_Position, the IconicWeapon V2 mesh and LOD1+ are not used.
 
 ## Reproduction
 
