@@ -51,5 +51,56 @@ fn installed_tailored_flap_cloth_decodes() -> Result<()> {
     assert_eq!(ps[0][..3], [-0.341_827_57, 0.131_184_13, 0.359_484_67]);
     assert!(ps.iter().all(|p| p[3] == 0.0 || p[3] == -1.0));
     assert_eq!(c.lod0_rest_offset, 45813);
+    // Distance sets 0-2 (structural/shear/bend): counts, and quantised rest
+    // lengths within half a step of the rest-pose particle distances.
+    let sets = b.distance_sets()?;
+    let n: Vec<_> = sets.iter().map(|s| (s.pairs.len(), s.simd_count)).collect();
+    assert_eq!(n, [(1132, 1104), (988, 976), (1212, 1192)]);
+    let clamp: Vec<_> = sets.iter().map(|s| (s.k_min, s.k_max)).collect();
+    assert_eq!(clamp, [(-2.0, 2.0), (0.0, 2.0), (-2.0, 0.0)]);
+    for s in &sets {
+        assert_eq!(s.stiffness, 1.0);
+        for (j, &(a, bb)) in s.pairs.iter().enumerate() {
+            let (p, q) = (ps[a as usize], ps[bb as usize]);
+            let len =
+                ((q[0] - p[0]).powi(2) + (q[1] - p[1]).powi(2) + (q[2] - p[2]).powi(2)).sqrt();
+            let rest = s.rest_q[j] as f32 * s.scale + s.offset;
+            assert!((rest - len).abs() <= s.scale * 0.5 + 1e-6, "pair {j}");
+            assert!(rest < s.threshold);
+        }
+    }
+    // Sets 3-5, maps, flags, settings, triangles and program (ACU-RE-0081).
+    let pc = b.particle_constraints()?;
+    assert_eq!((pc.backstop.bytes.len(), pc.anchors.len()), (592, 592));
+    let pinned: Vec<usize> = (0..587).filter(|&i| ps[i][3] < 0.0).collect();
+    assert_eq!(pinned.len(), 180);
+    assert!(pc.anchors[..587].iter().all(|&a| ps[a as usize][3] < 0.0));
+    let f = b.flags()?;
+    assert_eq!((f[7], f[22], f[28], f[29], f[30]), (1, 0, 1, 0, 1));
+    let maps = b.particle_maps()?;
+    assert!(maps[0].is_some() && maps[2].is_some() && maps[1].is_none());
+    let st = b.settings()?;
+    assert_eq!(st.gravity, [0.0, 0.0, -10.0]);
+    assert_eq!((st.damping, st.max_speed, st.blend), (0.0, 1000.0, 0.0));
+    assert_eq!((st.drag.a, st.drag.b), (1.3, 0.7));
+    assert_eq!(b.triangles()?.len(), 1039);
+    assert_eq!(
+        b.schedule()?,
+        [
+            (6, 1),
+            (9, 1),
+            (5, 1),
+            (10, 4),
+            (2, 1),
+            (1, 1),
+            (0, 1),
+            (7, 1),
+            (3, 1),
+            (4, 1),
+            (13, 1),
+            (11, 1),
+            (8, 1)
+        ]
+    );
     Ok(())
 }

@@ -198,33 +198,82 @@ Static support for "constraints in batches": record `11.0c` holds six counts (71
 
 The game was closed with `capture_run.py --close` (graceful, 2.9 s), and the saves were put back.
 
+### The solver program (observed, static; agents' specs checked against the trace)
+
+The step entry `0x1423d4b60(solver, body, dt, wind vec3, shapes)` calls solver vtable
+(`0x1435f44e0`) slot 1, stores dt and the vec3, runs the body's schedule (records `11.09` count,
+`11.0a` opcode/count pairs) through the interpreter `0x1423d47e0`, then calls slots 12 and 2.
+
+| Op | Native | Port (`acu_sim::cloth`) |
+|---|---|---|
+| 0, 1, 2 | slot 3 → `0x1423e5180` → `0x1423e51f0`, distance sets 0–2 | `solve_distance` |
+| 3 | slot 3 → `0x1423d8e80` → `0x1423d7f20` (backstop, settings+96) | `solve_backstop` |
+| 4 | slot 3 → `0x1423d8e80` → `0x1423d8f20` (max distance, settings+128) | `solve_max_distance` |
+| 13 | slot 3 → `0x1423da5b0` (tether, set 5) | `solve_tether` |
+| 5 | slot 3 → `0x1423d8990` (blend to targets, set 6) | `blend_to_targets` |
+| 6 | slot 4 → `0x1423d7720` (Verlet integrate; `0x14241dfb0` when body+124) | `integrate` |
+| 7 | `0x1423d4700` → `0x1423d8e50` → `0x1423d5510` → `0x1423d68d0` / swept `0x1423d58a0` | **not ported** (counted, skipped) |
+| 8 | slot 6 → `0x1423e4cf0` (normals) | `compute_normals` |
+| 9 | slot 8 → `0x1423d72b0` (drag/wind) | `apply_drag` |
+| 10 n / 11 | repeat block; n LOD-reduced by `0x14240c090` | interpreter (full-LOD count) |
+| 12 | slot 7 per sub-object → `0x1423e2130` | rejected (flap does not use it) |
+
+The flap schedule is `6, 9, 5, 10(4){2, 1, 0, 7, 3, 4, 13}11, 8`. This corrects the inference
+above: `0x1423d7f20`/`0x1423d8f20` are the backstop and max-distance constraints (ops 3/4), and
+the collision writer is `0x142419cc0` (op 7). The trace's `{…} x2` is consistent with a repeat
+count of 4 reduced to 2 by the LOD rule; the live substep mode is still unconfirmed.
+
+Kernel arithmetic (observed in the pseudocode and disassembly):
+- Integrate: `d = keep·(p − prev) + keep·g·dt²` (or `keep·(g·dt²·gs[i] + (p − prev))` with a
+  per-particle gravity map); the step is scaled by `min(1, rsqrt(max(|d|², 1e-14))·max_speed)`;
+  pinned particles (w = −1) snap to their target; `prev` takes the old position.
+- Distance sets: SIMD groups of four solved Jacobi-style from a snapshot, with
+  `k = clamp((1/r − 1)·stiffness·r)` where `r = rsqrt(L²)·rest`, using SSE min/max NaN rules; a
+  scalar tail uses `len = max(sqrt(L²), 1e-10)`. Each free end takes half; a free end paired with a
+  pinned one takes all of it.
+- Backstop `v = d − dot(P − T, N)`, push along N when `v ≥ 0`; max distance pulls P toward T by
+  the excess over the radius; tether pulls toward an anchor past its length (`1e9` when disabled).
+- Drag: `c = (a·0.5·dt)/b`, `P += N·dot(wind·dt − (P − prev), N)·c`, free particles only.
+- Normals: unit face normals summed per particle, a zero sum becomes +X, then normalised.
+- The native code uses `rsqrtps`/`rcpps` estimates. The port uses exact maths by default; the
+  `acu_sim` feature `hw-rsqrt` uses this CPU's estimate instead (validation only).
+
 ## Implementation
 
 `acu_assets::cloth` provides:
 - `blob()`: record walk with the native framing checks; requires the version and exact end.
 - `Blob::{find, settings_name, body_kind, particle_count, particles}`.
+- `Blob::{distance_sets, particle_constraints, particle_maps, flags, settings, triangles,
+  schedule}`: every input the flap's program reads (records `11.04`, `11.05`, `11.08`, `11.0c`–
+  `11.0e`, `11.11`, `11.12`/`11.13`, `11.1a`, `11.1d`, `11.23`/`11.24`, `11.2d`, `11.2e`,
+  `11.b1`–`11.b4`). Legacy drag record `11.06` is rejected.
 - `parse()`: the prefix above, up to LOD0's blob. It rejects unknown pointer tags, class mismatches,
   count disagreements and nonfinite positions.
 
-Tests:
-- 3 unit tests on synthetic blobs: framing, magic, length, version and padding errors.
-- `tests/cloth.rs`, `#[ignore]`: the installed flap, checking the hash, IDs, counts, settings name,
-  first particle and offset.
+`acu_sim::cloth` (no Bevy) provides `State`, the kernels above, the frame `carry`, and `Cloth`,
+which validates a program and runs it with `step(dt, target_normals)`.
 
-**Not implemented:** no simulation and no Bevy integration. Deliberately, the viewer runs no
-substitute cloth, because the solver's behaviour is not recovered.
+Tests:
+- `acu_assets`: 3 unit tests on synthetic blobs (framing, magic, length, version, padding).
+- `acu_assets/tests/cloth.rs`, `#[ignore]`: the installed flap. It checks the hash, IDs, counts,
+  the three distance sets' sizes and clamps, rest lengths against the particles, 180 pinned
+  anchors, flags, settings (gravity (0, 0, −10), damping 0, max speed 1000, drag 1.3/0.7), 1,039
+  triangles and the schedule.
+- `acu_sim`: 12 unit tests with independent expected values (free fall, pinned snap, speed cap and
+  damping, stretched pair, one-sided clamps, SIMD vs scalar agreement, backstop, max distance,
+  tether, normals, drag, carry, the repeat program and opcode rejection).
+
+**Not implemented:** collision (op 7), so the cloth can pass through the body; no Bevy
+integration yet (targets from particle skinning and the render-vertex mapping are next).
 
 ## Unknowns
 
-- The semantics of the eight writer functions, the top-level driver, dt and the substep rule.
-- The meanings of the six u8 arrays and the w flag.
-- The pointer kind byte.
-- The undecoded LOD fields.
-- How render vertices follow particles (`SoftBodyVertexMapping`).
-- Collision shapes.
-- The 736-byte body class.
-- The scarf resource.
-- Load precedence.
+- Collision: the swept path `0x1423d58a0` and the character's collider shapes.
+- The live substep mode and rate (engine `0x141d96fb0`, mode c+92, rate c+108, default 30).
+- The per-frame writer of the pinned targets (sim+504) and the LOD repeat reduction in play.
+- Parity of the `rsqrtps` estimate; float determinism is unresolved.
+- The 4-wide tether mode (unused by the flap); op 12 sub-objects.
+- The pointer kind byte; the 736-byte body class; the scarf resource; load precedence.
 
 ## Reproduction
 
@@ -233,4 +282,5 @@ $g = $env:ACU_GAME_DIR
 acu-rs/target/debug/acu-mat.exe "$g/DataPC_ACU_LGS_BelleEpoque_assets.forge" 5882 0 --hex --out=local/tailored/sb_flap.json
 cd acu-rs; cargo test --locked -p acu_assets --test cloth -- --ignored
 cargo test --locked -p acu_assets --lib cloth
+cargo test --locked -p acu_sim cloth
 ```

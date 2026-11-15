@@ -163,6 +163,304 @@ impl<'a> Blob<'a> {
         Ok(out)
     }
 
+    /// Distance constraint sets 0–2 (opcodes 0/1/2, kernel `0x1423e51f0`).
+    /// Sources (loaders `0x1423bb3c0`, `0x14242f880`, `0x1423ce370`):
+    /// `11.0c` six block counts, `11.1d` N, `11.0d` u8 rest arrays (entries
+    /// 0–2), `11.0e` (scale, offset, threshold) per entry, `11.23` pair counts,
+    /// `11.24` u16 pairs, `11.11` SIMD counts, `11.1a` clamp (min, max) per set
+    /// (default −2/2, 0/2, −2/0), `11.08` stiffness per set.
+    pub fn distance_sets(&self) -> Result<[DistanceSet; 3]> {
+        let blocks = self.u32s(0x110c, 6)?;
+        let n_total = self.u32_record(0x111d)? as u64;
+        let packed = self.find(0x110d).ok_or("cloth blob: record 110d absent")?;
+        let sum: u64 = blocks.iter().map(|&c| c as u64).sum();
+        if packed.len() as u64 != 16 * (sum + 2 * n_total / 16) {
+            return invalid("cloth blob: 110d size disagrees with 110c/111d");
+        }
+        let scales = self.f32s(0x110e, 18)?;
+        let counts = self.u32s(0x1123, 3)?;
+        let simd = self.u32s(0x1111, 3)?;
+        let pairs_raw = self.find(0x1124).ok_or("cloth blob: record 1124 absent")?;
+        let total_pairs: usize = counts.iter().map(|&c| c as usize).sum();
+        if pairs_raw.len() != 4 * total_pairs {
+            return invalid("cloth blob: 1124 size disagrees with 1123");
+        }
+        let clamp = match self.find(0x111a) {
+            Some(_) => self.f32s(0x111a, 6)?,
+            None => vec![-2.0, 2.0, 0.0, 2.0, -2.0, 0.0],
+        };
+        let stiffness = self.f32s(0x1108, 3)?;
+        let particles = self.particle_count()?;
+        let mut first_pair = 0usize;
+        let mut first_block = 0usize;
+        let mut out: Vec<DistanceSet> = Vec::with_capacity(3);
+        for s in 0..3 {
+            let n = counts[s] as usize;
+            let bytes = &packed[16 * first_block..16 * (first_block + blocks[s] as usize)];
+            first_block += blocks[s] as usize;
+            if bytes.len() < n || simd[s] as usize > n || simd[s] % 8 != 0 {
+                return invalid(format!("cloth blob: distance set {s} counts inconsistent"));
+            }
+            let pairs: Vec<(u16, u16)> = (first_pair..first_pair + n)
+                .map(|i| {
+                    let p = &pairs_raw[4 * i..4 * i + 4];
+                    (
+                        u16::from_le_bytes([p[0], p[1]]),
+                        u16::from_le_bytes([p[2], p[3]]),
+                    )
+                })
+                .collect();
+            first_pair += n;
+            if pairs
+                .iter()
+                .any(|&(a, b)| a as usize >= particles || b as usize >= particles)
+            {
+                return invalid(format!("cloth blob: distance set {s} index out of range"));
+            }
+            out.push(DistanceSet {
+                pairs,
+                rest_q: bytes[..n].to_vec(),
+                scale: scales[3 * s],
+                offset: scales[3 * s + 1],
+                threshold: scales[3 * s + 2],
+                simd_count: simd[s] as usize,
+                k_min: clamp[2 * s],
+                k_max: clamp[2 * s + 1],
+                stiffness: stiffness[s],
+            });
+        }
+        out.try_into()
+            .map_err(|_| "cloth blob: distance set count".into())
+    }
+
+    /// Per-particle constraint arrays for sets 3 (backstop offset), 4 (max
+    /// distance radius) and 5 (tether length): entries 3–5 of `11.0c`/`11.0d`/
+    /// `11.0e`, one u8 per particle over the capacity. Tether anchors are the
+    /// u16 region after them (`11.2a`, same bytes), one per particle.
+    pub fn particle_constraints(&self) -> Result<ParticleConstraints> {
+        let blocks = self.u32s(0x110c, 6)?;
+        let cap = self.u32_record(0x111d)? as usize;
+        let packed = self.find(0x110d).ok_or("cloth blob: record 110d absent")?;
+        let scales = self.f32s(0x110e, 18)?;
+        let mut at: usize = blocks[..3].iter().map(|&c| 16 * c as usize).sum();
+        let mut maps = Vec::new();
+        for k in 3..6 {
+            let len = 16 * blocks[k] as usize;
+            if len != cap || at + len > packed.len() {
+                return invalid(format!(
+                    "cloth blob: constraint array {k} is not one byte per particle"
+                ));
+            }
+            maps.push(ByteMap {
+                bytes: packed[at..at + len].to_vec(),
+                scale: scales[3 * k],
+                bias: scales[3 * k + 1],
+                threshold: scales[3 * k + 2],
+            });
+            at += len;
+        }
+        if packed.len() != at + 2 * cap {
+            return invalid("cloth blob: tether index region size");
+        }
+        let anchors: Vec<u16> = packed[at..]
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|c| u16::from_le_bytes(*c))
+            .collect();
+        if anchors.iter().any(|&a| a as usize >= cap) {
+            return invalid("cloth blob: tether anchor out of range");
+        }
+        let mut it = maps.into_iter();
+        let (backstop, max_distance, tether) = (
+            it.next().ok_or("maps")?,
+            it.next().ok_or("maps")?,
+            it.next().ok_or("maps")?,
+        );
+        Ok(ParticleConstraints {
+            backstop,
+            max_distance,
+            tether,
+            anchors,
+        })
+    }
+
+    /// Per-particle maps at body `+384` (loader `0x1423cf890`): `11.b2` (rows,
+    /// slots), `11.b3` raw rows, `11.b4` per slot (u32 rows, scale, bias,
+    /// threshold). Slot k is used when flag body `+124+k` (record `11.b1`) is set.
+    pub fn particle_maps(&self) -> Result<[Option<ByteMap>; 6]> {
+        let mut out: [Option<ByteMap>; 6] = Default::default();
+        let Some(head) = self.find(0x11b2) else {
+            return Ok(out);
+        };
+        if head.len() != 8 {
+            return invalid("cloth blob: 11b2 size");
+        }
+        let (rows, slots) = (u32_at(head, 0)? as usize, u32_at(head, 4)? as usize);
+        let raw = self.find(0x11b3).ok_or("cloth blob: 11b3 absent")?;
+        let desc = self.find(0x11b4).ok_or("cloth blob: 11b4 absent")?;
+        if raw.len() != 16 * rows || desc.len() != 16 * slots {
+            return invalid("cloth blob: 11b3/11b4 sizes");
+        }
+        let mut at = 0usize;
+        for (k, slot) in out.iter_mut().enumerate().take(slots.min(6)) {
+            let n = 16 * u32_at(desc, 16 * k)? as usize;
+            let f = |o: usize| u32_at(desc, 16 * k + o).map(f32::from_bits);
+            if at + n > raw.len() {
+                return invalid("cloth blob: 11b4 rows exceed 11b3");
+            }
+            if n > 0 {
+                *slot = Some(ByteMap {
+                    bytes: raw[at..at + n].to_vec(),
+                    scale: f(4)?,
+                    bias: f(8)?,
+                    threshold: f(12)?,
+                });
+            }
+            at += n;
+        }
+        Ok(out)
+    }
+
+    /// Body flags: record `11.04` mapped onto body `+96` (loader
+    /// `0x1423cdc40`) and `11.b1` onto `+124..129` (`0x1423cdeb0`).
+    /// Returned indexed by body offset − 96 (length 34).
+    pub fn flags(&self) -> Result<[u8; 34]> {
+        let mut f = [0u8; 34];
+        let d = self.find(0x1104).ok_or("cloth blob: 1104 absent")?;
+        if d.len() < 18 {
+            return invalid("cloth blob: 1104 short");
+        }
+        let b = |i: usize| d.get(i).map(|&v| (v != 0) as u8);
+        for (i, off) in [0usize, 1, 2, 3, 4, 5, 8, 20, 21].iter().enumerate() {
+            f[*off] = b(i).unwrap_or(0);
+        }
+        let v5 = b(9).unwrap_or(0);
+        f[6] = b(11).unwrap_or(0);
+        for (i, off) in [(13usize, 24usize), (14, 11), (15, 9), (16, 10), (17, 25)] {
+            f[off] = b(i).unwrap_or(0);
+        }
+        f[12] = b(18).unwrap_or(0);
+        f[27] = b(19).unwrap_or(0);
+        f[23] = d.get(24).copied().unwrap_or(0xff);
+        if f[23] == 0xff {
+            f[23] = v5;
+        }
+        f[22] = b(26).unwrap_or(0);
+        f[7] = d.get(27).copied().unwrap_or(1);
+        f[26] = b(28).unwrap_or(0);
+        if let Some(m) = self.find(0x11b1) {
+            for (i, v) in m.iter().take(6).enumerate() {
+                f[28 + i] = (*v != 0) as u8;
+            }
+        }
+        Ok(f)
+    }
+
+    /// Simulation settings from `11.05`, `11.2e` and `11.2d` (loaders
+    /// `0x1423ce370`, `0x1423ce820`).
+    pub fn settings(&self) -> Result<Settings> {
+        let d = self.find(0x1105).ok_or("cloth blob: 1105 absent")?;
+        if d.len() < 56 {
+            return invalid("cloth blob: 1105 short");
+        }
+        let f = |o: usize| u32_at(d, o).map(f32::from_bits);
+        // Offsets observed in 0x1423ce370: bools at 0,1; S+32..40 at 2..14;
+        // S+44 at 14; 8 skipped; S+48 at 26; S+56 at 30; bool 34; S+60 at 35.
+        let mut gravity = [f(2)?, f(6)?, f(10)?];
+        let damping = f(14)?;
+        let thickness = f(26)?;
+        let blend = f(30)?;
+        // Optional tail: S+52 (max speed) defaults to 1000.
+        let max_speed = if d.len() >= 65 { f(61)? } else { 1000.0 };
+        match self.find(0x112e) {
+            Some(_) => {
+                let g = self.f32s(0x112e, 3)?;
+                gravity = [g[0], g[1], g[2]];
+            }
+            None => gravity = gravity.map(|v| v * 0.5),
+        }
+        let drag = match (self.find(0x112d), self.find(0x1106)) {
+            (Some(x), _) if x.len() >= 21 => {
+                let g = |o: usize| u32_at(x, o).map(f32::from_bits);
+                Drag {
+                    wind_enabled: x[0] != 0,
+                    wind: [g(1)?, g(5)?, g(9)?],
+                    a: g(13)?,
+                    b: g(17)?,
+                }
+            }
+            (None, Some(_)) => return invalid("cloth blob: legacy drag record 1106 unsupported"),
+            _ => return invalid("cloth blob: drag record 112d absent or short"),
+        };
+        let all = [
+            gravity[0], gravity[1], gravity[2], damping, thickness, blend, max_speed, drag.a,
+            drag.b,
+        ];
+        if all.iter().any(|v| !v.is_finite()) || drag.b == 0.0 {
+            return invalid("cloth blob: nonfinite or zero settings");
+        }
+        Ok(Settings {
+            gravity,
+            damping,
+            max_speed,
+            thickness,
+            blend,
+            drag,
+        })
+    }
+
+    /// Triangles for normals (opcode 8): `11.12` count, `11.13` u16 triples.
+    pub fn triangles(&self) -> Result<Vec<[u16; 3]>> {
+        let n = self.u32_record(0x1112)? as usize;
+        let d = self.find(0x1113).ok_or("cloth blob: 1113 absent")?;
+        if d.len() != 6 * n {
+            return invalid("cloth blob: 1113 size");
+        }
+        let p = self.particle_count()?;
+        let t: Vec<[u16; 3]> = d
+            .as_chunks::<6>()
+            .0
+            .iter()
+            .map(|c| {
+                [
+                    u16::from_le_bytes([c[0], c[1]]),
+                    u16::from_le_bytes([c[2], c[3]]),
+                    u16::from_le_bytes([c[4], c[5]]),
+                ]
+            })
+            .collect();
+        if t.iter().flatten().any(|&i| i as usize >= p) {
+            return invalid("cloth blob: triangle index out of range");
+        }
+        Ok(t)
+    }
+
+    /// Solver program (`11.09` count, `11.0a` (opcode, count) pairs).
+    pub fn schedule(&self) -> Result<Vec<(u32, u32)>> {
+        let n = self.u32_record(0x1109)? as usize;
+        let v = self.u32s(0x110a, 2 * n)?;
+        Ok(v.as_chunks::<2>().0.iter().map(|c| (c[0], c[1])).collect())
+    }
+
+    fn u32s(&self, tag: u16, n: usize) -> Result<Vec<u32>> {
+        let d = self
+            .find(tag)
+            .ok_or_else(|| format!("cloth blob: record {tag:04x} absent"))?;
+        if d.len() != 4 * n {
+            return invalid(format!("cloth blob: record {tag:04x} is {} bytes", d.len()));
+        }
+        (0..n).map(|i| u32_at(d, 4 * i)).collect()
+    }
+
+    fn f32s(&self, tag: u16, n: usize) -> Result<Vec<f32>> {
+        let v: Vec<f32> = self.u32s(tag, n)?.into_iter().map(f32::from_bits).collect();
+        if v.iter().any(|x| !x.is_finite()) {
+            return invalid(format!("cloth blob: record {tag:04x} has nonfinite values"));
+        }
+        Ok(v)
+    }
+
     fn u32_record(&self, tag: u16) -> Result<u32> {
         let d = self
             .find(tag)
@@ -172,6 +470,62 @@ impl<'a> Blob<'a> {
         }
         u32_at(d, 0)
     }
+}
+
+/// One distance constraint set. Rest length of pair `j` is
+/// `f32(rest_q[j]) * scale + offset`; `rest_q == 0xff` is disabled.
+/// Pairs below `simd_count` run natively in independent groups of four.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DistanceSet {
+    pub pairs: Vec<(u16, u16)>,
+    pub rest_q: Vec<u8>,
+    pub scale: f32,
+    pub offset: f32,
+    pub threshold: f32,
+    pub simd_count: usize,
+    pub k_min: f32,
+    pub k_max: f32,
+    pub stiffness: f32,
+}
+
+/// Quantised per-element values: `f32(byte) * scale + bias`; enabled when
+/// `value - threshold < 0` (byte 0xff disables on the observed data).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ByteMap {
+    pub bytes: Vec<u8>,
+    pub scale: f32,
+    pub bias: f32,
+    pub threshold: f32,
+}
+
+/// Sets 3–5 inputs (one entry per particle, over the capacity).
+#[derive(Clone, Debug, PartialEq)]
+pub struct ParticleConstraints {
+    pub backstop: ByteMap,
+    pub max_distance: ByteMap,
+    pub tether: ByteMap,
+    pub anchors: Vec<u16>,
+}
+
+/// Aerodynamic term (opcode 9): `c = (a * 0.5 * dt) / b`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Drag {
+    pub wind_enabled: bool,
+    pub wind: [f32; 3],
+    pub a: f32,
+    pub b: f32,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Settings {
+    pub gravity: [f32; 3],
+    pub damping: f32,
+    pub max_speed: f32,
+    /// S+48 (collision thickness, AABB margin).
+    pub thickness: f32,
+    /// S+56 (opcode 5 blend toward targets).
+    pub blend: f32,
+    pub drag: Drag,
 }
 
 /// Serialized pointer with a kind byte (fields with reflection flag `0x08`).

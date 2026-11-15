@@ -11,7 +11,11 @@ Tailored flap's motion comes from the `Cloth` soft-body resource, not from bones
   through non-virtual code. Per frame: `0x1423b10d0` (frame carry), `0x1423d7720`, then twice
   { 3 x (`0x1423e51f0`, `0x1423bd180`), `0x142419cc0`, collision `0x1423d7f20`/`0x1423d8f20`,
   `0x1423da5b0` }. All are in the corpus.
-- **No simulation yet.** Those functions are not ported, and the viewer runs no substitute cloth.
+- `acu_sim::cloth` ports the solver program (interpreter `0x1423d47e0`) and every kernel the flap
+  schedule uses: integrate, drag, blend, three distance sets, backstop, max distance, tether and
+  normals, with the frame carry. `acu_assets::cloth` decodes all their inputs. 12 unit tests and the
+  installed-flap test pass.
+- **Collision (op 7) is not ported**, and the viewer does not drive the flap yet.
 
 Lighting (2026-11-15, [ACU-RE-0073](findings/ACU-RE-0073-baked-gi-and-world-ambiance.md)): the
 arena now uses the native Paris `WorldAmbiance` settings. Default `--lighting paris-noon`;
