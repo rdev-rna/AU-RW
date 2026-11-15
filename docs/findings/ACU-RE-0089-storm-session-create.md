@@ -4,7 +4,8 @@ Date / investigator / related task: 2026-11-15 / claude-session, static only / #
 ([COOP_RE_PLAN.md](../COOP_RE_PLAN.md)); follows [ACU-RE-0073](ACU-RE-0073-session-transport-seam.md) and
 [ACU-RE-0088](ACU-RE-0088-online-error-code.md)
 State: partially established. The path from game code to Storm's session `Create` event is observed, with
-its arguments. What fills the descriptor, and how remote peers reach Storm, are not traced.
+its arguments, along with the local start-up (a random 8-byte ID, then `RequestAddPlayer`). Remote addresses
+are handled inside Storm, and their entry point is not found.
 
 ## Provenance
 
@@ -101,6 +102,59 @@ solo).
 - A hit with result `-1000000` would show which refusal applies offline.
 - No hit would show that the solo path doesn't create a Storm session at all, which ACU-RE-0087 suggests
   (`S+0x30` stayed `-1`).
+
+## Follow-up — the session ID, local start-up, and where remote addresses enter (2026-11-15, static)
+
+Method: the same scans as above. Event vtables were named by their vf1 getter's RIP-relative reference to an
+atlas type record.
+
+Observations:
+7. **The descriptor's `+72` property is a byte-string ID.** Its helpers:
+   - `0x1426A98E0` builds an empty one (length `+8` = 0, data `+16` = null), the "empty value" in
+     observation 6;
+   - `0x1426A9810(id, a, b)` builds an 8-byte one from two 32-bit values, stored big-endian;
+   - `0x1426AE410` compares two IDs byte by byte.
+
+   `Create` therefore refuses a descriptor whose ID has length 0.
+8. **`NetSessionController` start-up generates its own ID.** Main vtable slot 39 (`0x141C61EE0`, vtable
+   `0x14300ED80 + 0x138`) does this, in order:
+   1. sets `+688 = 2`;
+   2. calls Storm's base slot 15 (`0x141B34FC0`, from `defaultsessioncontrollerbase.cpp`). That registers the
+      controller and builds the **local** `storm::PeerDescriptor` (vtable `0x142FFD960`, 840-byte object from
+      `0x141B29170`, with a fresh descriptor);
+   3. on success, draws two values from the game's seeded LCG at `qword_14525FAE0 + 4` (multiplier `1664525`,
+      increment `1013904223`) and stores an 8-byte ID built from them (each value shifted right by 8) at `+728`;
+   4. builds a request with that ID and the string at `+768`, and calls base slot 31 (`0x141B2C540`), which
+      posts `storm::echo::player::inEvent::RequestAddPlayer` (event vtable `0x143005E48`).
+9. **`ConnectEndPoints` is reached only inside Storm.** The event is built in `0x142674A20`, called from
+   `0x141BBF920`, which matches an address against a list of type-151 entries at `+240`. That function is
+   called only by `0x141C2BD90`, slot 3 of a Storm connector vtable (`0x143008A38`, built by `0x141BA7320`).
+   The session-level peer messages are also built only by Storm-range code: `SessionReachPeerMessage` in
+   `0x141BD9CE0` and `0x141C26360`, `PlayerJoinAttachment` in `0x141B8C7B0` and others.
+10. **The game is told about connections.** The game-side type `PeerToPeerConnectionNotification` (record
+    `0x145214BF8`) is built by `NetSessionController` main slot 80 (`0x141C61040`) and by `0x141C577A0`
+    (another vtable, `0x143013070`). The game receives these notifications; it does not send addresses.
+
+Inferences:
+- The local player and peer come from the game: a start-up that generates a random 8-byte ID, then
+  `RequestAddPlayer`. Remote peers are connected by Storm itself (connector → `ConnectEndPoints`, session
+  peer messages), from data it already holds.
+- No traced game function hands Storm a remote address. So the first remote contact must enter through an
+  input this pass didn't decode. The candidates are:
+  - a joiner's descriptor (the ID at `+72`, or other descriptor properties);
+  - a ticket (`RequestTicketSessionId` / `DistributeTicket`);
+  - the RDV / ubiservices matchmaking layer writing peer data into Storm through its own path
+    (`rdv::GameSessionClient`, `prudp:/`, ACU-RE-0073 observation 5).
+
+  The third would put the backend on the address path. Under B1 it is recorded, not decoded.
+
+Unknowns: which descriptor properties besides `+72` a joiner fills, and from where; whether Storm resolves a
+session ID to the host's address on its own (only possible through a server); and the class built by
+`0x141BA7320`.
+
+Next test (live, read-only, offline): hook `0x141C61EE0` (start-up), `0x141B2C540` (`RequestAddPlayer`) and
+`0x141B69150` (`Create`) while starting a co-op mission with Play in Private. That shows whether the solo
+path runs the start-up and creates a session, and with which ID.
 
 Reproduction steps:
 ```text

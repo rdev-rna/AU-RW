@@ -198,6 +198,12 @@ deliverable and acceptance criterion. Phases 1-5 are static. Phase 7 is dynamic.
   - Our own lobby therefore has to supply three things: the descriptor contents (likely a session ID at
     `+72`), Storm in state 3, and peer addresses for Storm's peer layer. Next: what fills `+72` on a client,
     and how remote peers enter Storm (`punch::ConnectEndPoints` or the peer manager).
+  - Follow-up: the `+72` ID is an 8-byte string. The controller's start-up (`0x141C61EE0`) generates one from
+    the game's seeded random generator, then posts `player::inEvent::RequestAddPlayer`. Remote endpoints
+    (`punch::ConnectEndPoints`, session peer messages) are reached only inside Storm. No game function hands
+    Storm a remote address. The first remote contact must come from the joiner's descriptor or ticket, or
+    from the RDV matchmaking layer (a backend boundary). Next: the live, offline Play in Private test from
+    ACU-RE-0089.
 
 ### Phase 3 - Replication model (static)
 - Echo objects: how a replica is created and deleted, what an "object shape" is
