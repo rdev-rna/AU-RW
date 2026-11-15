@@ -21,6 +21,7 @@ inferred (**I**).
 | Snapshot (`NetObjectMemento`) | Continuous state such as `HumanAvatar`, `AnimComponentNetData`, `PlayerCharacterData` and `ZenHealthReplication` | Broadcast. Changed flags per field, applied only if the sequence number is not older. | O |
 | Intention RFC (`NetHumanIntention`, 94 messages) | High-level actions the replica re-enacts: navigate, follow, assassinate, fire, sheathe, cover, look-at. Each message is a snapshot-style object: header {u32 id, u8} plus typed slots with changed flags (ACU-RE-0079). | Broadcast or unicast per call | O (names, send path, layouts), I (re-enact) |
 | Owner RFCs | Discrete events per data type, such as `UpdatePlayerCoopHealing`, `SetIsKO_RFC` and `RespawnReplica` | Broadcast or unicast | O (names) |
+| Intention send | StartIntention starts the intention locally. If the context asks for replication (`ctx+0x11` and manager `+0x6C`), it asks the net dispatcher (virtual `+0x80`) for a message. That call is inferred to reach the per-message builder (ACU-RE-0079). The result is queued as a {kind, message, target} record: broadcast, or unicast to `ctx+0x1C` (ACU-RE-0081). | Broadcast or unicast by mode and state | O (chain), I (one virtual hop) |
 | Intention receive | One handler (`sub_1407269B0`) for all 94 messages. It dispatches by message type, decodes the slots, resolves entity handles to local entities, and calls StartIntention(id, params), so the replica runs the same intention locally (ACU-RE-0080). ACU-RE-0075's "resync" is this handler. | Per message | O |
 
 ## 3. Wire IDs (O)

@@ -207,6 +207,10 @@ pointless without them.
 - **Status 2026-11-15 (intention receive):** [ACU-RE-0080](findings/ACU-RE-0080-intention-receive.md). Messages are
   `NetNpc` protocol entries. One handler decodes all 94 and starts the same intention locally through
   StartIntention (91 of 94; 3 call send primitives). This corrects ACU-RE-0075's "resync".
+- **Status 2026-11-15 (intention send):** [ACU-RE-0081](findings/ACU-RE-0081-intention-send.md). StartIntention
+  runs the intention locally, then (if asked to replicate) gets a message from the net dispatcher, which
+  is inferred to call the builder, and queues it per thread. Still open: the flush to Storm, and the
+  meanings of the mode, state and context fields.
 
 ### Phase 5 - Backend boundary register (runs alongside every phase)
 - `docs/coop/BACKEND_BOUNDARY.md`, one row per call that crosses into Ubisoft

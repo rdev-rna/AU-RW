@@ -105,7 +105,8 @@ Exact commands and search boundary:
 - **The gate keeps replicas from starting intentions on their own.** It refuses source 2 when the net
   component's state is 1. The likely reading is: a replica refuses intentions from its own AI or input
   and accepts the network source. The meaning of the values 1 and 2 is not established.
-- **The per-message callbacks (observation 2) are probably the send hook.** They act only when the
+- *(Revised by ACU-RE-0081: the send starts inside StartIntention, and the second delegate is the
+  builder.)* **The per-message callbacks (observation 2) are probably the send hook.** They act only when the
   entity is not marked local-only (`0x40000`), and call into `+0x528`, which would lead to the builder.
   This is not traced.
 - The three send-primitive blocks may relay requests: a received request is re-issued as a master
@@ -113,9 +114,9 @@ Exact commands and search boundary:
 
 ### Unknowns / incomplete coverage
 
-- The target of the second delegate (virtual `+0x40`) and what `0x1419F3240` (`+0x528` path) does.
+- The target of the second delegate (virtual `+0x40`; ACU-RE-0081: the message builder) and what `0x1419F3240` (`+0x528` path) does.
 - The meaning of the gate values and of the start-context fields (`+4`, `+8`, `+0xC` to `+0x18`).
-- Where the builder (ACU-RE-0079) is called from, which closes the send side.
+- Where the builder (ACU-RE-0079) is called from. Covered in ACU-RE-0081.
 - Whether the context time from virtual `+0xD8` is used for latency compensation.
 
 ### Independent comparison / falsification test
