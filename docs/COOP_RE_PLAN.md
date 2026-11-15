@@ -376,7 +376,9 @@ Where things stand:
   handler is installed at startup.
 
 Steps, in order. Each one is a small stride with its own finding update:
-1. **Find the UbiServices gate in front of Public.** Hook the error formatter `0x141C551C0` and the Public path
+1. **Done (ACU-RE-0090 run 7): the gate is a backend request.** Public waits on an async request to service
+   selector 7, which fails with `{7, 0x106}`; there is no local flag to bypass. Original step:
+   **Find the UbiServices gate in front of Public.** Hook the error formatter `0x141C551C0` and the Public path
    while the user presses Public, then follow the return chain to the check that raises `{7, 0x106}`.
    - If the check is a flag or state read, a probe `REDIRECT` or a data write may let Public reach slot 4. No
      code patches: code patches kill the game (ACU-RE-0090 run 4).

@@ -412,6 +412,33 @@ Inference: `0x70000106` decodes as category 7 (UbiServices, ACU-RE-0088) with co
 Ubisoft services before it ever reaches the LAN matchmaker's start search, so LAN discovery stays off. Where that
 check sits is not found yet.
 
+## Live run 7 — the check in front of Public (2026-11-16)
+
+Host only (PID 130944, LAN mode, free roam). These are the same four hooks as ACU-RE-0088 live run 2:
+- formatter `0x141C551C0` and job finish `0x1425712A0`, each with 256 bytes at RSP;
+- job done `0x142737E50`, with 8 bytes at RDX (the result record);
+- job lookup `0x14250C8A0`, with 128 bytes at RCX.
+
+Log: `lan-public-err-20261116/errchain.jsonl`. The user pressed Play in Public and got `0x70000106` again.
+
+Observations:
+41. The result records stored by `0x142737E50` were one `{8 OnlineInternal, 0}`, then twice `{7 UbiServices, 0x106}`.
+    The job seen by `0x14250C8A0` holds state 2 (done), selector **7** at `+8` and code `0x106` at `+12`. That is
+    the same online service selector 7 that fails to connect in ACU-RE-0088.
+42. Two failing paths (frames from the RSP snapshots), each ending in `0x142514CD0` → `0x142514D60` → `0x1425712A0`:
+    - `0x142503F30`;
+    - `0x1424F0E10`.
+
+    Both are completion callbacks of an inner asynchronous request. Each reads that request's result record
+    (`sub_141D6E590`) and tests it for success (`sub_14275DF60`). On failure they pass the record up unchanged.
+    The popup then comes from `0x1425045A0` → `0x14275AA20` → the formatter.
+
+Inference: Public issues a real request through the Ubisoft service layer, selector 7. That service never
+connects with Ubisoft's servers gone (and has no backend at all under the custom loader). Its failure, `0x106`,
+ends the Public flow before the LAN matchmaker's start search. The gate is a backend boundary, not a local flag.
+Per the backend rule (B1) the request itself is only recorded, not decoded. No data-level bypass is apparent.
+The remaining route is calling the LAN matchmaker's slot 4 directly (LAN join plan, step 2).
+
 Unknowns / coverage:
 - Who sets the start-alone flag (statechart `+236`), and what the private-match host waits for before it
   launches (a joined peer, a host confirm, or both).
