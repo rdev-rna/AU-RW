@@ -63,7 +63,7 @@ chunks, then linear disassembly of `sub_1405D17F0` (StartIntention) and its net 
 
    | Case | Delivery | Record |
    |---|---|---|
-   | 1 | broadcast if state is 1, otherwise unicast to `ctx+0x1C` | kind 1 |
+   | 1 | message with the broadcast ID if state is 1, otherwise the unicast ID to `ctx+0x1C`. At flush, a replica (state 1) sends it to the master (ACU-RE-0082). | kind 1 |
    | 2 | broadcast | kind 2, flag = `ctx+0x18 ≠ 0` |
    | 3 | unicast to `ctx+0x1C` | kind 3, flag = `ctx+0x18 ≠ 0` |
 
@@ -89,7 +89,9 @@ chunks, then linear disassembly of `sub_1405D17F0` (StartIntention) and its net 
      into slots and picks broadcast or unicast.
   5. A `{kind, message, target}` record is queued for the intention's slot.
   6. A later flush (not traced) sends it through Storm.
-- **Case 1 suggests that a replica sends to its master and the master broadcasts.** With state 1 the
+- *(Corrected by ACU-RE-0082: state 1 is the replica. At flush, a kind-1 record goes to the master as
+  a replica message when the state is 1, and is otherwise a master unicast to the target.)*
+  **Case 1 suggests that a replica sends to its master and the master broadcasts.** With state 1 the
   message is broadcast; otherwise it is unicast to the context's target peer. Taken with the receive gate
   (ACU-RE-0080), state 1 is probably the master role. That is not established.
 - The per-message callbacks of ACU-RE-0080 observation 2 are therefore not the send hook. The send
@@ -98,7 +100,7 @@ chunks, then linear disassembly of `sub_1405D17F0` (StartIntention) and its net 
 ### Unknowns / incomplete coverage
 
 - Proof of the virtual `+0x80` → builder hop (inferred).
-- The flush: who reads the per-thread record table and calls the Storm send.
+- The flush: who reads the per-thread record table and calls the Storm send. Covered in ACU-RE-0082.
 - The meanings of the context fields `+0x11`, `+0x14` (mode), `+0x18` and `+0x1C`, and of the manager
   byte `+0x6C` and component state `+0x38`.
 - What the global path is for, as opposed to the object path.

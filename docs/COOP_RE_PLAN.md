@@ -209,8 +209,12 @@ pointless without them.
   StartIntention (91 of 94; 3 call send primitives). This corrects ACU-RE-0075's "resync".
 - **Status 2026-11-15 (intention send):** [ACU-RE-0081](findings/ACU-RE-0081-intention-send.md). StartIntention
   runs the intention locally, then (if asked to replicate) gets a message from the net dispatcher, which
-  is inferred to call the builder, and queues it per thread. Still open: the flush to Storm, and the
-  meanings of the mode, state and context fields.
+  is inferred to call the builder, and queues it per thread. Still open: the meanings of the mode and
+  context fields.
+- **Status 2026-11-15 (flush):** [ACU-RE-0082](findings/ACU-RE-0082-intention-flush.md). Batches per thread and
+  per manager go onto dirty lists, which the network tick flushes. Kind 1/2/3 records become replica
+  message, master broadcast, master unicast, or forward-to-all-but-target. State 1 = replica (this
+  corrects ACU-RE-0081). Intention replication is now traced from game action to Storm send.
 
 ### Phase 5 - Backend boundary register (runs alongside every phase)
 - `docs/coop/BACKEND_BOUNDARY.md`, one row per call that crosses into Ubisoft

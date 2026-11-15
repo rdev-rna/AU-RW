@@ -10,7 +10,7 @@ inferred (**I**).
 | | Rule | Evidence |
 |---|---|---|
 | R1 | Every replicated character has one **master** peer, which simulates it. The other peers hold **replicas**. Master role can be acquired, given away, or replaced when the master leaves (Storm `object::inEvent` master-role events). | O (names), I (behaviour) |
-| R2b | A gate in StartIntention (`sub_141C45720`) refuses when the net component's state is 1 and the start source is 2. This probably stops a replica from starting intentions from its own AI or input. | O (code), I (meaning) |
+| R2b | A gate in StartIntention (`sub_141C45720`) refuses when the net component's state is 1 (replica, ACU-RE-0082) and the start source is 2. This stops a replica from starting intentions from its own AI or input. | O (code), I (source 2 = local) |
 | R2 | A replica never changes authoritative state directly. It sends a request RFC to the master (`RFCSetMaster*`, `SendFightDamageEventToMaster`). | I (names) |
 | R3 | With no network handle, the same call runs locally. Single-player is the degenerate case of this design. | O (several send sites) |
 
@@ -22,6 +22,7 @@ inferred (**I**).
 | Intention RFC (`NetHumanIntention`, 94 messages) | High-level actions the replica re-enacts: navigate, follow, assassinate, fire, sheathe, cover, look-at. Each message is a snapshot-style object: header {u32 id, u8} plus typed slots with changed flags (ACU-RE-0079). | Broadcast or unicast per call | O (names, send path, layouts), I (re-enact) |
 | Owner RFCs | Discrete events per data type, such as `UpdatePlayerCoopHealing`, `SetIsKO_RFC` and `RespawnReplica` | Broadcast or unicast | O (names) |
 | Intention send | StartIntention starts the intention locally. If the context asks for replication (`ctx+0x11` and manager `+0x6C`), it asks the net dispatcher (virtual `+0x80`) for a message. That call is inferred to reach the per-message builder (ACU-RE-0079). The result is queued as a {kind, message, target} record: broadcast, or unicast to `ctx+0x1C` (ACU-RE-0081). | Broadcast or unicast by mode and state | O (chain), I (one virtual hop) |
+| Intention flush | Records are batched per thread and per manager. At the next network tick, the dirty managers are flushed: kind 1 goes to the master if this peer is a replica (state 1), otherwise as a master unicast; kind 2 is a master broadcast; kind 3 is forwarded to every peer except the target. These are inferred to be Storm's `object` MasterBroadcast, MasterUnicast and ReplicaMessage (ACU-RE-0082). | Once per tick | O (chain), I (Storm event names) |
 | Intention receive | One handler (`sub_1407269B0`) for all 94 messages. It dispatches by message type, decodes the slots, resolves entity handles to local entities, and calls StartIntention(id, params), so the replica runs the same intention locally (ACU-RE-0080). ACU-RE-0075's "resync" is this handler. | Per message | O |
 
 ## 3. Wire IDs (O)
