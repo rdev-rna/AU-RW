@@ -504,6 +504,27 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
       Not tested: both peers inside the radius (in census 1 both were about 45 m from Danton and the host kept him),
       the exact radius, whether the radius differs by entity type, and whether combat overrides it.
 
+20. **The hand-over needs two distances: claimer inside about 50 m, owner beyond an outer distance** (live,
+    `migrate2.jsonl`, `migrate3.jsonl`, same alarm bell; host entity `0x1395E0880` read after 3, 10–12 and 20–25 s):
+    - **Finer inbound steps, owner (host) at 88.8 m** (`migrate2`):
+      - joiner at 62.8, 58.56, 55.47 and 52.56 m: no claim;
+      - joiner at 49.83 m: claimed within 3 s. Readings at 47.5, 45.04 and 29.99 m stayed with the joiner.
+      - So the claim boundary is between 49.83 and 52.56 m.
+    - **Owner inside the radius** (`migrate3` A):
+      - host owner at 47.5 m, joiner moved to 29.99 m: no claim in 25 s;
+      - a nearer peer inside the radius does not take an entity from an owner that is also inside it.
+    - **Owner just outside the radius** (`migrate3` B):
+      - host owner at 55.48 m, joiner at 49.83 m: no claim in 25 s;
+      - when the host then moved to 88.83 m, the joiner claimed within 3 s.
+    - Inference:
+      - the hand-over has hysteresis, with two distances: a claim distance of about 50 m (between 49.83 and 52.56 m)
+        for the claimer, and a release distance for the owner between 55.48 and 88.8 m;
+      - Danton's move to the joiner (observation 18: owner at 59 m, joiner at 42 m) would put the release distance
+        between 55.48 and 59 m, if NPCs use the same distances as this bell;
+      - the earlier "owner outside the radius" wording in observation 19 is replaced by this rule.
+    - Run note: after this test the host game (pid 133468) was no longer running. The Application event log had no
+      ACU entry in the previous 4 hours, and the exit time and cause are unknown.
+
 ## Inferences
 
 - **NPC simulation sits with one machine at a time, and it was not the mission host.** The enemy's intentions flowed
@@ -548,8 +569,9 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
 
 ## Unknowns / incomplete coverage
 
-- the exact claim radius (between 45 and 58.6 m for one alarm bell, observation 19), its dependence on entity type,
-  the rule when both peers are inside it, and the unload distance (between 100 and 111 m here);
+- the exact claim distance (49.83–52.56 m) and release distance (55.48–88.8 m, or 55.48–59 m if Danton follows the
+  same rule) for one alarm bell (observation 20), whether they differ by entity type or in combat, and the unload
+  distance (100–111 m here);
 - why the mission coordinators (`COOP_RB050*`) were owned by the joiner rather than the session host;
 - whether the fight NPC's ownership (joiner 1 m away, host 5 m) was proximity: consistent with observation 18;
 - the HUD health asymmetry: replica health may be local-only, or the HUD may show each game's view of the partner;
