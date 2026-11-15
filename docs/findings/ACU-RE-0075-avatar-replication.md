@@ -114,8 +114,7 @@ Exact commands and search boundary: the atlas command is in ACU-RE-0072. The ID 
   type-keyed factory, so no direct caller exists. A live probe would settle it.
 - What the source fields mean, and the per-slot bit widths, which are set outside the codec. (The
   registry key is the wire ID `0xA92DBEA6`; see ACU-RE-0076.)
-- The fields of each intention payload. Only `AssassinateTarget` and `SetRiftWeaponAimingAngle` are
-  partly read.
+- The fields of each intention payload. Resolved for layout in ACU-RE-0079 (all 94); meanings are open.
 - Position and transform replication. No position fields appear in `HumanAvatar`. Resolved in
   ACU-RE-0076: position travels in the dead-reckoned `ProxiesProtocol` pool, not in
   `AnimComponentNetData`.

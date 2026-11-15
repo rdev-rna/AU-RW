@@ -1,7 +1,7 @@
 # #85 Co-op reverse engineering (area: coop)
 
 Branch `acu-85-coop-re-plan`. Plan: [../COOP_RE_PLAN.md](../COOP_RE_PLAN.md). Files: `docs/COOP_RE_PLAN.md`,
-`docs/areas/coop.md`, `docs/coop/BACKEND_BOUNDARY.md`, `docs/coop/AVATAR_SPEC.md`, `docs/findings/ACU-RE-0075-avatar-replication.md`, `docs/findings/ACU-RE-0076-position-replication.md`, `docs/findings/ACU-RE-0077-proxy-receiver.md`, `docs/findings/ACU-RE-0078-session-clock.md`, `docs/findings/ACU-RE-0073-session-transport-seam.md`, `tools/net_census.py`, `tools/net_protocol_atlas.py`,
+`docs/areas/coop.md`, `docs/coop/BACKEND_BOUNDARY.md`, `docs/coop/AVATAR_SPEC.md`, `docs/findings/ACU-RE-0075-avatar-replication.md`, `docs/findings/ACU-RE-0076-position-replication.md`, `docs/findings/ACU-RE-0077-proxy-receiver.md`, `docs/findings/ACU-RE-0078-session-clock.md`, `docs/findings/ACU-RE-0079-intention-payloads.md`, `tools/net_intention_payloads.py`, `tools/test_net_intention_payloads.py`, `docs/findings/ACU-RE-0073-session-transport-seam.md`, `tools/net_census.py`, `tools/net_protocol_atlas.py`,
 `tools/test_net_protocol_atlas.py`, `tools/net_title_survey.py`, `tools/test_net_title_survey.py`,
 `docs/findings/ACU-RE-0072-net-protocol-registry.md`, `docs/findings/ACU-RE-0074-target-title-net-stacks.md`.
 
@@ -65,6 +65,12 @@ The repo is public, so only the tool and the finding are committed. This overrid
 - [ACU-RE-0078](../findings/ACU-RE-0078-session-clock.md): the game clock family and its fallback latch,
   the Storm time module records, the per-session time record, slewing and monotonic reads, the
   host-origin ping protocol with its wire layout, and client averaging. No backend crossing.
+
+## Done (intention payloads, 2026-11-15)
+- [ACU-RE-0079](../findings/ACU-RE-0079-intention-payloads.md): the new tool `tools/net_intention_payloads.py`
+  (with 7 synthetic tests) extracts the layouts of all 94 intention messages (549 fields) from the
+  builder, written to `local/coop/intention_payloads.json`. IDA would not open (timed out twice), so this
+  was done offline with capstone.
 
 ## Not done / next
 - Phase 1 remainder: confirm the decoder, encoder and body roles by tracing the receive path from Storm to

@@ -201,6 +201,10 @@ pointless without them.
 - **Status 2026-11-15 (clock):** [ACU-RE-0078](findings/ACU-RE-0078-session-clock.md). The Storm session
   clock starts at 0 on the host. Clients ping it (100 ms, then 2 s), average `host + rtt/2` per 500 ms, and
   slew toward the result with monotonic reads. The path is peer-to-peer only, with no backend crossing.
+- **Status 2026-11-15 (intentions):** [ACU-RE-0079](findings/ACU-RE-0079-intention-payloads.md). Slot layouts of
+  all 94 `NetHumanIntention` messages come from the builder, using the new tool
+  `tools/net_intention_payloads.py` (output in `local/coop/`). Still open: field meanings, bit widths and
+  the receive path.
 
 ### Phase 5 - Backend boundary register (runs alongside every phase)
 - `docs/coop/BACKEND_BOUNDARY.md`, one row per call that crosses into Ubisoft

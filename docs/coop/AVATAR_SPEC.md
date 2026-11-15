@@ -18,7 +18,7 @@ inferred (**I**).
 | Channel | What | Delivery | Evidence |
 |---|---|---|---|
 | Snapshot (`NetObjectMemento`) | Continuous state such as `HumanAvatar`, `AnimComponentNetData`, `PlayerCharacterData` and `ZenHealthReplication` | Broadcast. Changed flags per field, applied only if the sequence number is not older. | O |
-| Intention RFC (`NetHumanIntention`, 94 messages) | High-level actions the replica re-enacts: navigate, follow, assassinate, fire, sheathe, cover, look-at | Broadcast or unicast per call | O (names, send path), I (re-enact) |
+| Intention RFC (`NetHumanIntention`, 94 messages) | High-level actions the replica re-enacts: navigate, follow, assassinate, fire, sheathe, cover, look-at. Each message is a snapshot-style object: header {u32 id, u8} plus typed slots with changed flags (ACU-RE-0079). | Broadcast or unicast per call | O (names, send path, layouts), I (re-enact) |
 | Owner RFCs | Discrete events per data type, such as `UpdatePlayerCoopHealing`, `SetIsKO_RFC` and `RespawnReplica` | Broadcast or unicast | O (names) |
 | Resync | Re-sends every active intention with its current parameters | Probably when a peer joins or the master changes | O (code), I (trigger) |
 
@@ -62,7 +62,9 @@ The per-field bit widths and the field meanings are still open (ACU-RE-0075 unkn
 ## 6. Open items for this spec
 - The owning entity class. Position is now covered in section 5 (ACU-RE-0076).
 - Whether the player avatar holds a proxy slot, and whether animation smooths proxy corrections.
-- The payload of each intention (2 of 94 partly read).
+- The meanings of intention fields. The layouts of all 94 are extracted (ACU-RE-0079,
+  `tools/net_intention_payloads.py`): a 2-slot header {u32 id, u8}, then typed slots (u32, u64, u8, bool,
+  f32, vec3, quantized vec3 ±4000 or f32 ±7, entity handle).
 - The bit widths. (The registry key is the wire ID `0xA92DBEA6`; see ACU-RE-0076.)
 - A live check: a one-instance single-player probe to name the owner and the heap singletons. A
   two-instance co-op capture only after a session can be started without the backend.
