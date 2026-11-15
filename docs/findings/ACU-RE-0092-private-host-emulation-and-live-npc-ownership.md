@@ -191,6 +191,15 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
       - **Replicated NPC life.** Four calls in the joiner came through the RFC path instead
         (`0x14022EC80` → `0x140B237E0` → `0x141B6BB70` → `0x14021D730` → `0x140B25550` → setter), each writing
         life 60 to a different object: the host sending its NPCs' authoritative life to the joiner's replicas.
+      - **Both directions, over 636 s:**
+        - the joiner applied 95 replicated life values to 79 objects;
+        - the host applied 78 to 73 objects. The host therefore also holds replicas whose master is the joiner.
+        - The values were mostly NPC maxima (15, 20, 30, 60, 100, 134). `0xFFFFFFFF` (−1) marks a dead entity.
+      - **Damage steps.** One replica in the joiner went 30 → 22 → 14 → 6 → −1, one RFC per step: its master
+        applying successive hits and pushing each result.
+      - Other life writers seen, not yet classified (possibly respawn and checkpoint reset):
+        - `0x140ECB240` ← `0x1427556F0` (state-machine action);
+        - `0x140EA22D0` and `0x14124BC30` ← `0x141212900`.
 
 12. **What `HumanReplica` changes** (static; `local/symbol_index.sqlite` method table plus corpus):
     - The destructor `0x140BF9E80` sets four vtables, so the class has extra bases:
