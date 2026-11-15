@@ -1,5 +1,16 @@
 # Project status
 
+Coat cloth (2026-11-15, [ACU-RE-0081](findings/ACU-RE-0081-cloth-softbody-resource.md)): the
+Tailored flap's motion comes from the `Cloth` soft-body resource, not from bones.
+- `acu_assets::cloth` decodes the resource prefix and LOD0's tagged simulation blob, with the native
+  record framing (`0x1423aee50`): 47 records, 587 particles in flap-mesh space, settings
+  `ClothSettings_Standard_Avatars`.
+- Class and field names come from reflection (`Cloth : SoftBody`, `MotionClothState`,
+  `MotionClothLOD`, `SoftBodySettings`, `SoftBodyVertexMapping`).
+- **No simulation yet.** The solver is absent from the corpus (only the 69 loaders are present),
+  and the viewer runs no substitute cloth.
+- Next: disassemble or trace the step function of the 824-byte body object (`0x1423f0bc0`).
+
 Lighting (2026-11-15, [ACU-RE-0073](findings/ACU-RE-0073-baked-gi-and-world-ambiance.md)): the
 arena now uses the native Paris `WorldAmbiance` settings. Default `--lighting paris-noon`;
 `synthetic` restores the old rig.
