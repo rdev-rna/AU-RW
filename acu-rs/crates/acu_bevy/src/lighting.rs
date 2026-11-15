@@ -4,9 +4,11 @@
 //! Native (decoded by `acu_assets::ambiance`, Paris entries 22301-22304):
 //! - camera exposure: `HDRLightingSettings` aperture / shutter / `ISO` -> EV100
 //!   (the field roles of aperture and shutter are INFERRED, `ISO` is a reflected name);
-//! - directional shadows: map size `+3356` (INFERRED) and the four per-cascade far
-//!   distances `+3396` (INFERRED). `PSSMShadowEndDistance` (128 m) is reported, not
-//!   applied: how it relates to the last stored cascade distance (72 m) is unknown.
+//! - directional shadows: map size `+3356` (INFERRED) and the four PSSM split distances
+//!   `+3396` (native consumer `0x1421F9030`; named by the user's HardShadowPatch plugin).
+//!   `PSSMShadowEndDistance` (128 m), the split blend regions `+3412` and the per-cascade
+//!   biases `+3380..` are reported, not applied: Bevy has one overlap proportion and one
+//!   depth bias per light, and ACU's bias units are not established.
 //!
 //! Still synthetic: sun direction, sun / sky illuminance and colour (the time-of-day
 //! manager computes them; not decoded), ambient fill (baked GI is not decoded: the GICP
@@ -76,11 +78,13 @@ pub fn report(native: Option<&Native>) -> serde_json::Value {
             "applied": {
                 "ev100": n.ambiance.hdr.ev100(),
                 "shadow_map_size": n.ambiance.shadow.value3356,
-                "cascade_bounds_m": n.ambiance.shadow.cascades3396,
+                "pssm_split_distances_m": n.ambiance.shadow.cascades3396,
             },
             "decoded_not_applied": {
                 "pssm_shadow_end_distance": n.ambiance.shadow.pssm_shadow_end_distance,
                 "pssm_split_weight": n.ambiance.shadow.pssm_split_weight,
+                "pssm_split_blend_regions_m": n.ambiance.shadow.cascades3412,
+                "pssm_cascade_biases": &n.ambiance.shadow.values3376[1..],
                 "hdr_value132": n.ambiance.hdr.value132,
                 "ssao": &n.ambiance.ssao,
             },

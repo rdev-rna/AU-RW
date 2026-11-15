@@ -159,6 +159,21 @@ No FH parser module was imported.
   - `+3396` = (5, 14, 38, 72);
   - bytes 1, 1;
   - `+3412` = (0.65, 1.3, 2.6, 5.2).
+- Native consumer of the shadow tail (mapped image `main-image.mapped.bin`, base 0x140000000,
+  capstone): `sub_1421F9030` (size 8787; corpus `ACU - Decompiled/1421F9030.c`) reads `+3356`,
+  `+3360`, `+3364`, `+3368`, `+3372`, `+3376`, `+3380..+3392`, `+3396..+3408`, `+3412..+3424` and
+  bytes `+3430..+3432` from one object (`rbx`). Same offsets as the WorldAmbiance loader writes.
+  - `0x1421F92EF..0x1421F9343` copies `+3396..` into a per-cascade local array.
+  - `0x1421F9A60..0x1421F9ACB` loads `+3412..+3424` into a 4-float local.
+  - `0x1421FA7BE..0x1421FA7F8` copies `+3380..+3392` into a per-cascade local; `0x1421FB192` reads it
+    per cascade.
+- The user's own plugin `ACUFixes/plugins/HardShadowPatch.dll` (SHA-256
+  `ba525fcd1cce5c7fe4e1f9465f43c4bc4ae3d66914bc16dc02c95541b095883f`; first-party, user-confirmed)
+  patches exactly these three sites. Its setting names are `AdjustablePSSMSplitDistance`
+  (`0x1421F9310`, 0x30 bytes), `AdjustablePSSMSplitBlendRegion` (`0x1421F9AB0`, 0x22) and
+  `AdjustablePSSMCascadeBias` (`0x1421FB192`, 0xC). Its default `SplitBlendRegion1..4` equal `+3412`.
+  Its `ShadowResolution` patches other objects (`0x1422D9985` `[rbp+0xDCC]` in `sub_1422D9320`;
+  `0x1421E409F` / `0x1421E41E2` `[rdi+0x128]`), not `+3356`.
 
 ### Inferences (labelled; not proven)
 
@@ -171,8 +186,11 @@ No FH parser module was imported.
   - Alternative readings (a min/range pair, or another basis) are not excluded.
 - HDR `+120` / `+124` are aperture (f/5.6) and reciprocal shutter (1/250 s), and `+136` is middle
   grey 18%. EV100 = log2(5.6² · 250 · 100/100) = 12.94.
-- Tail `+3356` is the shadow map resolution. `+3396` are per-cascade far distances (4 cascades).
-  `+3376..` are per-cascade depth biases.
+- Tail `+3356` is the shadow map resolution (still inferred; the plugin's resolution patch is elsewhere).
+- Strongly supported by the native consumer and the plugin names: `+3396` = PSSM split distances,
+  `+3412` = split blend regions, `+3380..+3392` = per-cascade depth biases. That `rbx` in
+  `sub_1421F9030` is the WorldAmbiance instance (not a copy with the same layout) is inferred.
+  `+3376` (2) is unknown.
 
 ### Unknowns
 

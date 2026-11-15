@@ -106,13 +106,19 @@ pub struct ShadowTail {
     pub value3368: f32,
     pub pssm_shadow_noise_size: f32,
     /// `+3376..+3392` (hashes `B4BA625D`, `D0CB609E`, `976B1A4E`, `AA0B33FE`, `182BEFEE`).
+    /// `+3380..+3392` are the per-cascade depth biases: the shadow setup `0x1421F9030`
+    /// copies them to a per-cascade array that HardShadowPatch's `CascadeBias` replaces
+    /// (ACU-RE-0073). `+3376` (2 in Paris) is stored separately; its role is unknown.
     pub values3376: [f32; 5],
     pub byte3430: u8,
-    /// `+3396`: four f32, INFERRED per-cascade far distances (5, 14, 38, 72 m in Paris).
+    /// `+3396`: four f32, the PSSM split distances (5, 14, 38, 72 m in Paris). The shadow
+    /// setup `0x1421F9030` copies them per cascade; HardShadowPatch's `SplitDistance1..4`
+    /// replaces that copy (ACU-RE-0073).
     pub cascades3396: [f32; 4],
     pub byte3431: u8,
     pub byte3432: u8,
-    /// `+3412`: four f32, unknown per-cascade values.
+    /// `+3412`: four f32, the PSSM split blend regions (0.65, 1.3, 2.6, 5.2): read by
+    /// `0x1421F9030` and replaced by HardShadowPatch's `SplitBlendRegion1..4` (ACU-RE-0073).
     pub cascades3412: [f32; 4],
 }
 
