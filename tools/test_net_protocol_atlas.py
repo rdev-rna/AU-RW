@@ -41,6 +41,18 @@ class CrcTests(unittest.TestCase):
         self.assertEqual(atlas.crc(s + "_UNICAST"), 0x0BD55A54)
 
 
+class WireIdTests(unittest.TestCase):
+    def test_static_message_matches_registrar_keys(self):
+        # ACU-RE-0072 registrar keys for the JIPFailed message.
+        self.assertEqual(atlas.wire_ids("NetFightJIPManager_RFC_JIPFailedMSG_NetProtocol"),
+                         (0xB29E970A, 0x0BD55A54))
+
+    def test_object_scoped_message_matches_encoder_constants(self):
+        # ACU-RE-0075: constants written by the NetHumanIntention encoder at 0x140721F7A/0x140721F83.
+        self.assertEqual(atlas.wire_ids("NetHumanIntention_AssassinateTargetMSG_NetProtocol"),
+                         (0xDC303C6B, 0x572CC457))
+
+
 class ImageTests(unittest.TestCase):
     def test_rejects_non_pe(self):
         with self.assertRaises(ValueError):

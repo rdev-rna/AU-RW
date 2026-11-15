@@ -187,6 +187,11 @@ pointless without them.
 7. **Join in progress**: the JIP snapshot path across fight, Domino and mission.
 - Deliverable per subsystem: the messages used, who has authority, the trigger, the
   payload fields (where recoverable), and engine dependencies.
+- **Status 2026-11-15 (player avatar, first pass):** [ACU-RE-0075](findings/ACU-RE-0075-avatar-replication.md)
+  and [coop/AVATAR_SPEC.md](coop/AVATAR_SPEC.md). Every wire ID is
+  `CRC-32("zenitar_"+type+"_ID")`, verified for 963 of 963 RFC types. The `HumanAvatar` snapshot codec is
+  read field by field. The model is "master simulates, replicas re-enact intentions". Still open: the
+  owner class, the field meanings and position replication.
 
 ### Phase 5 - Backend boundary register (runs alongside every phase)
 - `docs/coop/BACKEND_BOUNDARY.md`, one row per call that crosses into Ubisoft

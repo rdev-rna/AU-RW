@@ -149,6 +149,35 @@ def type_records(img: Image, strs: dict[int, str], names_by_crc: dict[int, str])
     return recs
 
 
+ID_BASES = ("NetObjectRemoteFunctionCall", "NetObjectMemento")
+
+
+def wire_ids(type_name: str) -> tuple[int, int]:
+    """ACU-RE-0075: wire ID = CRC-32("zenitar_" + type name + "_ID"), unicast adds "_UNICAST"."""
+    s = f"zenitar_{type_name}_ID"
+    return crc(s), crc(s + "_UNICAST")
+
+
+def add_wire_ids(img: Image, recs: list[dict]) -> dict:
+    """Attach computed IDs to RFC and memento records and check each appears as a .text constant."""
+    lo, hi = img.sec(".text")
+    text = bytes(img.b[lo - IMAGE_BASE:hi - IMAGE_BASE])
+    stats = collections.Counter()
+    for r in recs:
+        base = next((b for b in ID_BASES if b in r["ancestors"][:-1]), None)
+        if base is None or r["name"].startswith("FactoryEntry"):
+            continue
+        bc, uc = wire_ids(r["name"])
+        seen_b = text.find(struct.pack("<I", bc)) >= 0
+        seen_u = text.find(struct.pack("<I", uc)) >= 0
+        r["wire_id"] = {"broadcast": f"{bc:08X}", "unicast": f"{uc:08X}",
+                        "broadcast_in_text": seen_b, "unicast_in_text": seen_u}
+        stats[f"{base}:total"] += 1
+        stats[f"{base}:broadcast_in_text"] += seen_b
+        stats[f"{base}:both_in_text"] += seen_b and seen_u
+    return dict(sorted(stats.items()))
+
+
 def static_rfcs(img: Image, zen_by_crc: dict[int, tuple[str, str]]) -> list[dict]:
     head = img.q(REGISTRAR_LISTS + 8 * REGISTRAR_CATEGORY)
     nodes, seen = [], set()
@@ -246,6 +275,7 @@ def main(argv: list[str] | None = None) -> int:
         zen_by_crc[crc(s + "_UNICAST")] = (s, "unicast")
 
     recs = type_records(img, strs, names_by_crc)
+    id_stats = add_wire_ids(img, recs)
     rfcs = static_rfcs(img, zen_by_crc)
     objs = object_ids(img, strs)
     roots = collections.Counter(r["ancestors"][0] for r in recs)
@@ -269,6 +299,7 @@ def main(argv: list[str] | None = None) -> int:
             "object_message_literals": objs["message_literals"],
             "object_message_literals_referenced": objs["message_literals_referenced"],
             "object_channel_literals": objs["channel_literals"],
+            "wire_ids": id_stats,
         },
         "static_rfcs": rfcs,
         "type_records": recs,

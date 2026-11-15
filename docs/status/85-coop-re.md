@@ -1,7 +1,7 @@
 # #85 Co-op reverse engineering (area: coop)
 
 Branch `acu-85-coop-re-plan`. Plan: [../COOP_RE_PLAN.md](../COOP_RE_PLAN.md). Files: `docs/COOP_RE_PLAN.md`,
-`docs/areas/coop.md`, `docs/coop/BACKEND_BOUNDARY.md`, `docs/findings/ACU-RE-0073-session-transport-seam.md`, `tools/net_census.py`, `tools/net_protocol_atlas.py`,
+`docs/areas/coop.md`, `docs/coop/BACKEND_BOUNDARY.md`, `docs/coop/AVATAR_SPEC.md`, `docs/findings/ACU-RE-0075-avatar-replication.md`, `docs/findings/ACU-RE-0073-session-transport-seam.md`, `tools/net_census.py`, `tools/net_protocol_atlas.py`,
 `tools/test_net_protocol_atlas.py`, `tools/net_title_survey.py`, `tools/test_net_title_survey.py`,
 `docs/findings/ACU-RE-0072-net-protocol-registry.md`, `docs/findings/ACU-RE-0074-target-title-net-stacks.md`.
 
@@ -40,8 +40,18 @@ The repo is public, so only the tool and the finding are committed. This overrid
   Only ACU has Storm/Echo or NetProtocol. Black Flag multiplayer has HackNetZ. No campaign executable has
   a replication framework, so porting uses option C.
 
+## Done (Phase 3/4 avatar, 2026-11-15)
+- [ACU-RE-0075](../findings/ACU-RE-0075-avatar-replication.md) and [../coop/AVATAR_SPEC.md](../coop/AVATAR_SPEC.md).
+  - The universal wire-ID rule is verified for 963 of 963 RFC types; the atlas now emits every ID, with
+    2 new tests.
+  - The `HumanAvatar` snapshot codec is read: 5 raw fields, 8 quantized floats, sequence-gated apply.
+  - The 94 `NetHumanIntention` messages are classified, and a resync function was found.
+- This resolves the Phase 1 open item: the object-scoped prefix is `zenitar_<Owner>_`.
+- The solo live probe was deferred: other linked sessions are active, and lock #30 has a stale ACQUIRE
+  with no release.
+
 ## Not done / next
 - Phase 1 remainder: confirm the decoder, encoder and body roles by tracing the receive path from Storm to
-  the decoder. Recover the vf0 prefix strings so object-scoped IDs can be computed offline.
+  the decoder. (The vf0 prefix question is resolved by ACU-RE-0075.)
 - Phase 2 remainder: who posts `lan::inEvent::*`, whether tickets are backend-signed, the mapping from
   Storm callbacks to `NetSessionController` slots. A live capture (Phase 7) would name the heap singletons.
