@@ -8,7 +8,9 @@ Climate), [ACU-RE-0060](ACU-RE-0060-reflection-symbol-index.md) (reflection symb
 method).
 State: partially established.
 - The GI containers are observed: they decode to their exact end.
-- The GI irradiance values are NOT decoded, because the CPU codec for the GICP blobs is unknown.
+- The GICP codec is observed and implemented (`acu_assets::gicp`): an octree-delta byte codec, found
+  through a live staging-upload hook. All 192 blobs of a Paris datablock decode to their exact end.
+  The `GIDecodeYCbCr` combination into RGB SH texels is implemented from its DXBC.
 - WorldAmbiance is partially decoded (forward prefix plus fixed tail). The Bevy scene applies the
   exposure and shadow settings; the sun, sky and fill are still synthetic.
 
@@ -128,14 +130,46 @@ No FH parser module was imported.
   - 4 `GIData` per result.
   - Every GICP blob starts `GICP`, u16 1, u16, then u32 dims (16³; the 4th blob is sometimes 32³).
   - The GIData `+100` is 32. `+96` is 7 or 15.
-- The GICP body is sparse records (8 bytes plus a u32 index) followed by a high-entropy region.
-  Header words `+20..+28` look like stale pointer halves.
-- No CPU routine for GICP was found:
-  - The immediate `GICP` does not occur in the image's code. Its one byte match is reflection data.
-  - A full `grep -rlE "0x50434947|1346587975|GICP"` and `grep -rlF "'PCIG'"` over all 217,041
-    corpus files (44 min) returned no file.
-  - The xrefs to the GIData descriptor are only loaders and the type-registration table
-    `0x14223CD60`.
+- Static search did not find the codec: the magic is compared through memory, not as an
+  immediate. The one byte match `0x144FB3C5C` is `dword_144FB3C5C`, the constant
+  `sub_1421C4040` compares against (it sits in a hash/name table).
+- **Live route to the codec** (2026-11-15, ACU pid 126620 in Paris, native probe hardware hooks on
+  system `d3d11.dll` SHA-256 `2359b84d...2539`; RVAs from a local hardware device:
+  `CreateTexture3D` `0xE0E70`, `Map` `0x12C360`, `Unmap` `0x12C5F0`, `CopySubresourceRegion`
+  `0x12F3A0`; traces `local/lighting/live/upload-2.jsonl`, `staging-1.jsonl`):
+  - `CreateTexture3D` never fired (pool built at load). `UpdateSubresource` only uploads buffers.
+  - `Map` / `Unmap` go through one lock wrapper `sub_1422F0E60` / `sub_1422F1150`. Its staging branch
+    (`sub_1422F0E00`, `Map` WRITE, then `CopySubresourceRegion`) ran during teleports into the GI
+    domain. A hook at `0x1422F1067` with a 256-byte snapshot at `[rsp+0x78]` returned 2,985 times to
+    `0x1421DB931` (`sub_1421DB8C0`, which maps 16 textures), called from `sub_1421E59F0` and
+    `sub_1421DB500` (cell streaming, atlas slot `x = i % +684`, `y = i / +684`).
+- The decode chain (corpus pseudocode, re-derived):
+  - `sub_1421DB500` schedules a job `sub_1421B0490` -> `sub_1421CB1F0` -> `sub_1421C5890(pool, ctx, slot)`.
+  - `sub_1421C5890` calls `sub_1421C3D20` per 112-byte GIData. With the pool's compressed flag
+    (`+900`) and `GIData +104 == 0` it uses `sub_1421C4310` when `+106` is set (each of the four
+    blobs -> one 8-bit channel; GIData `k` blob `j` -> mapped texture `4k + j`), else
+    `sub_1421C44F0` (blob 0 -> four interleaved channels). It copies GIData `+0` to `+768 + 16k`
+    and `+16` to `+832 + 16k`, then copies (`sub_1428F5900`) the decoded bytes into the mapped
+    textures.
+  - `sub_1421C4040` (core): `GICP` magic; edge `+8`; per-channel offset byte `+20`; root sample
+    `+24`; literal count `+28`; literals at `+32` (u32 node number + 8 corner bytes); then a u32
+    bitstream byte count and the bitstream (read MSB-first in byte-swapped 64-bit words).
+  - `sub_1421E6220`: pre-order octree. Each node takes the next node number. A matching literal
+    writes its 8 corner bytes. Otherwise read 3 bits `w`; if `w > 0`, 3 bits min-corner index `m`
+    and 7 values of `w` bits; insert 0 at `m`; corners 1..7 = `corner0 - d[0] + d[k]` (bytes,
+    wrapping). Corner order (x, y, z) = 000, 100, 010, 110, 001, 101, 011, 111. Nodes larger than
+    2 recurse into 8 children in the same order. The node counter runs on across channels.
+  - `sub_1421E6070`: slice z = 0 gets `+= offset + 0x80`; each later slice `+= previous + 0x80`.
+    `sub_1421E61B0` interleaves four channels.
+- Exact end on real data: in `GIDB_Cell18068_LOD1_sid_7f5f1bc0b` all 192 blobs consume every
+  literal, `ceil(bits / 8)` equals the stored byte count, and exactly 8 padding bytes follow. All
+  GIData there have `+104` 0, `+105` 1, `+106` 1 (YCbCr path).
+- `GIDecodeYCbCr` (`0x1433200B0`) data flow, from the DXBC: textures `t0..t15` are the 16 inputs.
+  For GIData `k`: `a = t(4k)*S.x + B.x`, `b = t(4k+1)*S.y + B.y`, `c = t(4k+2)*S.z + B.z`,
+  `w = |t(4k+3)|^2.2 * S.w + B.w` with `S = cb5[3+k]`, `B = cb5[7+k]`. `m = |w0|`. Coefficient
+  `j < 3` has (Y, Cb, Cr) = `m * (comp_j of GIData 0, 1, 2)`; coefficient 3 has (`w0`, `m*w1`,
+  `m*w2`). BT.601 rows give R, G, B, stored to `u0`, `u1`, `u2` (one texel = four coefficients).
+  `u3 = (a3, b3, c3)*|w3|, w3`.
 - `0x14331D630` (4 inputs `t0/t4/t8/t12`, `cb_g_DecodeConstants` = `InputScale`, `InputBias`,
   `WriteOffset`, `Scale[4]`, `Bias[4]`) does the following:
   - samples each input with `sample_l` at a half-texel-corrected coordinate;
@@ -179,11 +213,15 @@ No FH parser module was imported.
 
 - GILoader `+16` / `+32` are the world-space minimum and size of the GI domain (Paris:
   x −960..608, y −864..512, z −112..16). Tree `min` / `size` are cell corners.
-- The four GIData of a result are SH components (one plausible reading: L0 then three L1 axes). The
-  four blobs are colour channels plus an extra channel, possibly in YCbCr, given the shader. The
-  GIData `+0` / `+16` vectors feed the shader's `Scale` / `Bias`.
-  - Evidence: GIData 3 has `+0.w + +16.w = 1.0` (0.7109 + 0.2891). Its x and y are sign-symmetric.
-  - Alternative readings (a min/range pair, or another basis) are not excluded.
+- GIData 0..2 are the Y, Cb, Cr planes of an L1 SH: coefficients 0..2 are the three L1 axes
+  (stored relative to `|L0|`), coefficient 3 is L0 (its blob is the sometimes-32^3 one). The
+  forward evaluation is assumed to be `dot(xyz, n) + w` per colour, as in For Honor's SH planes;
+  the ACU forward shader was not read. GIData 3 (`u3`) is another L1 quantity (sky visibility is
+  one reading). Evidence: in the reference texel L0 is positive and warm and `|L1| < L0`.
+- GIData `+0` / `+16` are the shader's `Scale` / `Bias` (`cb5[3..6]` / `cb5[7..10]`): copied into
+  two consecutive 4 x vec4 blocks; the constant-buffer binding was not observed.
+- The output sample position uses `cb5[0] = 1/(n-1)` (not observed); the implementation resamples
+  every input to a 16^3 grid.
 - HDR `+120` / `+124` are aperture (f/5.6) and reciprocal shutter (1/250 s), and `+136` is middle
   grey 18%. EV100 = log2(5.6² · 250 · 100/100) = 12.94.
 - Tail `+3356` is the shadow map resolution (still inferred; the plugin's resolution patch is elsewhere).
@@ -194,14 +232,10 @@ No FH parser module was imported.
 
 ### Unknowns
 
-- **The GICP codec.** No CPU decoder was found yet. Next leads:
-  - consumers of `GIData +32..+88`;
-  - the code that binds `t_g_GIDecodeInput*`;
-  - a live hook on the 3D-texture upload (authorized in AGENTS.md).
-
-  Until the codec is known, no ACU irradiance can be rendered.
-- Which shader variant each GIData uses (`+96`, `+104..+106` flags?), and the cell → world-volume
-  indirection.
+- The forward GI evaluation and the cell -> world-volume indirection (`g_WorldGIIndirection`),
+  hence the voxel axis order inside a cell and the irradiance scale relative to exposure.
+- `GIData +96` (7 / 15), `+105`; the RGB (`sub_1421C44F0`) path is implemented only as the
+  decoder's channel count (Paris data does not exercise it).
 - Sun direction and intensity (the time-of-day manager), the `LayeredSky` layout, the 24 later post
   effects, `Wind` and `WorldFog`. HDR `+132` and the curve are also unknown.
 - How `PSSMShadowEndDistance` (128) relates to the last cascade distance (72).
@@ -217,12 +251,16 @@ No FH parser module was imported.
   `payload_sha256`.
 - Truncation, trailing bytes, wrong type ids, unsupported tags, bad GICP magic and length overrun
   all fail.
+- GICP: the Python prototype (`local/lighting/gicp.py`, `gicp_ref.py`) is a separate
+  implementation. The Rust install test pins its SHA-256 of two decoded volumes and one combined
+  texel (12, 0, 15). Synthetic unit tests use an independent test encoder and check delta,
+  literal, flat-node, padding, unused-stream and unused-literal cases.
 
 ### Reproduction
 
 ```powershell
 cd acu-rs
-cargo test --locked -p acu_assets --lib -- gi:: ambiance::
+cargo test --locked -p acu_assets --lib -- gi:: gicp:: ambiance::
 $env:ACU_GAME_DIR = 'D:/Games/Assassin''s Creed Unity'
 cargo test --locked -p acu_assets --test gi -- --ignored
 cd ..
@@ -233,6 +271,8 @@ powershell -File tools/run_arno.ps1 -Capture outputs/lighting/arno-paris-noon.pn
 
 - `acu_assets::gi`: `decode_loader` and `decode_datablock`. GICP blobs are kept as bytes, with
   their dims.
+- `acu_assets::gicp`: `decode(blob, channels)` (exact-end checked) and `combine_ycbcr` (one
+  `GIDecodeYCbCr` texel).
 - `acu_assets::ambiance::decode`: the SSAO / HDR prefix and the shadow tail. `HdrLighting::ev100`
   computes EV100.
 - `acu_bevy::lighting`, selected by `--lighting synthetic|paris-dawn|paris-noon|paris-sunset|paris-night`

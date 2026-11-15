@@ -1,7 +1,7 @@
 //! Install-dependent GI / ambiance checks (ACU-RE-0073). Missing data is reported as
 //! unavailable, never as success.
 
-use acu_assets::{Limits, Result, ambiance, forge::Forge, gi, package, sha256};
+use acu_assets::{Limits, Result, ambiance, forge::Forge, gi, gicp, package, sha256};
 use std::path::{Path, PathBuf};
 
 fn game_dir() -> Result<PathBuf> {
@@ -160,6 +160,62 @@ fn installed_paris_world_ambiance_decodes() -> Result<()> {
         assert_eq!(w.shadow.pssm_split_weight, 0.9);
         assert_eq!(w.shadow.pssm_shadow_noise_size, 3.0);
         assert_eq!(w.shadow.cascades3396, [5.0, 14.0, 38.0, 72.0]);
+    }
+    Ok(())
+}
+
+/// Every GICP blob of the Noon datablock decodes to its exact end (YCbCr path: one channel per
+/// blob, `GIData +106` = 1). Expected values come from the independent Python prototype
+/// (`local/lighting/gicp.py`, `gicp_ref.py`).
+#[test]
+#[ignore = "requires ACU_GAME_DIR; DataPC_ACU_Paris_gi.forge entry 3338"]
+fn installed_paris_gicp_blobs_decode() -> Result<()> {
+    let archive = game_dir()?.join("DataPC_ACU_Paris_gi.forge");
+    let d = gi::decode_datablock(&payload(&archive, 3338, "0000001758716bd6")?)?;
+    let mut blobs = 0;
+    for r in &d.results {
+        for g in &r.data {
+            assert_eq!(g.byte106, 1);
+            for b in &g.blobs {
+                gicp::decode(b, 1)?;
+                blobs += 1;
+            }
+        }
+    }
+    assert_eq!(blobs, 192);
+    let first = &d.results[0];
+    let vols: [[gicp::Volume; 4]; 4] = std::array::from_fn(|k| {
+        std::array::from_fn(|j| gicp::decode(&first.data[k].blobs[j], 1).expect("decoded above"))
+    });
+    assert_eq!(
+        sha256(&vols[0][0].values),
+        "47126639316426e11fce59684fac7099ebab6b08e8b467ab2630c6c15a8f4ce2"
+    );
+    assert_eq!(vols[0][3].dim, 32);
+    assert_eq!(
+        sha256(&vols[0][3].values),
+        "3f524085e00c41e41eff53cf760ddd2b6c49678bc52ad19ecbb64186059ef1c3"
+    );
+    let scale: [[f32; 4]; 4] = std::array::from_fn(|k| first.data[k].vector0);
+    let bias: [[f32; 4]; 4] = std::array::from_fn(|k| first.data[k].vector16);
+    let t = gicp::combine_ycbcr(&vols, &scale, &bias, [12, 0, 15], 16);
+    let expect_rgb = [
+        [0.021582, -0.033562, -0.003078, 0.053139],
+        [0.015557, -0.024171, -0.002178, 0.038788],
+        [0.008905, -0.013619, -0.001069, 0.021989],
+    ];
+    for c in 0..3 {
+        for j in 0..4 {
+            assert!(
+                (t.rgb[c][j] - expect_rgb[c][j]).abs() < 2e-6,
+                "{c} {j}: {}",
+                t.rgb[c][j]
+            );
+        }
+    }
+    let expect_extra = [-0.014389, -0.075172, 0.098561, 0.333344];
+    for j in 0..4 {
+        assert!((t.extra[j] - expect_extra[j]).abs() < 2e-6, "extra {j}");
     }
     Ok(())
 }
