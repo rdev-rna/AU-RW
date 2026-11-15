@@ -336,6 +336,46 @@ check, or from the unpacker re-touching those pages; the cause is not establishe
 a data-level change instead: the config object's `+8`/`+412`/`+416` after construction and before the
 sockets are bound. That object's address and timing are not yet known.
 
+## Live run 5 — opening the hidden `LanSessionsPage` (2026-11-16)
+
+Host only (PID 130944, LAN mode, free roam).
+
+Static observations:
+31. Menu pages are opened by `sub_1407EAB20(menu, page_id, flag)` on `*(qword_1451EACE8 + 48)`. It calls
+    `sub_140801C10(page_id)`, which resolves the id through the page registry `qword_14521E120`
+    (`sub_14088CF40`). Each registry entry's page object reports its class info through vf5. The compared
+    value is `classinfo + 36`, read by `sub_1426F3D40`. The pause/main menu handler `0x1408B5C70` passes
+    ids as immediates in a switch. `PushPageOperator::vf19` (`0x141486B30`) passes `operator + 248`.
+
+Live observations:
+32. Hooking the push routine and the lookup while the user opened menu pages
+    (`lan-page-20261116/pagehook.jsonl` `f27620e1…`) captured these ids:
+    `0x92601886`, `0xCD70751B`, `0x41E34E2E`, `0x0187908F`, `0x88F14FA9`, `0xDE9BFE2F` and `0xED260607`.
+    Reading `classinfo + 36` of the page classes in the live game matched each one to a class:
+    | id | class |
+    |---|---|
+    | `0x92601886` | `HomePage` |
+    | `0xCD70751B` | `BrotherhoodPage` |
+    | `0x41E34E2E` | `QuestLogPage` |
+    | `0x0187908F` | `CharacterPage` |
+    | `0x88F14FA9` | `SkillPage` |
+    | `0xDE9BFE2F` | `OptionsPage` |
+    | `0xED260607` | `MsgBoxPage` |
+
+    So **a page id is the page class CRC**, the symbol index's `crc_own`. For `LanSessionsPage` it is
+    `0xA886AF69`; for `PlayTogetherPage` it is `0x0810D9C6`.
+33. The probe hooked the lookup and set a conditional RCX `REDIRECT` from `0xCD70751B` (Brotherhood) to
+    `0xA886AF69`, active only for return address `0x1407EAB58`. It ran alongside the LAN getter hooks
+    (`lanpage.jsonl` `a1186f3f…`). When the user opened Brotherhood, the redirect fired
+    (`rcx_after` = `0xA886AF69`). The screen showed only the menu background and the currency bar, with
+    no page content (user screenshot `screens/lanpage-user.webp` `1c75dda6…`). The LAN getters got 0
+    hits. The redirect and hooks were removed afterwards, and no game memory was written.
+
+Inference: `LanSessionsPage` is registered and opens, but it is an empty shell. It neither draws content
+nor starts LAN discovery, which matches ACU-RE-0087's finding that it has no code of its own. It is not
+an in-game way to find a LAN lobby. Storm's LAN discovery has not run in any test, so a join needs it
+called directly, or the invite path driven.
+
 Unknowns / coverage:
 - Who sets the start-alone flag (statechart `+236`), and what the private-match host waits for before it
   launches (a joined peer, a host confirm, or both).
