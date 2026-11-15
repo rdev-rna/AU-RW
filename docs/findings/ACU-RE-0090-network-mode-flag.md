@@ -746,10 +746,12 @@ Live (both games as in runs 10–12; offline LAN mode; scratchpad `lanjoin2.py` 
     of size 2 in both games after the join. These were not read before the join, so they are not yet evidence
     of membership.
 
-Inference: game 1's free-roam game session joined game 2's. The id was taken over, the clock was synced and
-game traffic is flowing. This is the LAN route the UI never offers: discovery (slot 4 via `CALLAT`), then
+76. Visual check (user, same session, after run 13): **each game shows the other player.** The user reported
+    seeing them after looking at both game windows. No screenshot was kept.
+
+Inference: game 1's free-roam game session joined game 2's. The id was taken over, the clock was synced,
+game traffic is flowing and the players see each other (observation 76). This is the LAN route the UI never offers: discovery (slot 4 via `CALLAT`), then
 `JoinSession` with the stored record. Not established:
-- whether game 2's player is visible in game 1, or the reverse (no visual check yet);
 - whether game 2's statechart or UI noticed the join;
 - whether mission launch works.
 
