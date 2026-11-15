@@ -239,6 +239,48 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
       damage event. A forwarded hit (observation 9) is expected to arrive here too. The link from the rebuilt
       intention to this handler was not traced.
 
+14. **Each intention message has an execute callback, and only the master runs it** (static, then live):
+    - The registration function for NetHumanIntention messages, `0x140746EF0` (corpus line 1804), registers three
+      functions for `SendFightDamageEventToMaster`:
+      - the receive handler `0x1407269B0`;
+      - the send builder `0x14071F090`;
+      - an execute callback `sub_140734650`, registered with `sub_1405FBC70`.
+
+      NetBehaviorAI does the same in `0x140738E30` (line 2752), with `sub_1406D3F30` registered by `sub_1405F8310`.
+    - Both callbacks are master guards. They read the victim (`a3`) and continue only if `victim+212 & 0xC0000` is
+      `0x40000` (local master):
+      - NHI `0x140734650` → `sub_1407346F0`;
+      - NBAI `0x1406D3F30` → `sub_1406D3FA0`.
+    - Both executors do the same thing:
+      1. take a `FightDamageEvent` from the pool (`sub_140BC7BE0`);
+      2. fill it from the intention with `sub_140BDE710(event, a2+64, attacker, victim, a2+84, a2+125, a2+80)`;
+      3. copy `+92` → event `+20`, `+96` → event `+28`, `+104` → event `+368`, and the flags `+126`/`+127` →
+         event `+40` bits `0x20`/`0x1`;
+      4. NHI only, when the victim is an AI master: `+120` → event `+16`;
+      5. post the event to the victim with `sub_141E2E640(event, victim)`. That function picks the victim's event
+         target and calls `sub_1420F5B40`. NHI with `a4` ≠ 0 uses `sub_141E2E7A0` instead, which takes an extra
+         argument.
+    - The event reaches the health handler `0x140EBBFD0` through the entity event dispatcher `0x1420F3200`. That
+      dispatcher binary-searches the handler table at `a1+16` (count u16 at `a1+26`, 16-byte entries `{u32 type, ptr}`)
+      using the type id at `+36` of the event's type record.
+    - Three paths reach the damage apply:
+      - the NBAI sender `sub_1406D40D0` (line 54) calls `sub_1406D3FA0` directly after starting the intention when the
+        victim is local master;
+      - the hit routine's "direct" branch `sub_140FDEEC0`, the only caller of which is `0x140576270`, appends
+        `{event, handle}` to a pending array on the victim's component; it does not post the event;
+      - in every other case the event goes out as an intention.
+    - Live (`damagewatch9`, `damage9.jsonl`), with hooks on both executors and both shared send points:
+      - Twice in the joiner, an NPC simulated by the joiner hit the joiner's own player.
+      - Each time, the NHI executor ran (return `0x1407346D2`, inside the guard). Its intention held `+84` = 7,
+        `+92` = 11, `+120` = 8 and `+125`/`+126` = 1, with `+80` = 0 the first time and 30 the second.
+      - In the same poll and on the same thread (tids 111372 and 130688), the NHI `SendFightDamageEventToMaster` block
+        ran with `r12b` = 0. That branch loads `0x6527A678`, the message's *broadcast* wire id. Its caller chain was
+        builder ← `0x141C4718D` ← `0x1405695C7` ← `0x141C664D4` ← `0x1405695C7` ← starter `0x1405DA9E0`.
+      - The executors never ran in the host, and the host sent nothing.
+    - So a hit on a game's own avatar is applied by that game and then broadcast under the same message name, with no
+      unicast. A replica's guard fails, so the broadcast copy cannot apply damage a second time. Health then reaches
+      the other game through `RFCSetMasterLife` (observation 11).
+
 ## Inferences
 
 - **NPC simulation sits with one machine at a time, and it was not the mission host.** The enemy's intentions flowed
@@ -265,8 +307,10 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
   5. replicas receive it through `ZenHealthReplication_RFCSetMasterLife`, and their getter reads the replicated
      value.
 
-  Step 3's write was caught live for a host-local hit. For a forwarded hit, the hand-over from the received
-  intention to the handler was not traced.
+  Step 3 runs as a master-gated execute callback. The callback rebuilds a `FightDamageEvent` and posts it to the
+  victim's event dispatcher (observation 14). It was caught live for local hits. A forwarded hit (unicast
+  `0xEDA483AB` → receive handler → `sub_1405DA9E0` → execute) is the same path statically, but has not been
+  caught live.
 - **The request lane exists and runs (observation 7).** In the spy fight, the joiner, which simulated the attacking
   spies, sent `SendFightDamageEventToMaster` while the host's player was being hurt. One hit, with no caller
   captured, so this is consistent with the prediction but does not prove it. The master rebuilds the event as an
@@ -284,8 +328,11 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
 - whether ownership was the joiner's because of proximity or for another reason (the host was 5 m away, the joiner 1 m);
 - the HUD health asymmetry: replica health may be local-only, or the HUD may show each game's view of the partner;
 - the meaning of each field of the shared damage record (`+0x30`, `+0x80`…`+0x90`, `+0xa8`…`+0xaf`, `+0xc8`);
-- the link from a received `SendFightDamageEventToMaster` intention to the damage handler `0x140EBBFD0`, and what
-  the `victim+136` bit `0x40000000000000` (direct apply) means;
+- a live forwarded (unicast `0xEDA483AB`) hit reaching the master's execute callback. It is traced statically
+  (observation 14) but not caught;
+- what the `victim+136` bit `0x40000000000000` means, and who drains the pending `{event, handle}` array that
+  `sub_140FDEEC0` fills;
+- the meaning of the executor's intention fields `+80` (0 / 30), `+84` (7), `+92` (11), `+120` (8);
 - whether the emulated Private call works from every free-roam state (one run, from inside a building);
 - any mission id other than `COOP_RB050` (the asset-index name is not verified against the map's own id table).
 
