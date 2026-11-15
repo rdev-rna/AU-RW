@@ -7,6 +7,7 @@ pub mod atom_stream;
 pub mod bc1;
 pub mod build_table;
 pub mod catalog;
+pub mod character_template;
 pub mod cloth;
 pub mod color_mask;
 pub mod control;

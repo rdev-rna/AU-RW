@@ -326,10 +326,27 @@ fn setup_world(
                 .normal_texture
                 .and_then(|i| texture_handles[i].clone());
             let mut extension = character_material::CharacterSurface::plain(normal_texture);
+            let handle = |i: Option<usize>| i.and_then(|i| texture_handles[i].clone());
+            let has_normal = extension.packed_normal.is_some();
+            let mut anisotropy = 0.0;
+            match &material.template {
+                Some(load::TemplateSurface::Skin { params, mask }) => {
+                    extension.params =
+                        character_material::CharacterParams::skin(params, mask.is_some());
+                    extension.mask = handle(*mask);
+                }
+                Some(load::TemplateSurface::Hair { params, mask1 }) => {
+                    extension.params =
+                        character_material::CharacterParams::hair(params, mask1.is_some());
+                    extension.mask = handle(*mask1);
+                    anisotropy = character_material::HAIR_ANISOTROPY_SYNTHETIC;
+                }
+                None => {}
+            }
+            extension.params.flags.x = if has_normal { 1.0 } else { 0.0 };
             if let Some(surface) = &material.surface
-                && extension.packed_normal.is_some()
+                && has_normal
             {
-                let handle = |i: Option<usize>| i.and_then(|i| texture_handles[i].clone());
                 let details = surface.details.map(handle);
                 let bits = details
                     .iter()
@@ -355,6 +372,9 @@ fn setup_world(
                         AlphaMode::Opaque
                     },
                     perceptual_roughness: 0.85,
+                    // a non-zero strength turns on Bevy's anisotropy path; the
+                    // character shader sets the per-pixel direction (hair)
+                    anisotropy_strength: anisotropy,
                     cull_mode: None,
                     ..default()
                 },

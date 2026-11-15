@@ -2,6 +2,8 @@
 //! `CN_Cloth_Tile_ColorMasked_AlphaTest` template's per-pixel detail normals,
 //! gloss and specular reflectance re-derived from its G-buffer pixel shader
 //! (ACU-RE-0084). The albedo recolouring is baked on the CPU (ACU-RE-0071).
+//! `CN_Skin_Wrinkle` and `CN_Hair` materials get their templates' albedo
+//! terms, F0 and gloss where the material data supplies them.
 use bevy::{
     pbr::{ExtendedMaterial, MaterialExtension},
     prelude::*,
@@ -15,7 +17,8 @@ pub type CharacterMaterial = ExtendedMaterial<StandardMaterial, CharacterSurface
 /// template's `cb3` constants (`acu_assets::color_mask`).
 #[derive(Clone, Copy, Debug, Default, ShaderType)]
 pub struct CharacterParams {
-    /// x: packed normal bound, y: green sign, z: 1 = cloth template surface.
+    /// x: packed normal bound, y: green sign, z: template surface (1 cloth,
+    /// 2 skin, 3 hair), w: skin / hair mask bound.
     pub flags: Vec4,
     /// Detail weights: cb3[1] base, cb3[3] mid, cb3[4] cloth, cb3[11] metal.
     pub detail: Vec4,
@@ -27,6 +30,24 @@ pub struct CharacterParams {
     pub bands: Vec4,
     /// xy: detail UV scale (cb3[23]); z: bound detail maps (1 t36, 2 t38, 4 t39).
     pub detail_uv: Vec4,
+    /// Skin / hair saturation matrix rows (`character_template::saturation_matrix`).
+    pub matrix_r: Vec4,
+    pub matrix_g: Vec4,
+    pub matrix_b: Vec4,
+    /// Skin: cb3[11] (rgb tint, w weight bias). Hair: cb3[8] tint, w anisotropy.
+    pub tint: Vec4,
+}
+
+/// SYNTHETIC: the skin template's base gloss comes from an engine-bound
+/// texture (t35.y) that was not identified; this stands in for it before the
+/// material's own gloss scale (cb3[2]).
+pub const SKIN_BASE_GLOSS_SYNTHETIC: f32 = 0.35;
+/// SYNTHETIC: Bevy anisotropy strength standing in for ACU's two-lobe
+/// strand-tangent hair highlight.
+pub const HAIR_ANISOTROPY_SYNTHETIC: f32 = 0.8;
+
+fn rows(m: [[f32; 3]; 3]) -> [Vec4; 3] {
+    m.map(|r| Vec4::new(r[0], r[1], r[2], 0.0))
 }
 
 impl CharacterParams {
@@ -59,6 +80,43 @@ impl CharacterParams {
                 detail_bits as f32,
                 0.0,
             ),
+            ..default()
+        }
+    }
+
+    pub fn skin(s: &acu_assets::character_template::Skin, has_mask: bool) -> Self {
+        let [matrix_r, matrix_g, matrix_b] = rows(
+            acu_assets::character_template::saturation_matrix(s.desaturate),
+        );
+        let wet = s.wet_bias.clamp(0.0, 1.0);
+        Self {
+            flags: Vec4::new(1.0, 1.0, 2.0, if has_mask { 1.0 } else { 0.0 }),
+            specular: Vec4::new(
+                SKIN_BASE_GLOSS_SYNTHETIC * (wet + s.gloss_scale).clamp(0.0, 1.0),
+                0.0,
+                0.0,
+                0.0,
+            ),
+            matrix_r,
+            matrix_g,
+            matrix_b,
+            tint: Vec4::from_array(s.tint),
+            ..default()
+        }
+    }
+
+    pub fn hair(h: &acu_assets::character_template::Hair, has_mask: bool) -> Self {
+        let [matrix_r, matrix_g, matrix_b] = rows(
+            acu_assets::character_template::saturation_matrix(h.desaturate),
+        );
+        Self {
+            flags: Vec4::new(1.0, 1.0, 3.0, if has_mask { 1.0 } else { 0.0 }),
+            bands: Vec4::new(0.0, 0.0, 0.0, h.wet_bias.clamp(0.0, 1.0)),
+            matrix_r,
+            matrix_g,
+            matrix_b,
+            tint: Vec4::new(h.tint[0], h.tint[1], h.tint[2], HAIR_ANISOTROPY_SYNTHETIC),
+            ..default()
         }
     }
 }

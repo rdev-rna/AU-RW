@@ -517,7 +517,9 @@ Lighting slice 3 (ACU-RE-0073 / 0084, done): forward GI evaluation read; live su
 lighting-scale constants applied; cloth template surface (detail normals, gloss, specular) ported.
 Next, in order:
 - the sky SH (`g_SkySHConstants`) live, and the velvet lobe in a custom Bevy lighting path;
-- the `CN_Skin_Wrinkle` and `CN_Hair` G-buffer shaders, then other outfits' templates;
+- the engine-bound texture slots (`4ddb34ee`: skin t34/t35/t40, hair t33..t36) from a live
+  capture of bound shader resources, which would replace the synthetic skin gloss;
+- other outfits' templates (an outfit selector and the templates they use);
 - a live in-game comparison of the GI at the anchor spot;
 - the time-of-day sun / LayeredSky;
 - the remaining PostEffects, Wind and WorldFog.

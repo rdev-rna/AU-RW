@@ -113,6 +113,41 @@ materials' own `template` reference (`acu-mat`, `material::Material::template`).
     cb3[15] mid + 0.9 metal, colour = a value-1 HSV colour with the albedo's hue (times
     cb3[17] (cloth + mid) + cb3[2] metal) and saturation (times cb3[14] metal + cb3[12] cloth);
   - output 3.x = sat(cloth + 0.5 mid + 0.1 base - wetness); 3.y / 3.z = back-light terms.
+- Skin template `CN_Skin_Wrinkle` records (21; texture records from payload offset `0x2afd`):
+  t32 `5d09d951` diffuse, t33 `30fb00f6` normal, t36 `9cc355fb` / t37 `a0ce6aa2` wrinkle normals
+  (map type 8), t38 `f86dbbcf` mask (map type 7); t34, t35, t39, t40 carry the shared hash
+  `4ddb34ee` and are not set by the material (t39 is the dissolve noise, as cloth t37). Constants:
+  cb3[1] `fc594e9e` desaturation (Arno 0), cb3[2] `028adbcf` gloss scale (0.75), cb3[5] `5a749bb1`
+  (0.75, written to `t_SpecularReflectance.w`), cb3[7] `99f31a87` wetness bias (0), cb3[8] / [9]
+  `fb0f4871` / `cb9d1dbf` wrinkle thresholds (0 / 0), cb3[11] `a4ed3f29` tint (0, 0, 0, 1),
+  cb3[3, 4, 6, 10] dissolve, cb3[12] `49ce4b2e` UV transform. Values: Arno's head
+  `000000126c7eb56c` (BelleEpoque entry 351).
+- Skin G-buffer PS, full form (payload offset `0x7ddb7`): albedo = the diffuse through a YIQ-based
+  saturation matrix (`k = 1 - cb3[1]`: luma at k = 0, identity at k = 1), then
+  `lerp(cb3[11].rgb, albedo, sat(mask B + cb3[11].w))`; output 0.w = mask B * pow(t35.z, 2.2);
+  gloss = lerp(t35.y, t35.x, wetness) combined (reciprocal powers) with t34.z, times
+  `sat(wetness + cb3[2])`; normal = t33 with t36 / t37 blended in by a signed per-vertex weight
+  (TEXCOORD1.w, compared with cb3[8] / cb3[9]), then t34 (UV-transformed detail) and t40 (weighted
+  by wetness) by reoriented normal mapping; output 2 = (0.04, 0.04, 0.04, cb3[5]); output 3 =
+  (0.5, 0.3, 0, 0), i.e. velvet blend 0.5 and BRDF-LUT row 0.3 (a skin diffuse profile); output 4 =
+  the dissolve. Variants without t35 write diffuse alpha * fade as both gloss and output 0.w; Arno's
+  head diffuse is BC1, so that form would give gloss 1 and is unlikely to be the one used.
+- Hair template `CN_Hair` records (17): t32 `94d1e376` diffuse; t33..t36 are `4ddb34ee`. Constants:
+  cb3[2] / [3] `2af48215` / `b3fdd3af` diffuse UV scale (1 / 1), cb3[6] `fc594e9e` desaturation,
+  cb3[7] wetness bias, cb3[8] `37f3b8db` tint (1, 1, 1), cb3[10] `7c454238` (1, 0) mix of two noise
+  UV sets (UV transforms cb3[11] `11551c86`, cb3[14] `57a5abae`), cb3[1, 4, 5, 9] dissolve.
+  Values: Arno's hair `0000002241886e9e` (BelleEpoque entry 655).
+- Hair G-buffer PS (payload offset `0x414d9`): coverage = (diffuse alpha + vertex colour w) * t36
+  (noise at the mixed UVs) * fade, alpha-tested; albedo = diffuse * cb3[8] through the saturation
+  matrix; normal from t33.xy; gloss g = t33.w with wetness; output 0.w = 0.8 * t34.x; output 1.w =
+  g; output 2 = (2 g, 0.1 * t34.z, 0.04 * t34.x, 0); output 3 = (normalize(tangent + (1.3 * t36 -
+  0.3) * normal) * 0.5 + 0.5, 1): a shifted strand tangent and w = 1, which selects the deferred
+  hair path (two anisotropic lobes with powers `2^(19 g)` and `2^(38 g)`, reflectance
+  `pow(output 0.w, 2.2)`).
+- Arno's hair texture set `LIB_HairStrip_Set` holds diffuse, normal `00000011565b05e0` (BC7,
+  512 x 256; alpha 28..74 of 255, median 49) and Mask1 `00000015ef9230a9` (BC1; R median 197,
+  B median 173). Channel statistics: `local/lighting/tex/*.bin` with Pillow's BC decoder.
+  No static reference to `4ddb34ee` exists in the decompiled corpus (searched hex and decimal).
 - Deferred lighting PS `0x143211F50`, the BRDF of the non-special path: GGX distribution with
   `alpha^2 = 1 / (0.5 * 2^(19 g) + 1)` (the same quantity listed above), Schlick Fresnel from
   `t_SpecularReflectance` using the view-half angle, a height-correlated-style Smith GGX visibility,
@@ -130,6 +165,10 @@ materials' own `template` reference (`acu-mat`, `material::Material::template`).
   second-normal and second-gloss reads); the RTV binding itself was not observed.
 - Gloss g -> GGX `alpha^2 = 2 / (2^(19 g) + 2)` is ACU's own (deferred PS); Bevy's perceptual
   roughness is `sqrt(alpha)`.
+- The `4ddb34ee` slots are bound by the engine. For hair, the texture set's Normal and Mask1 fit
+  t33 (xy normal, w gloss) and t34 (x, z intensities) by their content; this binding is inferred,
+  not observed. The skin's t34 / t35 / t40 (detail normal, dry / wet gloss, rain normal by their
+  use) have no counterpart in the head's texture set (diffuse, normal, Mask1 only).
 
 ## Bevy implementation (implementation choices)
 
@@ -146,14 +185,22 @@ materials' own `template` reference (`acu-mat`, `material::Material::template`).
   `local/captures/lighting/scene-cloth.json`): all five cloth materials bind their mask and three
   BC7 detail maps (`LIB_cloth_Flecks` or `LIB_Cloth_Metal`, `LIB_cloth_cotton`, `LIB_Cloth_Leather`);
   fabric weave and folds, brighter metal fittings, no invalid pixels. Not compared with the game.
+- Skin (`acu_assets::character_template::Skin`, flags 2): saturation matrix, tint lerp by mask
+  B, F0 0.04, specular occlusion `pow(mask B, 2.2)`; base gloss SYNTHETIC 0.35 (stands in for the
+  engine-bound t35.y) times the material's gloss scale. Wrinkle normals are off (they need the
+  facial-animation vertex weight); the skin diffuse LUT and velvet blend are not ported.
+- Hair (`Hair`, flags 3): tint then saturation matrix; gloss = normal-map alpha and
+  F0 = `pow(0.8 * Mask1 R, 2.2)` (inferred texture-set binding); Bevy anisotropy (SYNTHETIC
+  strength 0.8) across the strand tangent stands in for ACU's two-lobe hair path; the second lobe,
+  strand-tangent noise shift and coverage noise are not ported.
 - Not ported: the velvet lobe blend, the back-light translucency, the dissolve, global wetness
   (only the material's `cb3[6]`), and ACU's diffuse wrap (`t_BRDFLUT`); Bevy's BRDF replaces ACU's.
 
 ## Unknowns
 
 - Render-target formats and blend state of the G-buffer pass.
-- The `CN_Skin_Wrinkle` and `CN_Hair` G-buffer shaders (not yet read; hair probably uses the
-  special `t_MiscProps.w = 255` path).
+- Which textures the engine binds to the `4ddb34ee` slots (skin t34 / t35 / t40, hair t33..t36);
+  a live capture of the bound shader resources would settle it.
 - Runtime constants: sun and lighting scale captured live (see ACU-RE-0073); `g_SkySHConstants`
   not yet.
 

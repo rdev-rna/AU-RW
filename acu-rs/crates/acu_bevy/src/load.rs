@@ -18,7 +18,7 @@ use std::path::PathBuf;
 use acu_assets::{
     Limits, Result, bc1, build_table,
     catalog::{Catalog, CatalogLimits},
-    color_mask,
+    character_template, color_mask,
     forge::Forge,
     material, mesh, package, sha256, texture,
 };
@@ -86,6 +86,27 @@ pub struct LoadedMaterial {
     /// Registered textures and parameters for the per-pixel cloth shader.
     #[serde(skip)]
     pub surface: Option<ClothSurface>,
+    /// Skin / hair template inputs (ACU-RE-0084).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub template_surface: Option<serde_json::Value>,
+    #[serde(skip)]
+    pub template: Option<TemplateSurface>,
+}
+
+/// Inputs of the skin and hair templates' per-pixel surface (ACU-RE-0084).
+#[derive(Debug, Clone)]
+pub enum TemplateSurface {
+    /// `mask`: the material's t38 mask (B = tint weight, specular occlusion).
+    Skin {
+        params: character_template::Skin,
+        mask: Option<usize>,
+    },
+    /// `mask1`: the texture set's Mask1 map, which the hair shader is inferred
+    /// to read as t34 (engine-bound slot).
+    Hair {
+        params: character_template::Hair,
+        mask1: Option<usize>,
+    },
 }
 
 /// Inputs of the cloth template's per-pixel surface (ACU-RE-0084).
@@ -482,6 +503,35 @@ impl Loader {
         ))
     }
 
+    /// Register a linear (non-colour) map for the shader; failures become notes.
+    fn linear_map(
+        &mut self,
+        id: Option<&str>,
+        package: Option<&package::Package>,
+        entry: usize,
+        notes: &mut Vec<String>,
+    ) -> Option<usize> {
+        let id = id?;
+        match self.texture(id, package, entry, false) {
+            Ok(Some(i)) if UPLOADABLE.contains(&self.scene.textures[i].dxgi_format) => Some(i),
+            Ok(Some(i)) => {
+                notes.push(format!(
+                    "map {id}: format {} not uploadable",
+                    self.scene.textures[i].dxgi_format
+                ));
+                None
+            }
+            Ok(None) => {
+                notes.push(format!("map {id} unavailable"));
+                None
+            }
+            Err(e) => {
+                notes.push(format!("map {id}: {e}"));
+                None
+            }
+        }
+    }
+
     fn catalog(&mut self) -> Result<&mut Catalog> {
         if self.catalog.is_none() {
             let limits = self.limits;
@@ -623,7 +673,7 @@ impl Loader {
             }
         }
         let set_id = parsed.texture_set.file_id.clone();
-        let (mut texture_set_source, mut set_diffuse) = (None, None);
+        let (mut texture_set_source, mut set_diffuse, mut set_mask1) = (None, None, None);
         if set_id != "0000000000000000" {
             match self.resolve(&set_id, package, entry)? {
                 Some(set) => {
@@ -645,6 +695,9 @@ impl Loader {
                     }
                     if normal_map.is_none() && parsed_set.normal.file_id != "0000000000000000" {
                         normal_map = Some(parsed_set.normal.file_id.clone());
+                    }
+                    if parsed_set.mask1.file_id != "0000000000000000" {
+                        set_mask1 = Some(parsed_set.mask1.file_id.clone());
                     }
                 }
                 None => notes.push(format!("texture set {set_id} not found")),
@@ -713,11 +766,44 @@ impl Loader {
                 Err(e) => notes.push(format!("cloth surface not applied: {e}")),
             }
         }
+        let (mut template, mut template_surface) = (None, None);
+        match parsed.template.file_id.as_str() {
+            character_template::TEMPLATE_SKIN_WRINKLE => {
+                match character_template::Skin::from_material(&parsed) {
+                    Some(params) => {
+                        let id = selector_map(&parsed, character_template::SKIN_MASK);
+                        let mask = self.linear_map(id.as_deref(), package, entry, &mut notes);
+                        template_surface = Some(serde_json::json!({
+                            "template": character_template::TEMPLATE_SKIN_WRINKLE,
+                            "params": params, "mask": id, "mask_loaded": mask.is_some()}));
+                        template = Some(TemplateSurface::Skin { params, mask });
+                    }
+                    None => notes.push("skin template parameters missing; not applied".into()),
+                }
+            }
+            character_template::TEMPLATE_HAIR => {
+                match character_template::Hair::from_material(&parsed) {
+                    Some(params) => {
+                        let mask1 =
+                            self.linear_map(set_mask1.as_deref(), package, entry, &mut notes);
+                        template_surface = Some(serde_json::json!({
+                            "template": character_template::TEMPLATE_HAIR,
+                            "params": params, "set_mask1": set_mask1,
+                            "mask1_loaded": mask1.is_some()}));
+                        template = Some(TemplateSurface::Hair { params, mask1 });
+                    }
+                    None => notes.push("hair template parameters missing; not applied".into()),
+                }
+            }
+            _ => {}
+        }
         let index = self.scene.materials.len();
         self.scene.materials.push(LoadedMaterial {
             color_mask: color_mask_report,
             cloth_surface,
             surface,
+            template_surface,
+            template,
             normal_map,
             normal_texture,
             alpha_test_enabled: parsed.flags.alpha_test_enabled,
