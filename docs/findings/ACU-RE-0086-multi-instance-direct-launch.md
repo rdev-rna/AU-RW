@@ -100,3 +100,32 @@ Implementation implications and finding-linked constants:
 - Both games had exited by about 10 minutes, not through `capture_run.py --close`. How they ended was
   not observed. `save_pin.py settle` pruned the two dead holders and put the saves back (snapshot
   `20261115-190752`).
+
+## Lighter second game (fps caps and core split)
+
+Machine: Ryzen 5 5600X with SMT off (6 cores, 6 logical processors). Another session's `rustc` ran
+during the measurements, so whole-machine CPU stayed at 89–100 %. Run:
+`multi_launch.py 2 --until world --save-pin capture-start-1` with the new defaults (summary
+`local/native-probe/runs/multi-20261115-192711.json`; load reports `...-load*.json` beside it,
+from `tools/native_probe/game_load.py --seconds 30`).
+
+| setup | game 1 (cap, cores) | game 1 fps mean / min | game 2 (cap, cores) | game 2 fps mean / min |
+|---|---|---|---|---|
+| first run, both capped at 60, no split | 60, all | 27 at the end (shim status) | 60, all | 48 at the end |
+| caps 60/30, split 0-3 / 4-5, priority left to the game | 60, 0xf | 60.5 / 57 | 30, 0x30 | 30.4 / 30 |
+| same, game 2 set to below normal after load | 60, 0xf | 60.4 / 58 | 30, 0x30 | **8.7 / 0** |
+| game 2 back to high | 60, 0xf | 60.4 / 59 | 30, 0x30 | 30.3 / 29 |
+
+- CPU use with caps 60/30 and the split: game 1 about 2.3 cores, game 2 about 1.25 cores. Working
+  set about 2.1 GB each. Both reached the world from the pin (49.9 s and 60.4 s).
+- ACU raises its own priority class to HIGH during startup: both games read 0x80, although game 2
+  was created below normal. A class set after startup stays (checked at 1, 5 and 15 s).
+- Below-normal priority starved game 2 while other work was running, so the default leaves the
+  priority to the game. `--secondary-priority below_normal` is opt-in. `capture_run` re-applies a
+  non-normal `--priority` after attaching and after reaching the world.
+- 30 fps is the lowest cap that keeps the physics stepping the same way: from 15 to 30 fps it takes
+  one 1/30 s step per frame (ACU-RE-0051).
+- Untested: SMT on (12 logical processors). The auto split would then give game 1 cores 0-9 and
+  game 2 cores 10-11; an explicit `--cpu-split 0-7/8-11` is another option.
+- Both games closed with `capture_run.py --close` (2.8 s and 2.3 s, not forced). The saves were put
+  back (snapshot `20261115-192712`).

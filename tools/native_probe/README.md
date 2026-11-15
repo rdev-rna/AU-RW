@@ -245,6 +245,18 @@ python tools/native_probe/instance_guard.py list                    # PIDs still
   holder. Output: `local/native-probe/runs/multi-<stamp>-<i>/` plus a `multi-<stamp>.json`
   summary with the close and `save_pin.py release` commands for each game.
 - `--until title` stops after attaching (shim and probe in, game at the title screen).
+- Load. `multi_launch.py` keeps a second game light by default:
+  - **`--fps-caps 60,30`:** the first game (the one you watch) runs at 60, every further game at 30.
+    From 15 to 30 fps ACU's physics takes one 1/30 s step per frame (ACU-RE-0051), so 30 is the
+    lowest cap that keeps the physics stepping the same way.
+  - **`--cpu-split auto`:** every further game gets 2 logical processors from the top at below-normal
+    priority; the first keeps the rest at normal (6 threads: 0-3 / 4-5).
+  - Use `none` to turn the split off, or give one core list per game, e.g. `0-7/8-11`.
+  - `capture_run.py --cpu-cores 4,5 --priority below_normal` sets the same for one run. A `--direct`
+    game starts suspended, gets its cores and priority, and is then resumed, so the engine sizes its
+    workers to its own cores. If either cannot be set, the never-run process is terminated.
+  - `python tools/native_probe/game_load.py --seconds 30` measures every running game: CPU share,
+    working set, shim fps and core mask.
 - Evidence and limits: [ACU-RE-0086](../../docs/findings/ACU-RE-0086-multi-instance-direct-launch.md).
   The game code that creates and checks the semaphore is not located. The game keeps the closed
   handle value. Closing it has caused no visible fault so far.

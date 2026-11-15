@@ -144,7 +144,7 @@ def game_exe() -> Path:
     return Path(game) / "ACU.exe"
 
 
-PRIORITY_CLASS = {"normal": 0x20, "below_normal": 0x4000, "idle": 0x40}
+PRIORITY_CLASS = {"normal": 0x20, "below_normal": 0x4000, "idle": 0x40, "high": 0x80}
 CREATE_SUSPENDED = 0x4
 PROCESS_SET_INFORMATION, PROCESS_QUERY_INFORMATION, PROCESS_SUSPEND_RESUME = 0x0200, 0x0400, 0x0800
 kernel.SetProcessAffinityMask.argtypes = [W.HANDLE, C.c_size_t]
@@ -494,8 +494,14 @@ def main():
                   block_user_input=shim.get("block_user_input"), returned_focus=shim.get("returned_focus"),
                   client=[rect.right, rect.bottom])
 
+        if launched and a.priority != "normal":
+            # ACU raises itself to HIGH_PRIORITY_CLASS during startup (observed 2026-11-15, both
+            # games 0x80 after a below-normal creation); a class set later sticks, so re-apply.
+            run.stage("priority", when="attach", **set_cpu(pid, 0, a.priority))
         if launched and a.until != "title":
             reach_world(pid, run, a.load_timeout, hwnd)
+            if a.priority != "normal":
+                run.stage("priority", when="world", **set_cpu(pid, 0, a.priority))
         if a.until in ("world", "title"):
             run.stage(f"until_{a.until}", pid=pid, note="game left running; shim and probe attached")
             if leased:

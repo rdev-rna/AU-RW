@@ -22,11 +22,13 @@ class CapsTest(unittest.TestCase):
 
 class CpuPlanTest(unittest.TestCase):
     def test_auto_two_games_on_six_cores(self):
-        self.assertEqual(multi_launch.cpu_plan("auto", 2, 6), [("0-3", "normal"), ("4-5", "below_normal")])
+        self.assertEqual(multi_launch.cpu_plan("auto", 2, 6), [("0-3", "normal"), ("4-5", "normal")])
 
     def test_auto_three_games_on_eight_cores(self):
         self.assertEqual(multi_launch.cpu_plan("auto", 3, 8),
-                         [("0-3", "normal"), ("4-5", "below_normal"), ("6-7", "below_normal")])
+                         [("0-3", "normal"), ("4-5", "normal"), ("6-7", "normal")])
+        self.assertEqual(multi_launch.cpu_plan("auto", 2, 6, "below_normal"),
+                         [("0-3", "normal"), ("4-5", "below_normal")])
 
     def test_auto_falls_back_when_too_few_cores(self):
         self.assertEqual(multi_launch.cpu_plan("auto", 3, 5), [(None, "normal")] * 3)
@@ -34,7 +36,7 @@ class CpuPlanTest(unittest.TestCase):
 
     def test_none_and_explicit(self):
         self.assertEqual(multi_launch.cpu_plan("none", 2, 6), [(None, "normal")] * 2)
-        self.assertEqual(multi_launch.cpu_plan("0-2/3-5", 2, 6), [("0-2", "normal"), ("3-5", "below_normal")])
+        self.assertEqual(multi_launch.cpu_plan("0-2/3-5", 2, 6), [("0-2", "normal"), ("3-5", "normal")])
         with self.assertRaises(ValueError):
             multi_launch.cpu_plan("0-2", 2, 6)
 

@@ -17,8 +17,9 @@ Load (defaults, to keep two games light on one PC):
   step; below 15 fps it sub-steps), and gameplay steps once per frame, so a 30 fps game still
   simulates the same rules, only more coarsely.
 - --cpu-split auto: further games get 2 logical processors each from the top, the first game
-  keeps the rest; the first game runs at normal priority, the others below normal. Set at process
-  creation (the game starts suspended), so each engine sizes its workers to its own cores.
+  keeps the rest. Set at process creation (the game starts suspended), so each engine sizes its
+  workers to its own cores. Priority is left to the game (it raises itself to high at startup);
+  --secondary-priority below_normal is opt-in and starved a second game on a busy machine.
   `none` turns this off; an explicit split is "0-3/4-5" (one core list per game).
 
 Rules that hold for every game (tools/native_probe/README.md):
@@ -77,10 +78,13 @@ def per_game_caps(spec: str, count: int) -> list[int]:
     return caps + [caps[-1]] * (count - len(caps))
 
 
-def cpu_plan(spec: str, count: int, cpu_count: int) -> list[tuple[str | None, str]]:
-    """(core list or None, priority) per game. auto: games 2.. get 2 cores each from the top and
-    below-normal priority; game 1 keeps the rest at normal. Fewer than 2 cores left for game 1, or a
-    single game: no split."""
+def cpu_plan(spec: str, count: int, cpu_count: int, priority: str = "normal") -> list[tuple[str | None, str]]:
+    """(core list or None, priority) per game. auto: games 2.. get 2 cores each from the top; game 1
+    keeps the rest. Fewer than 2 cores left for game 1, or a single game: no split.
+
+    Priority for games 2..: "normal" (default) leaves it to the game, which raises itself to high
+    at startup. "below_normal" starved a 30 fps game to 8.7 fps (minimum 0) on a busy machine
+    (2026-11-15, ACU-RE-0086), so it is opt-in only."""
     if spec == "none" or (spec == "auto" and count == 1):
         return [(None, "normal")] * count
     if spec == "auto":
@@ -90,12 +94,12 @@ def cpu_plan(spec: str, count: int, cpu_count: int) -> list[tuple[str | None, st
         plan = [(f"0-{first - 1}", "normal")]
         for i in range(count - 1):
             lo = first + 2 * i
-            plan.append((f"{lo}-{lo + 1}", "below_normal"))
+            plan.append((f"{lo}-{lo + 1}", priority))
         return plan
     lists = spec.split("/")
     if len(lists) != count:
         raise ValueError(f"--cpu-split has {len(lists)} core lists for {count} games")
-    return [(cores, "normal" if i == 0 else "below_normal") for i, cores in enumerate(lists)]
+    return [(cores, "normal" if i == 0 else priority) for i, cores in enumerate(lists)]
 
 
 def capture_command(run_dir: Path, a, fps_cap: int, cores: str | None, priority: str) -> list[str]:
@@ -117,6 +121,9 @@ def main():
     ap.add_argument("--fps-caps", default="60,30",
                     help="per game, comma-separated; the last repeats (default 60,30). Never 0")
     ap.add_argument("--cpu-split", default="auto", help="auto (default), none, or core lists per game: 0-3/4-5")
+    ap.add_argument("--secondary-priority", choices=("normal", "below_normal"), default="normal",
+                    help="priority for games 2..; normal leaves it to the game (it raises itself to high). "
+                         "below_normal starves them when the machine is busy")
     ap.add_argument("--save-pin", help="start every game from this pin through the shared lease")
     ap.add_argument("--load-timeout", type=float, default=240)
     ap.add_argument("--allow-user-input", action="store_true")
@@ -126,7 +133,7 @@ def main():
         ap.error("count must be 1..4")
     try:
         caps = per_game_caps(a.fps_caps, a.count)
-        plan = cpu_plan(a.cpu_split, a.count, os.cpu_count() or 1)
+        plan = cpu_plan(a.cpu_split, a.count, os.cpu_count() or 1, a.secondary_priority)
     except ValueError as error:
         ap.error(str(error))
     if any(c < 15 for c in caps):
