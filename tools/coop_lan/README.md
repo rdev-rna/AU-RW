@@ -35,3 +35,7 @@ Rules (same as `tools/native_probe/README.md`):
 Known pitfalls:
 - leaving and then rejoining one second later crashed the joiner (run 14);
 - a relaunched joiner at the same IP and port is re-adopted by the host as its old peer (run 15).
+
+## Ownership census
+
+`rolecensus.py <out.json> <pid>...` lists every entity within 120 m of the player whose role bits (`entity+212`) are replica or whose kind is set, with its asset name. Run it before and after moving the players, then diff by `file_id` to see ownership migrate (ACU-RE-0092 observations 18–19).

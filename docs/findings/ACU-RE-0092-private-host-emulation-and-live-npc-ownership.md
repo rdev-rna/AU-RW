@@ -472,6 +472,38 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
       - The migration path is the net object's callbacks, which write the role bits and notify the components.
         Crowd humans are not net objects (observation 17), so they never migrate.
 
+19. **The migration rule is sticky, with a claim radius between 45 and 58.6 m** (live, `migrate1.jsonl`):
+    - **Setup:**
+      - the host stood still at (951.0, 271.5), 88.8 m from `SQ06_M010_AlarmBell_WithZones` (876.9, 222.5);
+      - the joiner was teleported through known ground spots: out to 30.0, 45.0, 58.6, 62.5, 88.2, 100.0 and
+        111.0 m from the bell, then back the same way;
+      - at each step the script waited 3, 10 and 20 s, then read the bell entity's `+212` in both games (entities
+        `0x1395E0880` in the host and `0x16F486450` in the joiner, from census B).
+    - **Outbound** (joiner the owner at the start):
+      - the joiner stayed master (`0x401F3`) and the host replica (`0x801F3`) at every step out to 100.0 m. That
+        includes 100 m, which is *farther* than the host's 88.8 m;
+      - at 111.0 m the joiner's entity no longer held the bell (its `+212` read `0x40000`, and its matrix showed
+        another position, so the memory was reused: the bell was unloaded there);
+      - the host became master (`0x401F3`) within 3 s.
+    - **Inbound** (host the owner):
+      - the host stayed master at 100.0, 88.2, 62.5 and 58.6 m, even though the joiner was nearer for all but the
+        first step;
+      - at 45.0 m the host was a replica again (`0x801F3`) within 3 s, so the joiner had reclaimed it. The joiner's
+        reloaded entity has a new address, which was not read.
+    - Inference, the rule as far as these bounds go:
+      1. an owner keeps ownership while the object stays loaded, however far it is, as long as no peer is inside
+         the claim radius;
+      2. a peer inside a claim radius of about 45–58.6 m takes ownership from an owner outside it (here the owner
+         was at 88.8 m);
+      3. when the owner unloads the object (between 100 and 111 m here), another peer that has it loaded takes over.
+
+      Danton's moves (observation 18) fit this:
+      - joiner at 42 m, host at 59 m → joiner;
+      - host about 3 m away, joiner about 60 m → host.
+
+      Not tested: both peers inside the radius (in census 1 both were about 45 m from Danton and the host kept him),
+      the exact radius, whether the radius differs by entity type, and whether combat overrides it.
+
 ## Inferences
 
 - **NPC simulation sits with one machine at a time, and it was not the mission host.** The enemy's intentions flowed
@@ -516,8 +548,8 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
 
 ## Unknowns / incomplete coverage
 
-- the migration rule (distance threshold, hysteresis, interest) for AI humans and world objects; observation 18
-  shows that ownership follows the nearer player, but does not measure the rule;
+- the exact claim radius (between 45 and 58.6 m for one alarm bell, observation 19), its dependence on entity type,
+  the rule when both peers are inside it, and the unload distance (between 100 and 111 m here);
 - why the mission coordinators (`COOP_RB050*`) were owned by the joiner rather than the session host;
 - whether the fight NPC's ownership (joiner 1 m away, host 5 m) was proximity: consistent with observation 18;
 - the HUD health asymmetry: replica health may be local-only, or the HUD may show each game's view of the partner;
