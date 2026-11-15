@@ -297,6 +297,18 @@ Inferences:
   machine on the same ZeroTier network, such as the user's friend, should be reachable by these sockets.
   That is a two-machine LAN test. Not tested.
 
+Follow-up (same day):
+26. The ZeroTier adapter was live even though the user had not knowingly turned ZeroTier on.
+    `Get-NetAdapter` showed three ZeroTier virtual ports Up/Connected, the `ZeroTierOneService` service
+    was running, and the address Storm used was preferred and manually assigned. The user does not
+    want ZeroTier as the friend route. Nothing was changed on the machine.
+27. The default ports are set in one Storm configuration constructor, `0x141B46C90` (corpus file
+    `141B46C90.c`, lines 47–56): `WORD +8 = 3074`, `WORD +412 = 6250`, `WORD +416 = 6300`. This is the only
+    file in the `141B*`/`141C*` corpus range with those constants. Inference: changing these words in the
+    second game before Storm starts would let it bind its own sockets beside the first game. Untested.
+    Also unknown is whether LAN discovery then still reaches between the two, since discovery may need a
+    shared port.
+
 Unknowns / coverage:
 - Who sets the start-alone flag (statechart `+236`), and what the private-match host waits for before it
   launches (a joined peer, a host confirm, or both).
