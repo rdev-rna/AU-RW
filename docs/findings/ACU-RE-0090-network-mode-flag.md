@@ -844,6 +844,15 @@ join with the drop hooks armed from the start, and no leave and rejoin.
     During it, the co-op objective failed (the protected NPC died) and **both games reloaded**, as reported by
     the user. No session id or handle changed in either game, and none of the eight hooks fired. **The link
     survived a mission-fail reload.**
+86. The watch was stopped at the user's request after about 12 minutes. In all that time:
+    - no session id or handle changed in either game;
+    - none of the eight drop hooks fired;
+    - at the end, game 1's game-session id was still game 2's (`…e4398d9e`).
+
+    After the watch process was stopped, all hook slots in both games were cleared (`STATUS` shows none armed).
+    The drop seen after run 13 did not recur, so its cause stays unknown. One difference from run 13: in run
+    15 the joiner arrived through the stale peer that game 2 kept, not through a `JoinSession` call from the
+    tools.
 
 Unknowns / coverage:
 - Who sets the start-alone flag (statechart `+236`), and what the private-match host waits for before it
