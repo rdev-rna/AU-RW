@@ -3,10 +3,11 @@
 Date / investigator / related task: 2026-11-16 / claude-session, live / #85, co-op plan Phase 4 (combat, AI).
 Testbed: the ACU-RE-0090 two-game LAN setup on one PC (`tools/coop_lan/`).
 State: partially established.
-- Observed: one live `SendFightDamageEventToMaster` send, by the game that simulated the attacking NPCs.
+- Observed: live `SendFightDamageEventToMaster` sends with their callers in both games, and the attacker-side hit
+  routine that starts them.
 - Observed: the Private-hosting call chain, its live emulation, and discovery joining by itself.
 - Observed: one live fight with the intention traffic it caused.
-- Not settled: the caller of that send, and where the master writes health.
+- Not settled: where the master writes health once the intention arrives.
 
 ## Provenance
 
@@ -135,6 +136,39 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
      intention message.
    - What the started intention does on the master (where health is written) was not traced.
 
+10. **The hit routine always routes damage through the intention system** (static, then live):
+    - `sub_140576270` (3,202 bytes; only caller `0x1405760E0`) is the attacker-side hit resolution. For each victim
+      it takes a `FightDamageEvent` from the event pool (`sub_140BC7BE0`), fills it with
+      `sub_140BDE710(event, …, attacker, victim, …, damage)` and `sub_140BDB050`, then delivers it (corpus lines
+      509–539):
+      - **victim is human** (`(victim+212 & 7) == 2`, sets `v149`) and bit `0x40000000000000` of `victim+136` is set:
+        direct apply via `sub_140FDEEC0(component(victim+96), victim, event)`;
+      - **victim is human** otherwise: NHI `SendFightDamageEventToMaster` via `sub_1407348A0`, using the victim's
+        NetHumanIntention component (`sub_140708FC0`). `sub_1407348A0` builds
+        `"<type>SendFightDamageEventToMasterMSG_NetProtocol_ID"` and starts the intention with mode 4;
+      - **victim is an AI NPC** (`(victim+212 & 7) == 1`): NBAI `SendFightDamageEventToMaster` via the victim's AI
+        component (`sub_140C17990` → `sub_141ACDF40`) → `sub_1406D40D0` → starter `0x1405DA480`.
+    - Mode 4 is ACU-RE-0081's case table. The intention router decides the delivery from the victim component's
+      state: on a replica the message goes to the master; on the master it stays local. The hit code itself does not
+      check ownership.
+    - Live caller chains, from `damagewatch6`, which snapshots at the builder's entry RSP. All are
+      starter → `0x140569520` → object path `0x141C66360` → `0x141C47130` (dispatcher `+0x80`) → builder:
+
+      | Game | Message | Starter | Count |
+      |---|---|---|---|
+      | joiner | NHI `SendFightDamageEventToMaster` | `0x1405DA9E0` | 3 |
+      | joiner | NBAI `SendFightDamageEventToMaster` | `0x1405DA480`, above it `0x1426F4740` | 1 |
+      | host | NBAI `SendFightDamageEventToMaster` | `0x1405DA480`, above it `0x1406D3FA0` | 1 |
+      | joiner | NHI `DoHurt` | `0x1405E93C0` | 1 |
+      | host | NBAI `DoHurt` | `0x1405E93C0` | 1 |
+
+      Run: the restarted mission's first wave with both players beside Danton, t = 1204–1254 s. Each player hit
+      NPCs, and the NPCs hit both players.
+    - Other callers of the starters:
+      - `0x1405DA9E0` is also called by the receive handler `0x1407269B0` and by the thin wrapper `0x1406698E0`;
+      - `0x1405DA480` by `0x1406691E0`, `0x1406ADE30` and `0x1406D40D0`;
+      - `0x1405E93C0` by six functions, including `0x14071B270`, `0x14071B410` and the receive handler.
+
 ## Inferences
 
 - **NPC simulation sits with one machine at a time, and it was not the mission host.** The enemy's intentions flowed
@@ -147,6 +181,11 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
   `SendFightDamageEventToMaster` block stayed silent.
   - Prediction, not yet tested: the block runs when a player hits an NPC that the other machine owns, or when an NPC
     hits the other machine's player.
+- **Damage is always an intention addressed to the victim's owner (observation 10).** The attacker's game never
+  writes the victim's health. It starts `SendFightDamageEventToMaster` on the victim's own net component: human
+  victims use NetHumanIntention, NPC victims use NetBehaviorAI. The ownership-aware intention router then either
+  runs it locally or sends it to the master. This one mechanism covers player→NPC, NPC→player and NPC→NPC hits, and
+  the gameplay code needs no co-op branches.
 - **The request lane exists and runs (observation 7).** In the spy fight, the joiner, which simulated the attacking
   spies, sent `SendFightDamageEventToMaster` while the host's player was being hurt. One hit, with no caller
   captured, so this is consistent with the prediction but does not prove it. The master rebuilds the event as an
@@ -163,7 +202,7 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
 - whether ownership was the joiner's because of proximity or for another reason (the host was 5 m away, the joiner 1 m);
 - the HUD health asymmetry: replica health may be local-only, or the HUD may show each game's view of the partner;
 - the meaning of each field of the shared damage record (`+0x30`, `+0x80`…`+0x90`, `+0xa8`…`+0xaf`, `+0xc8`);
-- the caller of the one observed `SendFightDamageEventToMaster` send, and where the master writes health;
+- where the master writes health, and what the `victim+136` bit `0x40000000000000` (direct apply) means;
 - whether the emulated Private call works from every free-roam state (one run, from inside a building);
 - any mission id other than `COOP_RB050` (the asset-index name is not verified against the map's own id table).
 
