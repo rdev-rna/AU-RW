@@ -500,6 +500,35 @@ Inferences:
   Untested. The next test is to make it a host (Private on a co-op mission, `PRIVATE_MATCH_HOST`) while game 1
   searches.
 
+## Live run 10 — discovery request and reply between two LAN games (2026-11-16)
+
+Setup: game 1 (PID 131964) is discovering (run 8). Game 2 (PID 114608) uses port offset 10 (run 9). To tell the
+windows apart, the user saw their titles renamed through `SetWindowTextW`; only the title text changed. Logs are
+in `lan-host2-20261116/`.
+
+Observations:
+50. The user chose Play in Private in game 2. Mission create was hit once (return `0x142755AFB`), together with
+    one hit of LAN dispatcher branch `0x141BA2950` (from `0x141B8A70E`) in game 2. Game 2 then read
+    `PRIVATE_MATCH_HOST`, with a mission session (local peer 3, state `+196` = 3). Nothing visible happened in either
+    game. Game 1's LAN dispatcher branches had 0 hits while it built 415 broadcasts (`host.jsonl`, `join.jsonl`).
+51. Socket calls. The probe hooked `WS2_32.dll` exports with `HOOKVA` (expected entry bytes checked live; logs
+    `host-sock.jsonl` and `join-sock.jsonl`). Both games use only `sendto` and `recvfrom`, called from Storm at
+    return sites `0x1426D7A70` and `0x1426D7777`, and never `WSASendTo` or `WSARecvFrom`. Game 1 sends on one socket
+    and polls two. Game 2 sends and polls on one socket.
+52. Results, from hooks on the two return sites that read RAX (`host-ret.jsonl`, `join-ret.jsonl`, 20 s):
+    - Game 1 sent 39 packets of **73 bytes** (about 2/s). Each cycle it received 2 packets: a 73-byte one
+      (its own broadcast, on the sending thread) and a **103-byte** one.
+    - Game 2 received 73-byte packets and, each time, on the same thread, at once sent a **103-byte** packet
+      (39 receives against 35 sends over the run).
+
+Inference: Storm's LAN discovery works between two ACU games on one PC. Game 2 answers each 73-byte
+DiscoverSession broadcast with a 103-byte reply, and game 1 receives that reply. Payloads were not captured or
+decoded. Game 2's reply is triggered by its receive, not by its UI state. Whether it also answered before it
+hosted is not known, because socket hooks were first armed after hosting. The reply reaches game 1 but leads to
+nothing visible. Nothing in the UI consumes the discovered session, since the search was started by the probe
+and not by a menu flow. Next: trace what game 1 does with the 103-byte reply (the discovery handler, and the LAN
+matchmaker's other slots 6, 7 and 12), and what would turn a discovered session into a join.
+
 Unknowns / coverage:
 - Who sets the start-alone flag (statechart `+236`), and what the private-match host waits for before it
   launches (a joined peer, a host confirm, or both).
