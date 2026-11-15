@@ -12,7 +12,7 @@ inferred (**I**).
 | R1 | Every replicated character has one **master** peer, which simulates it. The other peers hold **replicas**. Master role can be acquired, given away, or replaced when the master leaves (Storm `object::inEvent` master-role events). | O (names), I (behaviour) |
 | R2b | A gate in StartIntention (`sub_141C45720`) refuses when the net component's state is 1 (replica, ACU-RE-0082) and the start source is 2. This stops a replica from starting intentions from its own AI or input. | O (code), I (source 2 = local) |
 | R2 | A replica never changes authoritative state directly. It sends a request RFC to the master (`RFCSetMaster*`, `SendFightDamageEventToMaster`). | I (names) |
-| R3 | With no network handle, the same call runs locally. Single-player is the degenerate case of this design. | O (several send sites) |
+| R3 | With no network handle, the same call runs locally. Single-player is the degenerate case of this design. Live in solo (ACU-RE-0085): the replicate path runs about 30 times per second and stops at the network-component checks; the memento push stops at "session active" (`S+0x30 ≠ −1`). | O (send sites, live solo probe) |
 
 ## 2. Channels
 
@@ -83,5 +83,6 @@ How Storm then serializes and paces them is not traced (I).
   `tools/net_intention_payloads.py`): a 2-slot header {u32 id, u8}, then typed slots (u32, u64, u8, bool,
   f32, vec3, quantized vec3 ±4000 or f32 ±7, entity handle).
 - The bit widths. (The registry key is the wire ID `0xA92DBEA6`; see ACU-RE-0076.)
-- A live check: a one-instance single-player probe to name the owner and the heap singletons. A
-  two-instance co-op capture only after a session can be started without the backend.
+- A live check: a one-instance single-player probe was done (ACU-RE-0085). It resolved the session
+  object's virtuals and the global sender's `+0x80`. A two-instance co-op capture only after a session can
+  be started without the backend, and once multi-instance capture tooling (PR #141) is tested.

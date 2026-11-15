@@ -1,7 +1,7 @@
 # #85 Co-op reverse engineering (area: coop)
 
 Branch `acu-85-coop-re-plan`. Plan: [../COOP_RE_PLAN.md](../COOP_RE_PLAN.md). Files: `docs/COOP_RE_PLAN.md`,
-`docs/areas/coop.md`, `docs/coop/BACKEND_BOUNDARY.md`, `docs/coop/AVATAR_SPEC.md`, `docs/findings/ACU-RE-0075-avatar-replication.md`, `docs/findings/ACU-RE-0076-position-replication.md`, `docs/findings/ACU-RE-0077-proxy-receiver.md`, `docs/findings/ACU-RE-0078-session-clock.md`, `docs/findings/ACU-RE-0079-intention-payloads.md`, `docs/findings/ACU-RE-0080-intention-receive.md`, `docs/findings/ACU-RE-0081-intention-send.md`, `docs/findings/ACU-RE-0082-intention-flush.md`, `docs/findings/ACU-RE-0083-intention-cleanup-and-join-resync.md`, `docs/findings/ACU-RE-0084-snapshot-send-path.md`, `tools/net_intention_payloads.py`, `tools/test_net_intention_payloads.py`, `docs/findings/ACU-RE-0073-session-transport-seam.md`, `tools/net_census.py`, `tools/net_protocol_atlas.py`,
+`docs/areas/coop.md`, `docs/coop/BACKEND_BOUNDARY.md`, `docs/coop/AVATAR_SPEC.md`, `docs/findings/ACU-RE-0075-avatar-replication.md`, `docs/findings/ACU-RE-0076-position-replication.md`, `docs/findings/ACU-RE-0077-proxy-receiver.md`, `docs/findings/ACU-RE-0078-session-clock.md`, `docs/findings/ACU-RE-0079-intention-payloads.md`, `docs/findings/ACU-RE-0080-intention-receive.md`, `docs/findings/ACU-RE-0081-intention-send.md`, `docs/findings/ACU-RE-0082-intention-flush.md`, `docs/findings/ACU-RE-0083-intention-cleanup-and-join-resync.md`, `docs/findings/ACU-RE-0084-snapshot-send-path.md`, `docs/findings/ACU-RE-0085-solo-live-probe.md`, `tools/coop_live_probe.py`, `tools/net_intention_payloads.py`, `tools/test_net_intention_payloads.py`, `docs/findings/ACU-RE-0073-session-transport-seam.md`, `tools/net_census.py`, `tools/net_protocol_atlas.py`,
 `tools/test_net_protocol_atlas.py`, `tools/net_title_survey.py`, `tools/test_net_title_survey.py`,
 `docs/findings/ACU-RE-0072-net-protocol-registry.md`, `docs/findings/ACU-RE-0074-target-title-net-stacks.md`.
 
@@ -99,6 +99,12 @@ The repo is public, so only the tool and the finding are committed. This overrid
   the `SetMementoDirty` / `SetMementoAllDirty` virtuals. Corrects ACU-RE-0075 (owner `NetPlayer`; `+0x50`
   is a time stamp). Not found: bit widths, Storm-side serialization, the read handler. Done offline with
   capstone.
+
+## Done (solo live probe, 2026-11-15)
+- [ACU-RE-0085](../findings/ACU-RE-0085-solo-live-probe.md): first live run (PID 16008, capture_run.py
+  --until world, pin capture-start-1, fps cap 60; closed with --close; saves put back). New tool
+  `tools/coop_live_probe.py`. It gives hit rates for eight co-op routines and resolves the session-object
+  and global-sender virtuals. Solo stops at the network-component and session checks, as predicted.
 
 ## Not done / next
 - Phase 1 remainder: confirm the decoder, encoder and body roles by tracing the receive path from Storm to

@@ -224,6 +224,11 @@ pointless without them.
   message flush, the game stamps every local memento with the session time, runs its writer, and posts
   `SynchronizeMemento`. Storm handles serialization and pacing (not traced). This corrects ACU-RE-0075
   (`+0x50` is a time stamp). Bit widths are still open.
+- **Status 2026-11-15 (solo live probe, Phase 7 start):** [ACU-RE-0085](findings/ACU-RE-0085-solo-live-probe.md).
+  First live run (read-only, lock #30, saves put back). In solo, typed intention starts reach the replicate
+  path (30/s), but the builder never runs. The memento push runs every frame and stops at "session active".
+  Session-object and global-sender virtuals are resolved; the `+0x80` → builder delegate is observed for the
+  global sender.
 
 ### Phase 5 - Backend boundary register (runs alongside every phase)
 - `docs/coop/BACKEND_BOUNDARY.md`, one row per call that crosses into Ubisoft
