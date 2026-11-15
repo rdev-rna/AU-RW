@@ -7,7 +7,7 @@ State: partially established.
   routine that starts them.
 - Observed: the Private-hosting call chain, its live emulation, and discovery joining by itself.
 - Observed: one live fight with the intention traffic it caused.
-- Not settled: where the master writes health once the intention arrives.
+- Not settled: the hand-over from a received damage intention to the master's damage handler.
 
 ## Provenance
 
@@ -218,6 +218,27 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
       and pushes it to a looked-up object's `+41`.
     - Class names for the three extra vtables are not in the symbol index.
 
+13. **The master's damage apply site** (live, then static):
+    - In the host, the life setter wrote 22 → 14 → 6 → −1 to one health object (`0x126188870`) at t = 393–411 s.
+      The chain was `0x140EBBFD0` → `0x141212900` → `0x14124BC30` → setter.
+    - The joiner's replica received the same values over `RFCSetMasterLife` (observation 11). So the host was this
+      NPC's master, and each applied hit was pushed to the replica.
+    - No `SendFightDamageEventToMaster` ran in that window, so the hit was local to the host. The attacker was not
+      identified.
+    - `sub_140EBBFD0(handler, event)` (3,439 bytes; no static callers and no vtable slot, so it is invoked as a
+      registered handler) reads these event fields:
+      - `+8`, an entity handle;
+      - `+16`, the field the hit routine sets to 6 or 8 in observation 10;
+      - `+20` (values 6 and 26 are tested), `+24` (5 and 18 are tested) and `+32`;
+      - the flag word at `+40` (bits `0x1`, `0x8`, `0x20`, `0x200`, `0x400`).
+
+      It then broadcasts the new life with `sub_141212900(listeners, life)` (corpus line 541).
+    - `sub_141212900` iterates the entity's listeners registered under `dword_1451D7D78`, until one returns a value
+      other than 3. `sub_14124BC30(listener, life)` writes the life setter on `*(listener+24)` and returns 2.
+    - Inference: `0x140EBBFD0` is the health component's `DamageEvent` handler, and the master runs it for a
+      damage event. A forwarded hit (observation 9) is expected to arrive here too. The link from the rebuilt
+      intention to this handler was not traced.
+
 ## Inferences
 
 - **NPC simulation sits with one machine at a time, and it was not the mission host.** The enemy's intentions flowed
@@ -238,12 +259,14 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
 - **The full damage loop, as far as observed (observations 7–11):**
   1. the attacker's hit routine starts `SendFightDamageEventToMaster` on the victim's net component;
   2. the router delivers it to the victim's master;
-  3. the master rebuilds the event as an intention and applies it;
+  3. the master rebuilds the event as an intention and applies it (handler `0x140EBBFD0` broadcasts the new life,
+     observation 13);
   4. the master's health state machine owns `Life`;
   5. replicas receive it through `ZenHealthReplication_RFCSetMasterLife`, and their getter reads the replicated
      value.
 
-  Step 3's write was not caught live yet.
+  Step 3's write was caught live for a host-local hit. For a forwarded hit, the hand-over from the received
+  intention to the handler was not traced.
 - **The request lane exists and runs (observation 7).** In the spy fight, the joiner, which simulated the attacking
   spies, sent `SendFightDamageEventToMaster` while the host's player was being hurt. One hit, with no caller
   captured, so this is consistent with the prediction but does not prove it. The master rebuilds the event as an
@@ -261,7 +284,8 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
 - whether ownership was the joiner's because of proximity or for another reason (the host was 5 m away, the joiner 1 m);
 - the HUD health asymmetry: replica health may be local-only, or the HUD may show each game's view of the partner;
 - the meaning of each field of the shared damage record (`+0x30`, `+0x80`…`+0x90`, `+0xa8`…`+0xaf`, `+0xc8`);
-- where the master writes health, and what the `victim+136` bit `0x40000000000000` (direct apply) means;
+- the link from a received `SendFightDamageEventToMaster` intention to the damage handler `0x140EBBFD0`, and what
+  the `victim+136` bit `0x40000000000000` (direct apply) means;
 - whether the emulated Private call works from every free-roam state (one run, from inside a building);
 - any mission id other than `COOP_RB050` (the asset-index name is not verified against the map's own id table).
 

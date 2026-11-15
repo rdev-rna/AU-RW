@@ -82,7 +82,7 @@ How Storm then serializes and paces them is not traced (I).
 |---|---|---|
 | D1 | The attacker's hit routine (`sub_140576270`) never writes the victim's health. It fills a `FightDamageEvent` and starts `SendFightDamageEventToMaster` on the victim's own net component: NetHumanIntention for a human (`entity+212 & 7 == 2`), NetBehaviorAI for an AI NPC (`== 1`). | O (code), O (live sends) |
 | D2 | The intention router delivers by the victim component's state: replica → unicast to the master; master → local. Game code has no co-op branch. | O (code, ACU-RE-0081), I (live coverage is partial) |
-| D3 | The master rebuilds the event as an intention (receive handler `0x1407269B0`) and applies it. | O (receive), unknown (apply site) |
+| D3 | The master rebuilds the event as an intention (receive handler `0x1407269B0`) and applies it. The health component's damage handler `0x140EBBFD0` computes the new life and broadcasts it to the entity's listeners (`0x141212900` → `0x14124BC30` → life setter). | O (receive), O (apply, live for a local hit), unknown (the hand-over between them) |
 | D4 | One damage record travels on two lanes with identical 16-field layouts: `SendFightDamageEventToMaster` (request, unicast to the master) and `SetLastDamageEvent` (outcome, broadcast). | O (layouts) |
 | D5 | `CSrvHealth.Life` belongs to the master. A replica's getter reads the replicated value (`+260` set → `sub_14066B710(+240)`); the master keeps a local int16 at `+256`. | O (code) |
 | D6 | Replicas receive life with `ZenHealthReplication_RFCSetMasterLife`. The handler `0x140B25550` writes through the life setter only when the entity's role bits `(+212 & 0xC0000) == 0x80000` (replica). | O (code), O (live: the joiner applied the host's NPC life values) |
