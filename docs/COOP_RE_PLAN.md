@@ -168,6 +168,13 @@ deliverable and acceptance criterion. Phases 1-5 are static. Phase 7 is dynamic.
     user's game: session fields and execute counters, no input blocking.
   - Next (static): what the backend hands Storm when a join succeeds (peer addresses, session ID), so our own
     lobby can supply it. Trace from the `0xb0040001` error back to the connect step.
+- **Status 2026-11-15 (error code, static):** [ACU-RE-0088](findings/ACU-RE-0088-online-error-code.md).
+  - The popup code is built at runtime from an error record: `(category << 28) | code`, appended by
+    `0x141C551C0`. So `0xb0040001` is category 11, code `0x40001`.
+  - The error-category registry has IDs -1, 0, 1, 2, 3, 6, 7, 8 and 9 (Online 2, UbiServices 7, Hermes 9).
+    No category 11 is registered, so it falls back to the generic message `544619` (inferred).
+  - Not found statically: the code that raises it. Next (live, read-only): hook `0x141C551C0`, press Play in
+    Public, read the record and the return-address chain. That names the connect step.
 
 ### Phase 3 - Replication model (static)
 - Echo objects: how a replica is created and deleted, what an "object shape" is
