@@ -116,23 +116,31 @@ Observations:
    - `0x1426AE410` compares two IDs byte by byte.
 
    `Create` therefore refuses a descriptor whose ID has length 0.
-8. **`NetSessionController` start-up generates its own ID.** Main vtable slot 39 (`0x141C61EE0`, vtable
-   `0x14300ED80 + 0x138`) does this, in order:
+8. **`NetSessionController` start-up generates its own ID.** `0x141C61EE0` is slot 15 of the controller's
+   Storm interface (vtable `0x14300EE40 + 0x78`), the override of Storm's base slot 15. (A first draft called
+   it main slot 39. That was wrong: `0x14300EEB8` lies past both vtable starts, and the interface matches.)
+   Its `this` is the interface (`NetSessionController + 8`), so the offsets below are interface offsets
+   (controller offset = interface offset + 8). In order, it:
    1. sets `+688 = 2`;
    2. calls Storm's base slot 15 (`0x141B34FC0`, from `defaultsessioncontrollerbase.cpp`). That registers the
       controller and builds the **local** `storm::PeerDescriptor` (vtable `0x142FFD960`, 840-byte object from
       `0x141B29170`, with a fresh descriptor);
    3. on success, draws two values from the game's seeded LCG at `qword_14525FAE0 + 4` (multiplier `1664525`,
       increment `1013904223`) and stores an 8-byte ID built from them (each value shifted right by 8) at `+728`;
-   4. builds a request with that ID and the string at `+768`, and calls base slot 31 (`0x141B2C540`), which
-      posts `storm::echo::player::inEvent::RequestAddPlayer` (event vtable `0x143005E48`).
+   4. builds a request with that ID and the string at `+768`, and calls interface slot 31 (`0x141B2C540`,
+      also at `0x14300EE40 + 0xF8`), which posts `storm::echo::player::inEvent::RequestAddPlayer` (event vtable
+      `0x143005E48`).
+
+   The controller constructor initializes that ID field at controller `+736` (interface `+728`) with
+   `0x1426A98E0` (empty).
 9. **`ConnectEndPoints` is reached only inside Storm.** The event is built in `0x142674A20`, called from
    `0x141BBF920`, which matches an address against a list of type-151 entries at `+240`. That function is
    called only by `0x141C2BD90`, slot 3 of a Storm connector vtable (`0x143008A38`, built by `0x141BA7320`).
    The session-level peer messages are also built only by Storm-range code: `SessionReachPeerMessage` in
    `0x141BD9CE0` and `0x141C26360`, `PlayerJoinAttachment` in `0x141B8C7B0` and others.
 10. **The game is told about connections.** The game-side type `PeerToPeerConnectionNotification` (record
-    `0x145214BF8`) is built by `NetSessionController` main slot 80 (`0x141C61040`) and by `0x141C577A0`
+    `0x145214BF8`) is built by `NetSessionController` interface slot 56 (`0x141C61040`, `0x14300EE40 + 0x1C0`)
+    and by `0x141C577A0`
     (another vtable, `0x143013070`). The game receives these notifications; it does not send addresses.
 
 Inferences:
@@ -152,7 +160,40 @@ Unknowns: which descriptor properties besides `+72` a joiner fills, and from whe
 session ID to the host's address on its own (only possible through a server); and the class built by
 `0x141BA7320`.
 
-Next test (live, read-only, offline): hook `0x141C61EE0` (start-up), `0x141B2C540` (`RequestAddPlayer`) and
+## Live run — Play in Private, offline (2026-11-15)
+
+Provenance: the user launched the game (PID 55780, non-elevated, original loader, overlay off) and went to a
+co-op mission. Only the native probe was attached (`acu_probe_launcher.exe --attach`, `injected:true`, exe
+SHA-256 `748abdc6…27e40`, base `0x140000000`). No focus shim, so the user's input was untouched. Four
+execute hooks with expected entry bytes, armed 22:15:32 to 22:16:56 local time:
+- `0x141C61EE0` (start-up, `488bc45355564881ec00010000488978`);
+- `0x141B2C540` (`RequestAddPlayer`, `48895c24084889742418574883ec2049`);
+- `0x141B69150` (`Create` builder, `48895c240848896c2410488974241848`);
+- `0x141C46B10` (game `"default"` create, `48895c2410555657488dac2420feffff`).
+
+The log is `local/native-probe/runs/coop-private-hooks-20261115/hooks.jsonl` (`9f4e7394…`). The probe was
+shut down afterwards. The user pressed Play in Private and the mission loaded.
+
+Observations:
+11. **No hits.** None of the four functions ran (probe `STATUS`: 0 hits, 0 dropped, 0 thread conflicts).
+12. **The controller stayed idle.** After the mission loaded, reads through the probe showed:
+
+    | Field | Value |
+    |---|---|
+    | `qword_145212ED0` | `0x0F659C40`, vtables `0x14300ED80` / `0x14300EE40` / `0x14300F098` as constructed |
+    | interface `+688` | `1` (start-up sets it to `2`) |
+    | interface `+728` (the ID) | length `0`, empty |
+    | interface `+8` | `-1` |
+    | interface `+676` | `1` |
+    | session object S (`[0x145212F48]+0x20`) `+0x30` | `-1` |
+    | S `+0x90` | `0` (as in ACU-RE-0087) |
+
+Inference: a solo Private co-op mission never starts the Storm session controller, never adds a player and
+never creates a session. Co-op Storm work begins only on a path that brings in a second player, which right
+now means matchmaking or invites, so the backend. Offline observation of the solo path can't reach Storm's
+session start. The next evidence has to come from static work, or from a two-player path we build ourselves.
+
+Earlier plan, now run (above): hook `0x141C61EE0` (start-up), `0x141B2C540` (`RequestAddPlayer`) and
 `0x141B69150` (`Create`) while starting a co-op mission with Play in Private. That shows whether the solo
 path runs the start-up and creates a session, and with which ID.
 

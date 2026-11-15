@@ -204,6 +204,10 @@ deliverable and acceptance criterion. Phases 1-5 are static. Phase 7 is dynamic.
     Storm a remote address. The first remote contact must come from the joiner's descriptor or ticket, or
     from the RDV matchmaking layer (a backend boundary). Next: the live, offline Play in Private test from
     ACU-RE-0089.
+  - Live, offline (user's game, probe only): Play in Private hit none of the start-up, add-player or Create
+    functions. The controller stayed idle (state 1, empty ID, peer -1). The solo path never starts Storm, so
+    offline play can't show session start. Next is static: how the matchmaking or invite result is turned
+    into the joiner's descriptor or ticket, to find what our own lobby must provide.
 
 ### Phase 3 - Replication model (static)
 - Echo objects: how a replica is created and deleted, what an "object shape" is
