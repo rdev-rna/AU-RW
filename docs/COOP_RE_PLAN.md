@@ -382,7 +382,9 @@ Steps, in order. Each one is a small stride with its own finding update:
    while the user presses Public, then follow the return chain to the check that raises `{7, 0x106}`.
    - If the check is a flag or state read, a probe `REDIRECT` or a data write may let Public reach slot 4. No
      code patches: code patches kill the game (ACU-RE-0090 run 4).
-2. **Probe call feature (only if step 1 has no data-level bypass).** Add `CALLAT <slot> <target> <rcx> <rdx> <r8>
+2. **Done (ACU-RE-0090 run 8):** `CALLAT` built; calling LAN matchmaker slot 4 turns on discovery, and
+   Storm posts DiscoverSession about twice a second. Original step:
+   **Probe call feature (only if step 1 has no data-level bypass).** Add `CALLAT <slot> <target> <rcx> <rdx> <r8>
    <r9>` to `probe.cpp`:
    - it runs once, on the game thread, at the next hit of an armed execute hook (for example Storm slot 12, which
      runs every frame);

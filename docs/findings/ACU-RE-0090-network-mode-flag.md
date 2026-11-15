@@ -439,6 +439,36 @@ ends the Public flow before the LAN matchmaker's start search. The gate is a bac
 Per the backend rule (B1) the request itself is only recorded, not decoded. No data-level bypass is apparent.
 The remaining route is calling the LAN matchmaker's slot 4 directly (LAN join plan, step 2).
 
+## Live run 8 — starting LAN discovery with the probe call feature (2026-11-16)
+
+Tooling: the probe gained a one-shot `CALLAT` (commit `ff09afb` on `acu-multi-launch-direct`; DLL SHA-256 prefix
+`a06d245b`). At the next hit of an armed execute hook it calls a function on the trapping thread and then
+restores the trap context. The fixture regression passed.
+
+Run: a fresh LAN-mode host (PID 131964); the flag was written at 1.391 s (`lan-call-20261116/lanflag.json`).
+`lancall.py` (scratchpad) did the following:
+- checked that `*(qword_145137930 + 1792)` held the LAN matchmaker vtable `0x14360D7E0`;
+- hooked Storm interface slot 12 (`0x141C626C0`), the DiscoverSession poster `0x141B35E10`, its constructor
+  `0x141B6E5E0`, and `0x1425406D0`;
+- issued `CALLAT 0 1425406d0 <LAN matchmaker> 0 0 0`.
+
+Log: `lancall.jsonl`.
+
+Observations:
+43. The call ran once, on thread 131304, at site `0x141C626C0`, and returned. The game kept running. Within
+    0.1 s the interface showed `+692` = 1 (it read 0 just before) and `+704` = a fresh timestamp.
+44. From then on, Storm slot 12 posted DiscoverSession on its own: `0x141B35E10`, called from `0x141C62720`,
+    followed by the constructor. That was **59 posts in 30 s**, about two per second, on several worker threads.
+    `+704` advanced by about 10,000,000 per second, so the `+696` interval of 5,000,000 is about 0.5 s. That fits
+    100 ns time units, which is an inference.
+45. The UDP sockets were unchanged: 3074 on all addresses, 6250 and 6300 on the LAN address. No other game was
+    running, so nothing could answer.
+
+Inference: calling the LAN matchmaker's start search turns on Storm's own periodic LAN discovery, with no
+Ubisoft service involved. The open questions are what the discovery handler (installed at startup by
+`0x141B34FC0`) does when a host answers, and whether that leads into a join. Answering them needs a second LAN
+game that can open sockets (moved ports, plan step 4) or a second machine (step 5).
+
 Unknowns / coverage:
 - Who sets the start-alone flag (statechart `+236`), and what the private-match host waits for before it
   launches (a joined peer, a host confirm, or both).
