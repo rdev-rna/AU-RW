@@ -3,9 +3,10 @@
 Date / investigator / related task: 2026-11-16 / claude-session, live / #85, co-op plan Phase 4 (combat, AI).
 Testbed: the ACU-RE-0090 two-game LAN setup on one PC (`tools/coop_lan/`).
 State: partially established.
+- Observed: one live `SendFightDamageEventToMaster` send, by the game that simulated the attacking NPCs.
 - Observed: the Private-hosting call chain, its live emulation, and discovery joining by itself.
 - Observed: one live fight with the intention traffic it caused.
-- Not settled: when `SendFightDamageEventToMaster` fires. Its block did not run in this fight.
+- Not settled: the caller of that send, and where the master writes health.
 
 ## Provenance
 
@@ -92,6 +93,48 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
      with the same hooks armed and none ran either.
    - HUD after the fight: each game showed the *remote* player's health bar partly empty and its own full.
 
+7. **Correction: the hooked blocks were in registration code, and the first live send.**
+   - ACU-RE-0091's blocks `0x140722B60` / `0x140722643` / `0x14072275B` load only the *broadcast* wire ID. They sit
+     after `test r12b, r12b / je`, so a unicast send skips them.
+   - Each message block in the NetHumanIntention send builder `0x14071F090` (frame `0x1120` + 5 pushes) has the same
+     shape. It compares the intention id `[rbx+8]` with the message type's id, calls the type getter, then branches
+     on `r12b`.
+   - The shared points before the branch, verified with Capstone 5.0.3:
+
+     | Builder | Message | Shared point | Branch |
+     |---|---|---|---|
+     | NetHumanIntention | `SendFightDamageEventToMaster` | `0x140722B4D` | `test r12b` |
+     | NetHumanIntention | `DoHurt` | `0x140722630` | `test r12b` |
+     | NetHumanIntention | `DoHurtInternal` | `0x140722748` | `test r12b` |
+     | NetBehaviorAI (`0x14069F200`, frame `0x2290`) | `SendFightDamageEventToMaster` | `0x1406A01AD` | `test r14b` |
+     | NetBehaviorAI | `DoHurt` | `0x1406A03F2` | `test r14b` |
+
+   - The 327-byte per-message functions (e.g. `0x1407798C0`, `0x1407700A0`, `0x140775FD0`) only call
+     `sub_141C42310`/`42370`/`42550` with the wire IDs. That is static RFC registration, not sending.
+   - Live, with hooks on the four shared points in both games during the spy fight ("KILL the Austrian spies",
+     9 of 10 killed):
+     - the **joiner** ran the NetHumanIntention `SendFightDamageEventToMaster` block once (tid 12376, 10 s after
+       arming, `damage5.jsonl`);
+     - the host's health was falling at the time;
+     - in the same 60 s, no NetBehaviorAI block and no `DoHurt` block ran in either game.
+   - That hook snapshot covered only the builder's own frame, so its caller is not known. `damagewatch6`
+     snapshots at the builder's entry RSP (`RSP+0x1148` / `RSP+0x22B8`) to catch the caller next time.
+8. **One damage record, two lanes** (static, `local/coop/intention_payloads.json`):
+   - `SendFightDamageEventToMaster` and `SetLastDamageEvent` carry the same 16 fields, taken from the same source
+     intention offsets: `+0x8`, `+0x14`, `+0x30`, `+0x70` (vec3), `+0x80`…`+0x90`, `+0xa8`, the bools
+     `+0xac`…`+0xaf`, and `+0xc8`.
+   - Message vtable `0x142EC3D90` sits next to `SetLastDamageEvent`'s `0x142EC3D28`. Type getter `0x140681740`;
+     type id cache `dword_14517CFD0`.
+9. **Master-side receive** (static):
+   - The only user of the type check `0x1405F5920` (depth ≥ 5 and hash `+80` == `dword_14517CFD0`) is the shared
+     intention receive handler `0x1407269B0`, at corpus lines 2398–2434.
+   - That branch decodes the message fields at `+120` … `+688` into a local intention. It builds the id from
+     `"<type>SendFightDamageEventToMasterMSG_NetProtocol_ID"` and starts the intention locally with
+     `sub_1405DA9E0(manager, out, id, &intention, …)`.
+   - `0x1405CF7F0` is the message's `FactoryEntry`, registered at startup by `0x140685FD0` together with every other
+     intention message.
+   - What the started intention does on the master (where health is written) was not traced.
+
 ## Inferences
 
 - **NPC simulation sits with one machine at a time, and it was not the mission host.** The enemy's intentions flowed
@@ -104,6 +147,11 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
   `SendFightDamageEventToMaster` block stayed silent.
   - Prediction, not yet tested: the block runs when a player hits an NPC that the other machine owns, or when an NPC
     hits the other machine's player.
+- **The request lane exists and runs (observation 7).** In the spy fight, the joiner, which simulated the attacking
+  spies, sent `SendFightDamageEventToMaster` while the host's player was being hurt. One hit, with no caller
+  captured, so this is consistent with the prediction but does not prove it. The master rebuilds the event as an
+  intention and runs it locally (observation 9), then broadcasts the outcome on the `SetLastDamageEvent` lane with
+  the identical record (observation 8).
 - **For the AC4 mod:** a hit on a puppet does not have to be replayed on the puppet. The machine that owns the
   victim applies it and sends the result as an intention. F7's "the damage lane does not exist yet" matches
   `SendFightDamageEventToMaster`'s role. The outcome lane (`SetLastDamageEvent`, `EnterIncapacitated`) is separate,
@@ -114,7 +162,8 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
 - the ownership rule and hand-over for mission NPCs;
 - whether ownership was the joiner's because of proximity or for another reason (the host was 5 m away, the joiner 1 m);
 - the HUD health asymmetry: replica health may be local-only, or the HUD may show each game's view of the partner;
-- the `SetLastDamageEvent` payload;
+- the meaning of each field of the shared damage record (`+0x30`, `+0x80`…`+0x90`, `+0xa8`…`+0xaf`, `+0xc8`);
+- the caller of the one observed `SendFightDamageEventToMaster` send, and where the master writes health;
 - whether the emulated Private call works from every free-roam state (one run, from inside a building);
 - any mission id other than `COOP_RB050` (the asset-index name is not verified against the map's own id table).
 
