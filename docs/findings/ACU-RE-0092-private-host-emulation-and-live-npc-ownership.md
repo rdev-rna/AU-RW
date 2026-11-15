@@ -395,12 +395,22 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
           caller and is referenced by data pointers at `0x144098B60` and 5 more.
       - `sub_140C92B80` unpacks the same bitfield from a stream (`(v & 3) << 18`), so the role can also arrive as
         serialized data.
-      - Which system owns `a1+7304` / `a1+3380` in those callers is not identified. Hooks on both callers did not fire
-        while the players were teleported between courtyard positions (`spawn1.jsonl`), so they are not the crowd
-        spawner.
-    - Inference: ownership is decided when an entity is created, by whichever creation path runs. There is a local
-      creator that makes masters and a data-driven creator that makes replicas. Crowd humans are created locally
-      in every game and never shared. No live role change of an existing entity was observed.
+      - `a1+7304` is itself an entity with role bits. After creating the child, `0x14191A730` tests
+        `*(a1+7304)+212 & 0xC0000 == 0x80000` and, on a replica owner, calls `sub_140D0FD40(…, 0, 1)`.
+        - So the two callers are methods of a component that creates *child* entities for an owner entity.
+        - The creation record sets a 300 m radius (`sub_140CD82A0(…, 300.0, …)`), and `a3+104` is the template.
+        - They are not the mission NPC spawner.
+      - `0x14191A730` is the handler in a live 32-byte table entry at `0x144098B60`:
+        `{fn, 0, index 0x16D << 32 | 0xCC2F2AE7, 2}`. The neighbouring entries name `0x1419247B0`, `0x1419FF3B0`,
+        `0x141AB1A70`, `0x141A0E470`, `0x1419130B0` and `0x14191D7B0`. The hash matched no class CRC and no
+        network-atlas wire ID.
+      - Hooks on both callers did not fire while the players were teleported between courtyard positions
+        (`spawn1.jsonl`).
+    - Inference: the role is written when an entity is created, by whichever creation path runs. The child-entity
+      creator shows the pattern: a local creator writes master, and a data-driven creator writes replica from a
+      received record. Crowd humans are created locally in every game and are never shared. The creation path for
+      *mission* NPCs, and therefore their ownership rule, was not found. No live role change of an existing entity
+      was observed.
 
 ## Inferences
 

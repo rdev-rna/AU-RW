@@ -89,7 +89,7 @@ How Storm then serializes and paces them is not traced (I).
 | D7 | Health regeneration runs every second in the health state machine on each peer, for both local and replica player-health objects. | O (live) |
 | D8 | A hit on an entity the local peer owns is applied there (execute) and then sent on the message's `_ID` hash (`0x6527A678` for NHI), route 2 to all peers. Receivers' guards fail, so the copy cannot apply damage a second time. | O (live, ACU-RE-0092 observation 14: joiner-owned NPC victims) |
 | D9 | Forwarded hit (live, player victim): the replica side sends on `_ID` (route 1, to the master). The master executes, then sends on `_ID_UNICAST` to one peer. Routing comes from the intention mode and the object's replica marker in `sub_141C66360`, not from the gameplay code. | O (live, ACU-RE-0092 observation 15), I (replica marker, reply target) |
-| D10 | Roles are fixed when an entity is created: `sub_140C1E360` writes master or replica from its caller (local creator → master, data-driven creator → replica). Crowd humans are local masters in every game and are not replicated. Only mission NPCs and the avatars have replicas. | O (code, census), I (no live role change observed) |
+| D10 | Roles are written when an entity is created. `sub_140C1E360` (a child-entity creator) writes master or replica from its caller: local creator → master, data-driven creator → replica. The mission NPC creation path is not found. Crowd humans are local masters in every game and are not replicated. Only mission NPCs and the avatars have replicas. | O (code, census), I (no live role change observed) |
 
 ## 7. Porting checklist (AC4 co-op mod and other titles)
 
