@@ -412,6 +412,66 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
       *mission* NPCs, and therefore their ownership rule, was not found. No live role change of an existing entity
       was observed.
 
+18. **Ownership migrates at runtime: AI humans and world objects follow the nearer player, mission coordinators
+    stay put** (static, then live):
+    - **Static: Storm net-object ownership callbacks.** Every role writer that ORs bits into `entity+212` is in the
+      net-object code next to the object path:
+      - `sub_141C62F30(netobj, a2, a3)` resolves the entity (`sub_141C4FF20`). When `a2 == 2` it writes master
+        (`&= ~0x80000; |= 0x40000`). It then notifies the entity's component (`+240`, vtable `+208`) and the
+        net object's listener (`+136`, vtable `+184`, code 3).
+      - `sub_141C631D0(netobj, a2, a3, a4)` writes replica when `a3 == 1`. It notifies `+200` and code 2, and when
+        `a3 == 2 && a2 == -1` it resets `netobj+128` to −1.
+      - The two sit in adjacent vtable slots (`…3B0` / `…3B8`) of four related vtables at `0x142F693B0`…`0x142F69A50`
+        and in `0x14300F9D0`.
+      - `sub_141C58880` / `sub_141C5AF70(…, flag)` set master or replica directly from a flag. `sub_141C5AF70`'s only
+        direct caller is `0x140F98180`.
+      - `sub_140CAC400` and `sub_141CD0470` also write the bits; they were not read.
+    - **Live callbacks** (`ownerwatch`, `owner1.jsonl`, about 100 s):
+      - Both callbacks ran in pairs on the same net object in the same poll, on worker threads. The caller chains
+        were `0x141C5ACAD`/`0x141C5AD55` ← `0x141B7DF75`/`0x141B7DFB0` and `0x141C526DD`/`0x141C526A8` ← `0x141C5B8D6` ←
+        `0x141B7DF3A`, all below `0x141B319D6` ← `0x1426CDC9E`.
+      - Argument patterns, reading the states as 0 = new, 1 = replica, 2 = master (an inference from which
+        argument triggers which write):
+
+        | Pattern | Replica callback `(a2, a3)` | Master callback `(a2, a3)` | Write |
+        |---|---|---|---|
+        | 1 → 2 | (1, 2) | (2, 1) | master |
+        | 0 → 2 | (0, 2) | (2, 1) | master |
+        | → 1 | (0 or 1, 1) | (1, 1), or none | replica |
+
+      - About 15 s after the players were teleported apart, four objects in the joiner took pattern 1 → 2 within one
+        poll (t = 14.94 s). In the host, `0 → 2` dominated, and a few objects went to replica.
+      - `sub_141C5AF70` ran about 100 times, mostly in the host with flag 0, re-asserting the same objects.
+    - **Role census across a position swap.** `rolecensus.py` runs `world_entities.py` (radius 120 m) and then
+      `READ +212`. It ran twice:
+      - **A:** host at (900, 241), joiner at (965, 227);
+      - **B:** 30 s after swapping, host at (951, 271), joiner at (900, 241).
+
+      Results:
+      - **`SQ06_M010_AlarmBell_WithZones`** (876.9, 222.5) flipped in *both* games, in a complementary way. In A
+        the host was master (`0x401F3`) and the joiner replica (`0x801F3`); in B the reverse. It went to the player
+        about 30 m away rather than the one about 89 m away.
+      - **Danton** (animated, at (954.05, 267.99)):
+        - first census (host 44 m away, joiner 46 m): host master `0x4000a`, joiner replica `0x8000a`;
+        - after the move apart (joiner 42 m, host 59 m): the joiner held him as master `0x4000a`;
+        - in B (host beside him): the host was master `0x4000a` again.
+        - So the NPC migrated twice, each time to the nearer player.
+      - **Mission coordinators** (`COOP_RB050*`: `Coord_KillTarget`, `Coord_Patrol_Aggressors_Custom`,
+        `PatrolSniper`, `Domino`, `Coord_Defend`, `Coord_Spawn_Danton`, `ACT1_FirstSpy`, `SC100_Full_Cin_Root`, …):
+        - the joiner held all 61 as masters;
+        - the host held 40 as replicas, and 24 more as masters, probably entities that are not replicated;
+        - this was the same in A and B. Mission logic stayed with the joiner, although the host started the mission
+          with the emulated Private call.
+      - **Systemic world content** (`FRV_Coord_Toy_*` guard coordinators, `Coord_Chest_*`, `GcL_Shop_*`, a
+        viewpoint): mostly masters in the host. The joiner held 11–13 as replicas and the host only 1.
+    - Inference:
+      - ACU migrates ownership of AI humans and of interactive world objects to the nearer player. That fits the
+        GDC 2015 description, but the rule (distance threshold, hysteresis, interest) is not measured.
+      - Mission coordinator entities are not migrated by proximity. Who receives them is unknown: here it was the
+        joiner, not the session host.
+      - The migration path is the net object's callbacks, which write the role bits and notify the components.
+        Crowd humans are not net objects (observation 17), so they never migrate.
+
 ## Inferences
 
 - **NPC simulation sits with one machine at a time, and it was not the mission host.** The enemy's intentions flowed
@@ -456,8 +516,10 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
 
 ## Unknowns / incomplete coverage
 
-- the ownership rule and hand-over for mission NPCs;
-- whether ownership was the joiner's because of proximity or for another reason (the host was 5 m away, the joiner 1 m);
+- the migration rule (distance threshold, hysteresis, interest) for AI humans and world objects; observation 18
+  shows that ownership follows the nearer player, but does not measure the rule;
+- why the mission coordinators (`COOP_RB050*`) were owned by the joiner rather than the session host;
+- whether the fight NPC's ownership (joiner 1 m away, host 5 m) was proximity: consistent with observation 18;
 - the HUD health asymmetry: replica health may be local-only, or the HUD may show each game's view of the partner;
 - the meaning of each field of the shared damage record (`+0x30`, `+0x80`…`+0x90`, `+0xa8`…`+0xaf`, `+0xc8`);
 - a forwarded hit on an *NPC* victim (NHI, kind 2). Only a player victim (NBAI) was caught forwarded
