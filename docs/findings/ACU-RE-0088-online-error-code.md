@@ -189,6 +189,48 @@ Unknowns:
 - What the backend would hand Storm on success (peer addresses, session ID). That is still the target, so our
   own lobby can supply it.
 
+## Static follow-up — what the selector-7 "connected" state gates (2026-11-15)
+
+Method: every RIP-relative reference to `qword_145196D18` (32 sites in 30 functions, scanner as above), each read
+in the corpus. Static only.
+
+Observations:
+15. **Most users only test the state.** Eleven functions in the `0x14084xxxx`–`0x1408Fxxxx` menu range test
+    `*(qword_145196D18 + 152) == 3` (or `!= 3`) and store the result as a page flag or skip a block. Examples:
+    `0x140849950` (`+841`), `0x1408B3C30` (`+962`), `0x1408A8480`, `0x14086B3F0`, `0x1408F2120`, `0x1408F33F0`.
+    No function in this group sets the state.
+16. **What `0x1408F33F0` does when the state is 3.** It iterates a list of entries and compares each name with
+    the string at `qword_145137918 + 240`, marking a match at `+136`. With the state at 3, it also:
+    - fetches from `qword_145137928` (`0x14254E470`) and adds rows (`0x1408FB3A0`, up to 4);
+    - sets button or row flags from `qword_145137930` (`0x14254DD30`, `0x14254BE60`).
+
+    Inference: a player or friends list, plus whether its actions are enabled. That fits the greyed-out Invite
+    seen while offline (ACU-RE-0087).
+17. **Gameplay-side gates.** `GhostManagerWorldComponent::helper_1411CCDE0` returns early unless two things hold:
+    `qword_145196CD8 + 233` (selector 1) is set, and selector 7 is at state 3. `0x1411C9BB0`, `0x1411B3A10` and
+    `0x1411B3E00` use the same two-service test. `0x1411C9BB0` also compares an ID against the all-zero GUID
+    string `00000000-0000-0000-0000-000000000000`.
+18. **Requests to selector 7 go through two builders.** `0x1424DBD50(service, job)` and
+    `0x1424DBF00(service, job)` each create a 392-byte request (vtable `0x1436067F0`), bound to the service,
+    with completion callbacks `0x1424F8980` and `0x1424F9000` respectively, and queue it (`0x142737190`). Callers:
+    - `0x1424DA4A0`, `0x140F30BA0`, `0x140F42890` and `0x140F9B010` call `0x1424DBD50`;
+    - `0x140F5E8F0` calls `0x1424DBF00`, only when the service's vf11 (`+0x58`) returns true and a flag bit is
+      set.
+
+    Both callbacks branch on the OK test first.
+19. **Who listens.** `OnlineUniverseComponents::helper_140F01A20` (and `0x140F0AAC0`) subscribe to the service's
+    event at `+232` with handler `0x140F40B50`.
+
+Inferences:
+- Selector 7 is a general online service, not something specific to co-op. It gates menus (player lists,
+  invite actions), ghost or online world features, and the co-op Public entry. It looks like the "signed in
+  to Ubisoft online" state. That is an inference: no name string exists in these functions.
+- The menus never reach Storm directly from this state. Co-op needs more after it (matchmaking, session join),
+  which these functions don't show.
+
+Unknowns: the function that moves the service to state 1 (connecting) and issues the OSDK request (the
+service's vf0 sets the state; its caller is not traced); what selector 1 (`qword_145196CD8`, flag `+233`) is.
+
 Reproduction steps:
 ```powershell
 # UTF-16 " [0x%08x]" at 0x14300F340; its single RIP-relative reference is in 0x141C551C0

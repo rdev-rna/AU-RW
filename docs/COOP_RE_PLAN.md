@@ -180,8 +180,14 @@ deliverable and acceptance criterion. Phases 1-5 are static. Phase 7 is dynamic.
     constructor `0x1424A3F40`). Its connect handler `0x1424FFFF0` gets the OSDK error and so never sets the
     service's state `+152` to 3 ("connected"). The menus and the UI callback test that field.
   - Seam for our own backend: bring selector-7 to state 3 (or satisfy the menus' checks) without OSDK, then
-    find what Storm needs next. Next (static): what the menus do after `+152 == 3` (`0x1408F33F0`), and the
-    selector-7 service's vf12 and state users.
+    find what Storm needs next.
+  - Static follow-up: selector 7 is a general online service. Eleven menu functions test its state (player
+    or friends lists, invite actions), and so do the ghost and online world features, together with selector 1.
+    Requests to it go through `0x1424DBD50` and `0x1424DBF00`. Nothing here reaches Storm. Co-op needs the
+    matchmaking or join step after it.
+  - Next: find the co-op Public handler that first needs selector 7, then the step after the connect
+    (matchmaking or join) that would hand Storm its peers. Live, read-only: hook the service's vf0, the
+    connect start.
 
 ### Phase 3 - Replication model (static)
 - Echo objects: how a replica is created and deleted, what an "object shape" is
