@@ -1,7 +1,7 @@
 # #85 Co-op reverse engineering (area: coop)
 
 Branch `acu-85-coop-re-plan`. Plan: [../COOP_RE_PLAN.md](../COOP_RE_PLAN.md). Files: `docs/COOP_RE_PLAN.md`,
-`docs/areas/coop.md`, `docs/coop/BACKEND_BOUNDARY.md`, `docs/coop/AVATAR_SPEC.md`, `docs/findings/ACU-RE-0075-avatar-replication.md`, `docs/findings/ACU-RE-0073-session-transport-seam.md`, `tools/net_census.py`, `tools/net_protocol_atlas.py`,
+`docs/areas/coop.md`, `docs/coop/BACKEND_BOUNDARY.md`, `docs/coop/AVATAR_SPEC.md`, `docs/findings/ACU-RE-0075-avatar-replication.md`, `docs/findings/ACU-RE-0076-position-replication.md`, `docs/findings/ACU-RE-0073-session-transport-seam.md`, `tools/net_census.py`, `tools/net_protocol_atlas.py`,
 `tools/test_net_protocol_atlas.py`, `tools/net_title_survey.py`, `tools/test_net_title_survey.py`,
 `docs/findings/ACU-RE-0072-net-protocol-registry.md`, `docs/findings/ACU-RE-0074-target-title-net-stacks.md`.
 
@@ -49,6 +49,12 @@ The repo is public, so only the tool and the finding are committed. This overrid
 - This resolves the Phase 1 open item: the object-scoped prefix is `zenitar_<Owner>_`.
 - The solo live probe was deferred: other linked sessions are active, and lock #30 has a stale ACQUIRE
   with no release.
+
+## Done (position, 2026-11-15)
+- [ACU-RE-0076](../findings/ACU-RE-0076-position-replication.md): position, velocity and heading travel in
+  the dead-reckoned `NetProxyManager`/`ProxiesProtocol` pool (30×10). All thresholds and encodings are read
+  from the sender. `NetPlayer` is a container object, and entity replicas bind by entity ID. This corrects
+  the ACU-RE-0075 key (`0xA92DBEA6` = wire ID).
 
 ## Not done / next
 - Phase 1 remainder: confirm the decoder, encoder and body roles by tracing the receive path from Storm to

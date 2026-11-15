@@ -45,7 +45,8 @@ Exact commands and search boundary: the atlas command is in ACU-RE-0072. The ID 
    - key `0x4F70EE5E` → `sub_1401363B0` (is-a check).
 
    `sub_140176C60` hands a pair `{sub_140172F20, sub_140173180}` to the Storm registry under key
-   `0xA92E6CA6` (not yet identified), registers the record hash through registry virtual `+0x88`, and
+   `0xA92DBEA6`, which is the snapshot's own wire ID (corrected in ACU-RE-0076; an earlier draft had a
+   hand-conversion error, `0xA92E6CA6`), registers the record hash through registry virtual `+0x88`, and
    stores the registry pointer at `owner + 0x58`.
 3. **The snapshot codec.** "Source" means the game-side object being replicated; "slot" means a field slot
    in the snapshot object. Each slot holds a pointer to a changed flag at `+0x00`, a changed byte at `+0x08`
@@ -111,12 +112,13 @@ Exact commands and search boundary: the atlas command is in ACU-RE-0072. The ID 
 
 - The game class that owns a `HumanAvatar_NetProtocol` snapshot is not known. It is reached through the
   type-keyed factory, so no direct caller exists. A live probe would settle it.
-- What the source fields mean; the per-slot bit widths, which are set outside the codec; and what key
-  `0xA92E6CA6` is.
+- What the source fields mean, and the per-slot bit widths, which are set outside the codec. (The
+  registry key is the wire ID `0xA92DBEA6`; see ACU-RE-0076.)
 - The fields of each intention payload. Only `AssassinateTarget` and `SetRiftWeaponAimingAngle` are
   partly read.
-- Position and transform replication. No position fields appear in `HumanAvatar`. Position may travel in
-  `AnimComponentNetData` or the Storm object descriptor, which has not been checked.
+- Position and transform replication. No position fields appear in `HumanAvatar`. Resolved in
+  ACU-RE-0076: position travels in the dead-reckoned `ProxiesProtocol` pool, not in
+  `AnimComponentNetData`.
 
 ### Independent comparison / falsification test
 

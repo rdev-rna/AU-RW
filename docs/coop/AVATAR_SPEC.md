@@ -43,9 +43,23 @@ inferred (**I**).
 
 The per-field bit widths and the field meanings are still open (ACU-RE-0075 unknowns).
 
-## 5. Open items for this spec
-- The owning entity class, and where position and transform are carried.
+## 5. Position, velocity and heading (ACU-RE-0076)
+
+| | Rule | Evidence |
+|---|---|---|
+| P1 | Position travels in a **proxy pool**, `NetProxyManager`: 30 `ProxiesProtocol` entries × 10 entities each. It is not part of the avatar snapshot. | O |
+| P2 | Dead reckoning. The sender predicts `p_last + v_last·dt` and re-sends position and velocity when the prediction error² exceeds 0.0025 (precise mode) or 0.25 (normal), when the distance² since the last send exceeds 6.25 or 16, or when the entity stops. Prediction applies only after more than 100 ms. | O |
+| P3 | The sender predicts from the quantized values it just sent, so both sides extrapolate identically. | O |
+| P4 | Position: per-axis signed fixed point, x ∈ ±4000, y ∈ ±3000, z ∈ ±2000, re-sent per axis on a change of at least 0.01. | O (axes and units unverified) |
+| P5 | Velocity: unit direction (x, z, sign of y) plus speed clamped to 340. | O |
+| P6 | Heading: one scalar from matrix row 1, re-sent when it changes by more than 0.175 rad. Each entity also carries a timestamp and one flag. | O |
+| P7 | Placed world entities are bound by entity ID to each peer's local copy, not spawned over the network. | O |
+| P8 | Receiver interpolation and snapping: unknown. | — |
+
+## 6. Open items for this spec
+- The owning entity class. Position is now covered in section 5 (ACU-RE-0076).
+- The receiver side of the proxy pool, and whether the player avatar holds a proxy slot.
 - The payload of each intention (2 of 94 partly read).
-- The bit widths, and the `0xA92E6CA6` registry key.
+- The bit widths. (The registry key is the wire ID `0xA92DBEA6`; see ACU-RE-0076.)
 - A live check: a one-instance single-player probe to name the owner and the heap singletons. A
   two-instance co-op capture only after a session can be started without the backend.
