@@ -10,9 +10,11 @@
 //!   biases `+3380..` are reported, not applied: Bevy has one overlap proportion and one
 //!   depth bias per light, and ACU's bias units are not established.
 //!
+//! - baked GI: native Paris irradiance cells around Arno replace the ambient fill
+//!   (`gi_volume`), with a SYNTHETIC intensity calibration.
+//!
 //! Still synthetic: sun direction, sun / sky illuminance and colour (the time-of-day
-//! manager computes them; not decoded), ambient fill (baked GI is not decoded: the GICP
-//! blob codec is unknown), the clear colour, SSAO (decoded, not applied).
+//! manager computes them; not decoded), the clear colour, SSAO (decoded, not applied).
 
 use acu_assets::{Limits, ambiance, forge::Forge, package};
 use bevy::camera::Exposure;
@@ -88,14 +90,31 @@ pub fn report(native: Option<&Native>) -> serde_json::Value {
                 "hdr_value132": n.ambiance.hdr.value132,
                 "ssao": &n.ambiance.ssao,
             },
-            "synthetic": ["sun direction", "sun illuminance/colour", "ambient fill (GI undecoded)",
+            "synthetic": ["sun direction", "sun illuminance/colour", "GI intensity calibration",
                           "clear colour"],
         }),
     }
 }
 
-/// Spawn the lights and return the camera exposure to attach.
-pub fn spawn(commands: &mut Commands, native: Option<&Native>) -> Option<Exposure> {
+/// Synthetic ambient brightness the native preset used before GI was decoded.
+const SYNTHETIC_AMBIENT: f32 = 4_000.0;
+
+/// SYNTHETIC: scale native GI so its median lit L0 luminance equals the former synthetic
+/// ambient brightness. ACU's GI scale relative to exposure is not established.
+pub fn gi_intensity(median_luminance: Option<f32>) -> f32 {
+    match median_luminance {
+        Some(l) if l > 0.0 => SYNTHETIC_AMBIENT / l,
+        _ => 1.0,
+    }
+}
+
+/// Spawn the lights and return the camera exposure to attach. With `native_gi` the ambient
+/// fill is left to the irradiance volumes.
+pub fn spawn(
+    commands: &mut Commands,
+    native: Option<&Native>,
+    native_gi: bool,
+) -> Option<Exposure> {
     let sun_rotation = Quat::from_euler(EulerRot::YXZ, 0.6, -0.9, 0.0);
     let fill_rotation = Quat::from_euler(EulerRot::YXZ, -2.4, -0.4, 0.0);
     let Some(n) = native else {
@@ -142,7 +161,7 @@ pub fn spawn(commands: &mut Commands, native: Option<&Native>) -> Option<Exposur
     // sensible to expose: Bevy's direct-sunlight constant and a sky-like fill.
     commands.insert_resource(GlobalAmbientLight {
         color: Color::srgb(0.70, 0.81, 1.0),
-        brightness: 4_000.0,
+        brightness: if native_gi { 0.0 } else { SYNTHETIC_AMBIENT },
         ..default()
     });
     commands.spawn((

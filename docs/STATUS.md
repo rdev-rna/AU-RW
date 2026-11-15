@@ -18,15 +18,23 @@ arena now uses the native Paris `WorldAmbiance` settings. Default `--lighting pa
   - the four Paris `GILoader` trees (61–65k nodes, one per time-of-day Season);
   - `GIDatablock` (`_gi.forge`) → `GIResult` (16 m cells) → `GIData` (four GICP blobs each).
 - The For Honor `GIStream` layout does not transfer.
-- **The GI irradiance itself is not decoded.** The GICP blobs use a CPU codec that is not yet
-  found; the `GIDecode*` compute shaders (YCbCr → RGB) run after it.
+- `acu_assets::gicp` decodes the GICP blobs (an octree-delta byte codec, found through a live
+  staging-upload hook; all 192 blobs of a Paris datablock decode to their exact end) and the
+  `GIDecodeYCbCr` combination into RGB L1 SH texels.
+- Bevy (`gi_volume`): the Paris GI around the spot where Arno stood live (496.66, −7.31, −0.25) is
+  resampled from every tree level (finest wins) into one 24 × 24 × 8 m irradiance volume and
+  replaces the synthetic ambient fill. SH evaluation `dot(L1, n) + L0`, the voxel axes and the
+  intensity (median lit L0 → the old 4000 fill) are inferred or synthetic.
+- Shadow tail roles confirmed natively (`sub_1421F9030`, with the user's HardShadowPatch names):
+  split distances `+3396`, blend regions `+3412`, per-cascade biases `+3380..`.
 - `acu_assets::ambiance` decodes part of WorldAmbiance: the SSAO / HDR camera prefix and the fixed
   shadow tail. Applied in Bevy:
   - EV100 12.94 (f/5.6, 1/250 s, `ISO` 100; aperture and shutter roles inferred);
   - shadow map 1024;
   - cascade bounds 5 / 14 / 38 / 72 m.
-- Still synthetic: sun direction and magnitude, ambient fill, sky.
-- Capture: `outputs/lighting/arno-paris-noon.png`, beside `arno-synthetic.png`.
+- Still synthetic: sun direction and magnitude, sky, GI intensity scale.
+- Captures: `outputs/lighting/arno-paris-noon-gi.png` (native GI), `arno-paris-noon.png` (before GI),
+  `arno-synthetic.png`.
 
 Locomotion parity (2026-11-15, [ACU-RE-0072](findings/ACU-RE-0072-flat-ground-locomotion-parity.md),
 report [LOCOMOTION_PARITY.md](LOCOMOTION_PARITY.md)): flat-ground locomotion is checked against the

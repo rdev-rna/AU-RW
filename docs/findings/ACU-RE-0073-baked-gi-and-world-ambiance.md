@@ -6,7 +6,7 @@ GI, AO) starting from the For Honor rewrite". Related: [LIGHTING_RESEARCH.md](..
 Climate), [ACU-RE-0060](ACU-RE-0060-reflection-symbol-index.md) (reflection symbol index, on branch
 `claude/lucid-dirac-c0ec4f`), [ACU-RE-0071](ACU-RE-0071-avatar-color-sets.md) (DXBC disassembly
 method).
-State: partially established.
+State: partially established (codec observed; GI evaluation inferred).
 - The GI containers are observed: they decode to their exact end.
 - The GICP codec is observed and implemented (`acu_assets::gicp`): an octree-delta byte codec, found
   through a live staging-upload hook. All 192 blobs of a Paris datablock decode to their exact end.
@@ -271,8 +271,8 @@ powershell -File tools/run_arno.ps1 -Capture outputs/lighting/arno-paris-noon.pn
 
 - `acu_assets::gi`: `decode_loader` and `decode_datablock`. GICP blobs are kept as bytes, with
   their dims.
-- `acu_assets::gicp`: `decode(blob, channels)` (exact-end checked) and `combine_ycbcr` (one
-  `GIDecodeYCbCr` texel).
+- `acu_assets::gicp`: `decode(blob, channels)` (exact-end checked), `combine_ycbcr` (one
+  `GIDecodeYCbCr` texel) and `decode_cell` (a result's 16^3 texels).
 - `acu_assets::ambiance::decode`: the SSAO / HDR prefix and the shadow tail. `HdrLighting::ev100`
   computes EV100.
 - `acu_bevy::lighting`, selected by `--lighting synthetic|paris-dawn|paris-noon|paris-sunset|paris-night`
@@ -281,5 +281,16 @@ powershell -File tools/run_arno.ps1 -Capture outputs/lighting/arno-paris-noon.pn
   - `DirectionalLightShadowMap` 1024;
   - `CascadeShadowConfig.bounds` = (5, 14, 38, 72).
 
-  Sun direction, sun illuminance (Bevy `DIRECT_SUNLIGHT`), ambient fill and clear colour are
-  synthetic. They are listed in the scene report's `lighting.synthetic`.
+  Sun direction, sun illuminance (Bevy `DIRECT_SUNLIGHT`) and clear colour are synthetic. They
+  are listed in the scene report's `lighting.synthetic`.
+- `acu_bevy::gi_volume` (with a Paris preset): gathers every leaf of the preset's `GILoader` that
+  touches a 24 x 24 x 8 m region around the anchor (496.664, -7.308, -0.252), Arno's live position
+  on 2026-11-15. It decodes each cell with `gicp::decode_cell` and resamples the region at 1 m,
+  finest leaf first (Noon: four level-0, one each of levels 1, 2, 5, 7, 9; 0 uncovered voxels;
+  `GIResult Center` = tree min checked for every cell). One Bevy `IrradianceVolume` holds the
+  ambient cube faces `max(0, L0 +- L1_axis)` in Bevy axes and replaces the synthetic ambient fill.
+  The intensity scales the median lit L0 luminance (0.00837 at Noon) to the former 4000 fill
+  (SYNTHETIC). Observation: the fine leaves stop at the street surface; the air above the street
+  is covered only by levels 5+.
+- Capture: `outputs/lighting/arno-paris-noon-gi.png` (scene report
+  `local/captures/lighting/scene-gi.json`).

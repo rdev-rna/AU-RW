@@ -15,6 +15,7 @@
 mod arena;
 mod character_material;
 mod controls;
+mod gi_volume;
 mod io;
 mod lighting;
 mod load;
@@ -206,7 +207,16 @@ fn setup_world(
             eprintln!("lighting preset {:?} failed: {e}", options.lighting);
             std::process::exit(3);
         });
-    let lighting_report = lighting::report(native_lighting.as_ref());
+    let native_gi = match native_lighting {
+        Some(_) => gi_volume::load(&options.game_dir, &options.lighting).unwrap_or_else(|e| {
+            eprintln!("native GI for {:?} failed: {e}", options.lighting);
+            std::process::exit(3);
+        }),
+        None => None,
+    };
+    let gi_intensity = lighting::gi_intensity(native_gi.as_ref().map(|g| g.median_luminance));
+    let mut lighting_report = lighting::report(native_lighting.as_ref());
+    lighting_report["gi"] = gi_volume::report(native_gi.as_ref(), gi_intensity);
     println!("lighting: {lighting_report}");
     let mut library = options
         .rigged
@@ -535,7 +545,10 @@ fn setup_world(
     }
 
     // Lighting (ACU-RE-0073): native Paris WorldAmbiance settings, synthetic remainder.
-    let exposure = lighting::spawn(&mut commands, native_lighting.as_ref());
+    let exposure = lighting::spawn(&mut commands, native_lighting.as_ref(), native_gi.is_some());
+    if let Some(gi) = &native_gi {
+        gi_volume::spawn(&mut commands, &mut images, gi, gi_intensity);
+    }
 
     // Camera framing the decoded bounds.
     let center = (bevy_min + bevy_max) / 2.0;

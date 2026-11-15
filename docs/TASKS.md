@@ -510,9 +510,11 @@ their native asset selection remains unresolved. LIGHTING_RESEARCH.md and
 RENDERING_SOURCES.md track the reviewed video and developer rendering reference.
 Lighting slice 1 (ACU-RE-0073, done): GI containers decoded (exact end); Paris
 WorldAmbiance exposure and shadow settings applied (`--lighting paris-noon`).
+Lighting slice 2 (ACU-RE-0073, done): GICP codec and `GIDecodeYCbCr` decoded with tests;
+native Paris GI applied around Arno as one Bevy irradiance volume.
 Next, in order:
-- the GICP codec (CPU decoder, or a live hook on the texture upload);
-- the GIData → `GIDecode*` variant and the world-volume indirection;
+- the forward GI evaluation and `g_WorldGIIndirection` (confirms SH form, voxel axes, scale);
+- a live in-game comparison of the GI at the anchor spot;
 - the time-of-day sun / LayeredSky;
 - the remaining PostEffects, Wind and WorldFog.
 

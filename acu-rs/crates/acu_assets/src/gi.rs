@@ -311,7 +311,8 @@ pub struct GiResult {
     #[serde(serialize_with = "ser_hex")]
     pub object_id: u64,
     pub values: [u32; 3],
-    /// Reflected property names `Center` (`+16`) and `Extents` (`+32`).
+    /// Reflected property names `Center` (`+16`) and `Extents` (`+32`). Observed: `Center` equals
+    /// the min corner of the GI tree leaf that links this result, and `Extents` its edge length.
     pub center: [f32; 4],
     pub extents: [f32; 4],
     pub vector48: [f32; 4],

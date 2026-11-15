@@ -317,6 +317,44 @@ pub fn combine_ycbcr(
     }
 }
 
+/// Decode one `GIResult`'s four GIData (YCbCr path) to an `n`^3 grid of [`DecodedTexel`]s,
+/// x fastest, then y, then z (GICP voxel axes; their world mapping is not established).
+pub fn decode_cell(data: &[crate::gi::GiData], n: u32) -> Result<Vec<DecodedTexel>> {
+    if data.len() != 4 {
+        return invalid(format!(
+            "GIResult with {} GIData unsupported (expected 4)",
+            data.len()
+        ));
+    }
+    if data.iter().any(|g| g.byte104 != 0 || g.byte106 != 1) {
+        return invalid("only the compressed YCbCr GIData path (+104 = 0, +106 = 1) is supported");
+    }
+    if !(2..=MAX_DIM).contains(&n) {
+        return invalid(format!("GI output grid {n} unsupported"));
+    }
+    let mut volumes: Vec<[Volume; 4]> = Vec::with_capacity(4);
+    for g in data {
+        let v: Vec<Volume> = g
+            .blobs
+            .iter()
+            .map(|b| decode(b, 1))
+            .collect::<Result<_>>()?;
+        volumes.push(v.try_into().expect("four blobs"));
+    }
+    let volumes: [[Volume; 4]; 4] = volumes.try_into().expect("four GIData");
+    let scale: [[f32; 4]; 4] = std::array::from_fn(|k| data[k].vector0);
+    let bias: [[f32; 4]; 4] = std::array::from_fn(|k| data[k].vector16);
+    let mut out = Vec::with_capacity((n as usize).pow(3));
+    for z in 0..n {
+        for y in 0..n {
+            for x in 0..n {
+                out.push(combine_ycbcr(&volumes, &scale, &bias, [x, y, z], n));
+            }
+        }
+    }
+    Ok(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -330,7 +368,7 @@ mod tests {
     impl Writer {
         fn put(&mut self, v: u32, n: u32) {
             for i in (0..n).rev() {
-                if self.bit % 8 == 0 {
+                if self.bit.is_multiple_of(8) {
                     self.bytes.push(0);
                 }
                 if (v >> i) & 1 == 1 {

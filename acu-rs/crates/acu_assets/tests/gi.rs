@@ -204,18 +204,14 @@ fn installed_paris_gicp_blobs_decode() -> Result<()> {
         [0.015557, -0.024171, -0.002178, 0.038788],
         [0.008905, -0.013619, -0.001069, 0.021989],
     ];
-    for c in 0..3 {
-        for j in 0..4 {
-            assert!(
-                (t.rgb[c][j] - expect_rgb[c][j]).abs() < 2e-6,
-                "{c} {j}: {}",
-                t.rgb[c][j]
-            );
+    for (c, (got, want)) in t.rgb.iter().zip(&expect_rgb).enumerate() {
+        for (j, (g, w)) in got.iter().zip(want).enumerate() {
+            assert!((g - w).abs() < 2e-6, "{c} {j}: {g}");
         }
     }
     let expect_extra = [-0.014389, -0.075172, 0.098561, 0.333344];
-    for j in 0..4 {
-        assert!((t.extra[j] - expect_extra[j]).abs() < 2e-6, "extra {j}");
+    for (j, (g, w)) in t.extra.iter().zip(&expect_extra).enumerate() {
+        assert!((g - w).abs() < 2e-6, "extra {j}: {g}");
     }
     Ok(())
 }
