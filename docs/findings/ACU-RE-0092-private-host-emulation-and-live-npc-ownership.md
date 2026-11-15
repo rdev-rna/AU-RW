@@ -260,6 +260,23 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
       5. post the event to the victim with `sub_141E2E640(event, victim)`. That function picks the victim's event
          target and calls `sub_1420F5B40`. NHI with `a4` ≠ 0 uses `sub_141E2E7A0` instead, which takes an extra
          argument.
+    - **Where the callback runs** (static, `sub_1405DA9E0` corpus lines 66–216):
+      1. The starter looks the intention id up in the component's map at `a1+16`. `sub_1405FBC70` stores the
+         64-byte callback record (`sub_1405BDE10`) there.
+      2. It builds a context from its last argument `a7`:
+         - `a7+12` is the source; −1 means generate locally;
+         - `a7+16` is copied to record dword 7, the target peer;
+         - `a7+20`;
+         - `a7+24`, an existing record;
+         - byte `a7+32`, the execute flag.
+      3. When the execute flag is set, it calls the record's delegate (`rec+56`) with
+         `(rec+32, object, a4, payload, a6, context)`. That is the master guard → executor.
+      4. Only after that does it route the message: `sub_141C66360`/`sub_141C66660(a1, path, intention, record
+         dword 7)`, where the peer argument is the `a4` of observation 15's table.
+      5. So the execute step happens before the send, which matches the live order on one thread.
+    - Inference: when the master restarts a received intention, the peer in its context is the sender. That would
+      make the host's `_ID_UNICAST` message (observation 15) a reply to the requesting peer. The receive handler's
+      context `v4` was not decoded.
     - The event reaches the health handler `0x140EBBFD0` through the entity event dispatcher `0x1420F3200`. That
       dispatcher binary-searches the handler table at `a1+16` (count u16 at `a1+26`, 16-byte entries `{u32 type, ptr}`)
       using the type id at `+36` of the event's type record.
