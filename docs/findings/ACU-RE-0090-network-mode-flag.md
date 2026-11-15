@@ -529,6 +529,44 @@ nothing visible. Nothing in the UI consumes the discovered session, since the se
 and not by a menu flow. Next: trace what game 1 does with the 103-byte reply (the discovery handler, and the LAN
 matchmaker's other slots 6, 7 and 12), and what would turn a discovered session into a join.
 
+## Live run 11 and static follow-up — where the discovery reply goes (2026-11-16)
+
+Live (game 1, PID 131964): a hook on the `recvfrom` return site `0x1426D7777` kept 256 stack bytes for 6 s
+(`lan-reply-20261116/recvstack.jsonl`). It caught 12 receives of 103 bytes, all on one stack:
+`0x141BACC70` (return `0x141BACD8C`) ← `0x141B71B50` ← `0x141BB5B50` ← `0x1426BBF70` (a thread procedure).
+
+Static observations:
+53. `0x141BACC70` is the LAN socket reader. It reads up to `0x2000` bytes per packet, deserialises the packet
+    (`0x141BFCBE0`), and passes it with the sender address to `0x141B7E5B0`, the LAN packet handler.
+54. `0x141B7E5B0` branches on the packet's first byte:
+    - **Request side:** reads 4 bytes, decodes an event, and for a discovery request checks for a matching
+      session and answers through `0x141BBA1B0`. This fits game 2's receive-then-send in run 10.
+    - **Response side:** decodes an event, builds a 672-byte `storm::echo::lan::inEvent::Event` (constructor
+      `0x141B423D0`, vtable `0x143005548`, filled by `0x141B81040` with the inner event at `+48` and the sender at
+      `+56`), and posts it.
+55. The controller base handler `0x141B31020` recognises that type through `0x141B28170` and calls interface slot
+    48 (vtable `+384`; thunk `0x141C588C0` → `0x141B32630`). In LAN mode (`+676 == 0`), `0x141B32630` creates an
+    840-byte session record (`0x141B29170`) from the inner event and the sender. It inserts the record into the
+    controller's session map at interface `+152`, keyed by the inner event's `+72`.
+56. The same map is read by interface slots 38 (find by session id at `record + 12`), 40 (find by a key at
+    `record + 640`), 41 (remove by id) and 42 (clear).
+57. Storm's join operations sit next to Leave/Secede/Kick/Dissolve (slots 23–26):
+    - slot 19 (`0x141B2C2A0`) builds `storm::echo::player::inEvent::AcceptTicket`;
+    - slot 21 (`0x141B2C220`) builds `storm::echo::player::inEvent::AcceptFollowHost`, which carries a
+      `storm::PeerDescriptor`.
+
+    Slots 20 and 22 have the same shapes. Event names were read from the strings after each vtable.
+
+Live read:
+58. Game 1's map at interface `+152` holds **one record**: tree header with all three links to one node, count 1.
+    Game 2's map is empty (its header points to itself).
+
+Inference: game 1 has discovered game 2's session and stored it in its Storm session list. Nothing joins it
+because no game flow asked for a search. The next step is to find ACU's own caller of slot 21
+(AcceptFollowHost) or slot 19 (AcceptTicket), likely the matchmaking join states (`PRIVATE_MATCH_JOIN`,
+`JOIN_PARTY_INVITE`). Then drive that caller with `CALLAT`, using the discovered record, rather than building
+Storm's arguments by hand.
+
 Unknowns / coverage:
 - Who sets the start-alone flag (statechart `+236`), and what the private-match host waits for before it
   launches (a joined peer, a host confirm, or both).
