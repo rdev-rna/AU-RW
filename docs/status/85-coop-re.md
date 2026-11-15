@@ -2,7 +2,8 @@
 
 Branch `acu-85-coop-re-plan`. Plan: [../COOP_RE_PLAN.md](../COOP_RE_PLAN.md). Files: `docs/COOP_RE_PLAN.md`,
 `docs/areas/coop.md`, `docs/coop/BACKEND_BOUNDARY.md`, `docs/findings/ACU-RE-0073-session-transport-seam.md`, `tools/net_census.py`, `tools/net_protocol_atlas.py`,
-`tools/test_net_protocol_atlas.py`, `docs/findings/ACU-RE-0072-net-protocol-registry.md`.
+`tools/test_net_protocol_atlas.py`, `tools/net_title_survey.py`, `tools/test_net_title_survey.py`,
+`docs/findings/ACU-RE-0072-net-protocol-registry.md`, `docs/findings/ACU-RE-0074-target-title-net-stacks.md`.
 
 ## Done (2026-11-15)
 - **Phase 0:** IDB identity bound. The analysis view `47a81dc9…` maps to the mapped image `9a1124f1…`. I used
@@ -32,6 +33,12 @@ The repo is public, so only the tool and the finding are committed. This overrid
   ubiservices.
 - Backend register started: [../coop/BACKEND_BOUNDARY.md](../coop/BACKEND_BOUNDARY.md) (8 rows).
 - LAN-path test: **unresolved**. No game code calling Storm's LAN product was found statically.
+
+## Done (Phase 6 survey, 2026-11-15)
+- [ACU-RE-0074](../findings/ACU-RE-0074-target-title-net-stacks.md): `tools/net_title_survey.py` (4 tests)
+  over AC1, AC2, Black Flag (campaign and multiplayer), Freedom Cry and ACU (packed and unpacked controls).
+  Only ACU has Storm/Echo or NetProtocol. Black Flag multiplayer has HackNetZ. No campaign executable has
+  a replication framework, so porting uses option C.
 
 ## Not done / next
 - Phase 1 remainder: confirm the decoder, encoder and body roles by tracing the receive path from Storm to

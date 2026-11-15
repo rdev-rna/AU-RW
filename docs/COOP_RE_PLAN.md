@@ -205,6 +205,12 @@ pointless without them.
   This decides between reusing dormant code and reimplementing it.
 - Deliverable: `docs/coop/PORTING_SPEC.md` with a reuse/reimplement matrix per
   subsystem.
+- **Status 2026-11-15 (installed titles):** [ACU-RE-0074](findings/ACU-RE-0074-target-title-net-stacks.md).
+  No installed title carries Storm/Echo or NetProtocol. Black Flag multiplayer (`AC4BFMP.exe`) runs on
+  HackNet/HackNetZ, a Net-Z-style duplicated-object library. The Black Flag campaign, Freedom Cry, AC2 and
+  AC1 have no replication framework. **Porting into any installed campaign is therefore option C**: our
+  own replication layer, specified by the ACU findings, plus engine glue. Syndicate is not installed yet;
+  survey it first when it is (`tools/net_title_survey.py`).
 
 ### Phase 7 - Dynamic confirmation (after static work, behind the locks)
 - A DLL hook in ACU logs NetProtocol dispatch (message ID, size, direction) and the
