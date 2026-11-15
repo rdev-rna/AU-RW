@@ -74,6 +74,9 @@ through `acu_motion::graph_driver`, with root motion as the only body driver (64
 Locomotion parity: [ACU-RE-0072](findings/ACU-RE-0072-flat-ground-locomotion-parity.md) compares
 flat-ground idle, walk, sprint, stops and turns with the live captures (16 matches, 4 differences),
 and fixes a forced-start defect that played a sprint stop on reset (674/1051 live replay).
+Transition entry: [ACU-RE-0074](findings/ACU-RE-0074-transition-sync-source-and-graph-conditions.md)
+shows a state entered by a transition gets no sync source (SelectBestMatchingTags keeps port 2:
+`WalkStop_RC`, as native) and that graph conditions are latched at activation; damp law inferred.
 Lighting: [ACU-RE-0073](findings/ACU-RE-0073-baked-gi-and-world-ambiance.md) decodes the baked-GI
 containers (GILoader tree, GIDatablock / GIResult / GIData, exact end; GICP codec open) and part of
 WorldAmbiance (HDR camera, SSAO, shadow tail), and applies native exposure and shadow settings.

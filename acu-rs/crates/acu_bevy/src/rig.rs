@@ -964,6 +964,7 @@ mod tests {
             no_textures: true,
             report: None,
             color_set: None,
+            lighting: "synthetic".into(),
         };
         let loaded = crate::load::load_all(&options).unwrap();
         let mut library = load(&dir).unwrap();

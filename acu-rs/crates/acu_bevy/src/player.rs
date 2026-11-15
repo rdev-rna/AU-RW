@@ -776,6 +776,96 @@ mod tests {
         {
             dump(&driver, s, 0);
         }
+        // `ACU_CLIP_EVENTS=Walk_3-Loop,WalkStop_RC`: event intervals and sync keys of clips whose
+        // name contains each part.
+        for part in std::env::var("ACU_CLIP_EVENTS")
+            .unwrap_or_default()
+            .split(',')
+        {
+            if part.is_empty() {
+                continue;
+            }
+            for (id, info) in &driver.player.clips {
+                let name = driver.name(*id);
+                if !name.contains(part) {
+                    continue;
+                }
+                let ev = |l: &[(u32, f32, f32)]| {
+                    l.iter()
+                        .map(|(i, s, e)| format!("{i:#x}[{s:.3},{e:.3}]"))
+                        .collect::<Vec<_>>()
+                        .join(" ")
+                };
+                println!("clip {name} {id:016x} d={:.3}", info.duration);
+                println!("  events {}", ev(&info.events));
+                println!("  mirrored {}", ev(&info.mirrored_events));
+                println!("  sync {:x?}", info.sync_keys);
+            }
+        }
+        // `ACU_NODES=3723`: every node of those graph states with its ports and fields.
+        for s in std::env::var("ACU_NODES")
+            .unwrap_or_default()
+            .split(',')
+            .filter_map(|x| x.parse::<usize>().ok())
+        {
+            let st = &g.states[s];
+            println!(
+                "state {s} at {} transitions {}",
+                st.at,
+                st.transitions.len()
+            );
+            for t in &st.transitions {
+                let e = t.expr.as_ref().map(|e| conds_text(g, e));
+                println!(
+                    "  -> {} blend {}: {}",
+                    t.target,
+                    t.blend,
+                    e.unwrap_or_default()
+                );
+            }
+            if let Body::Graph {
+                nodes,
+                outputs,
+                root,
+            } = &st.body
+            {
+                println!("  root {root:?}");
+                for (i, n) in nodes.iter().enumerate() {
+                    let ports: Vec<String> = n
+                        .inputs
+                        .iter()
+                        .map(|p| match p.kind {
+                            0 => format!(
+                                "param:{}",
+                                g.params
+                                    .get(p.q as usize)
+                                    .map(|x| x.name.as_str())
+                                    .unwrap_or("?")
+                            ),
+                            9 | 11 => format!(
+                                "k{}->n{}",
+                                p.kind,
+                                outputs.get(p.q as usize).copied().unwrap_or(usize::MAX)
+                            ),
+                            3 => format!("f{}", f32::from_bits(p.j)),
+                            k => format!("k{k}:{}/{}", p.q, p.j),
+                        })
+                        .collect();
+                    let clip = n.clip.map(|c| driver.name(c)).unwrap_or_default();
+                    println!(
+                        "  n{i} {} [{}] {clip} fields {:?} ints {:?} damp {:?}",
+                        n.class,
+                        ports.join(", "),
+                        n.fields,
+                        n.ints,
+                        n.damp
+                    );
+                    if let Some(e) = &n.expr {
+                        println!("     expr {}", conds_text(g, e));
+                    }
+                }
+            }
+        }
     }
 
     /// Drive the graph from the captured idle start through `steps` of (seconds, arena
@@ -871,6 +961,49 @@ mod tests {
     fn speed(s: &[Sample], a: f32, b: f32) -> f32 {
         let at = |t: f32| s[((t / acu_sim::DT).round() as usize).clamp(1, s.len()) - 1].pos;
         (at(b) - at(a)).length() / (b - a)
+    }
+
+    /// Walk stop clip against the release time. Native picked `WalkStop_RC` in 13 of 13 stops
+    /// spread over the walk cycle (loco-stops-2 holds of 1.8-4.25 s; ACU-RE-0072).
+    #[test]
+    #[ignore = "requires original ACU install; sweeps the walk release time"]
+    fn installed_walk_stop_sweep() {
+        let dir = std::env::var("ACU_GAME_DIR").expect("ACU_GAME_DIR required");
+        let dir = std::path::Path::new(&dir);
+        let library = crate::rig::load(dir).unwrap();
+        let (mut driver, _) = crate::motion::load_graph(dir, &library).unwrap();
+        let fwd = -Vec2::Y;
+        let none = Vec2::ZERO;
+        let mut picks = Vec::new();
+        for i in 0..24 {
+            let hold = 1.8 + 0.05 * i as f32;
+            for (amount, label) in [(1.0, "full"), (0.5, "half")] {
+                let s = script(
+                    &mut driver,
+                    &[
+                        (1.0, none, false),
+                        (hold, fwd * amount, false),
+                        (1.5, none, false),
+                    ],
+                );
+                let stop = segment_at(&s, 1.0 + hold + 0.3).2;
+                println!("{label} hold {hold:.2} s: {stop}");
+                picks.push((label, stop));
+            }
+        }
+        let full_rc = picks
+            .iter()
+            .all(|(l, c)| *l != "full" || c.starts_with("WalkStop_RC"));
+        let half_slow = picks
+            .iter()
+            .all(|(l, c)| *l != "half" || c.starts_with("WalkSlow_Stop"));
+        println!(
+            "full stops all WalkStop_RC: {full_rc}; half stops all WalkSlow_Stop: {half_slow}"
+        );
+        assert!(
+            full_rc,
+            "a full-stick walk stop left WalkStop_RC (native 13/13)"
+        );
     }
 
     /// Flat-ground locomotion against the live captures (docs/LOCOMOTION_PARITY.md). Native
@@ -1088,8 +1221,8 @@ mod tests {
 
         println!("differences from native: {failures:#?}");
         // Known differences, reported in docs/LOCOMOTION_PARITY.md; any other is a regression.
+        // Fixed in ACU-RE-0074: "walk stop clip" (null sync source on transition entry).
         let known = [
-            "walk stop clip",
             "walk stop travel",
             "half-stick stop",
             "sprint speed",

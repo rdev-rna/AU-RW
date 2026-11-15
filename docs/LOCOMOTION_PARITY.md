@@ -66,23 +66,34 @@ starts in. Before, `[1, 5]` entered the idle machine's entry pose `IdleLow-FullL
 Tests: `forced_start_holds_a_self_sustaining_state` and `reset_does_not_depend_on_the_previous_run`
 (synthetic graph; both fail without the fix).
 
+## Walk stop variant (fixed, ACU-RE-0074)
+
+- Native picked `WalkStop_RC` in 13 of 13 stops:
+  - 5 in the older captures, at `Walk_3-Loop` times 0.23–0.73 s;
+  - 8 in `loco-stops-2`, after hold times stepped by 0.35 s across a full 2.8 s loop.
+- Rust used to pick from graph state 3723 by phase (RP and RC alternating every ~0.24 s), because
+  it handed the outgoing state's sync position to SelectBestMatchingTags.
+- Native code passes no sync source to a state entered by a transition (`sub_140109CB0` →
+  `sub_1400B7970`, context `+16` = 0). Without a source, the select keeps port 2: `WalkStop_RC`.
+- Rust now does the same. `installed_walk_stop_sweep` releases after holds of 1.80–2.95 s
+  (0.05 s steps, more than one walk cycle) and gets `WalkStop_RC` in 24 of 24.
+- `AtomGraphConditionNode` is now latched at activation (`sub_1400D6D00` / `sub_1400EB6B0`), so
+  the stop no longer flips branch mid-clip.
+- Damp nodes now approach their target exponentially (k ≈ 20.6/s at rate 5, an inference from
+  live blend weights). Before, they passed the target straight through.
+- Replay agreement: 675/1051 (674 before).
+
 ## Differences (listed by the test, not fixed)
 
-1. **Walk stop variant.**
-   - Native picked `WalkStop_RC` in 13 of 13 stops:
-     - 5 in the older captures, at `Walk_3-Loop` times 0.23–0.73 s;
-     - 8 in `loco-stops-2`, after hold times stepped by 0.35 s across a full 2.8 s loop.
-   - Rust picks from graph state 3723 by phase: RP and RC alternate every ~0.24 s of the 2.8 s
-     loop, so it picks RP about half the time.
-   - The RP stop travels 0.64 m against native 0.28–0.45 m. Rust's RC stop travels 0.40 m,
-     which matches.
-   - Likely cause: SelectBestMatchingTags (`0x1400ECD90`, cost `0x1400CDE10`). Rust uses a
-     `f32::MAX` cost threshold (a CHOICE in ACU-RE-0069), or the sync handoff into the stop.
-     Needs binary work.
+1. **Walk stop travel.** Rust's RC stop travels 0.27 m against native 0.28–0.45 m (borderline).
 2. **Half-stick stop.** Rust plays `WalkStop_RC`. Native played `WalkSlow_Stop_LP` once and
    `WalkSlow_Stop_LC` twice (3 of 3), each travelling 0.17 m.
-   The two share state 3723. Damp nodes are passed through in Rust, so MovementSpeed reaches 0
-   at once. This is a possible cause, not checked.
+   - The slow branch of 3723 needs its condition (event `0x00400026`) to hold at activation.
+   - Native evaluates that condition once, over the events of the context's sync source.
+   - With the null source of a transition entry, the condition is false, so Rust takes the
+     full-walk branch.
+   - Native must hand 3723 a source in this case. Which path does it is not found
+     (ACU-RE-0074, Unknowns).
 3. **Sprint speed.** Rust's `Sprint_3-Loop_V02` moves at 6.26–6.39 m/s, the clip's own root
    speed (about MovementSpeed 6.277).
    - Native, on a clear 1.59 s segment of `loco-stops-2`: 5.96 m/s (0.5 s windows 5.45–6.17).

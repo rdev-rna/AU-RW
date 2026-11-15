@@ -40,8 +40,13 @@ existing live captures by the ignored test `installed_locomotion_segments` (`acu
   from 649 to 674 of 1051.
 - New capture `loco-stops-2` (60 Hz; eight walk stops at varied hold times, two half-stick stops,
   a clear sprint; capped at 60 fps, closed with `--close`, saves put back).
+- Fixed ([ACU-RE-0074](findings/ACU-RE-0074-transition-sync-source-and-graph-conditions.md)):
+  the walk stop is `WalkStop_RC` at every release time (24 of 24 in `installed_walk_stop_sweep`;
+  native 13 of 13). A state entered by a transition gets no sync source, so SelectBestMatchingTags
+  keeps port 2. Graph conditions are latched at activation; damp nodes approach their target
+  exponentially. Live replay 675/1051.
 - Different:
-  - Rust's walk stop alternates RP/RC with phase, where native picked RC in 13 of 13 stops;
+  - walk stop travel 0.27 m against native 0.28-0.45 m;
   - the half-stick stop clip;
   - sprint 6.3 m/s against native 5.96 m/s on clear ground;
   - the post-sprint `IdleHigh_tr_IdleLow` lives outside the hub the interpreter is rooted at.

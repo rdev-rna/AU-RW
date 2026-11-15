@@ -597,6 +597,8 @@ struct Ctx<'a> {
     /// Sync handed to graph states created by `enter` (the outgoing state's record/position).
     handoff: Option<(Record, Pos)>,
     diag: &'a mut Diagnostics,
+    /// Damp values carried across graphs by parameter hash ([`Player::carry`]).
+    carry: &'a mut HashMap<u32, f32>,
     /// Global LCG state (`qword_14525FAE0 + 4`; CHOICE: seed).
     rng: &'a mut u32,
 }
@@ -781,8 +783,14 @@ pub struct Player {
     window: (f32, f32),
     clock: f32,
     pub rng: u32,
+    /// Last damped value per damp-node parameter hash, read by damp nodes of newly entered
+    /// graphs (`sub_1400D74D0` copies it from the previous graph's node with the same hash).
+    carry: HashMap<u32, f32>,
     pub leaves: Vec<Leaf>,
 }
+
+/// Damp approach constant per unit of node rate, 1/s (live fit at rate 5, ACU-RE-0074).
+pub const DAMP_K_PER_RATE: f32 = 20.6 / 5.0;
 
 /// Measured crossfade shape (ACU-RE-0069): smoothstep over the transition's seconds.
 fn fade_weight(elapsed: f32, duration: f32) -> f32 {
@@ -813,6 +821,7 @@ impl Player {
             window: (0.0, 0.0),
             clock: 0.0,
             rng: 1,
+            carry: HashMap::new(),
             leaves: Vec::new(),
         })
     }
@@ -840,6 +849,7 @@ impl Player {
             scope: None,
             handoff: None,
             diag: &mut self.diag,
+            carry: &mut self.carry,
             rng: &mut self.rng,
         };
         fn forced(ctx: &mut Ctx, s: usize, path: &[u16]) -> StateRt {
@@ -868,7 +878,8 @@ impl Player {
         // forced states' own events.
         self.clock = 0.0;
         self.rng = 1;
-        self.graph_pass(0.0);
+        self.carry.clear();
+        self.graph_pass(0.0, &[]);
     }
 
     /// Active state path from the root (state indices), for inspection.
@@ -911,6 +922,7 @@ impl Player {
                 scope: None,
                 handoff: None,
                 diag: &mut self.diag,
+                carry: &mut self.carry,
                 rng: &mut self.rng,
             };
             if matches!(rt, StateRt::Empty) {
@@ -919,11 +931,13 @@ impl Player {
             update(&mut ctx, self.root, &mut rt, dt);
         }
         self.rt = rt;
-        self.graph_pass(dt);
+        self.graph_pass(dt, &events);
     }
 
     /// Collect weighted leaves, advance clip phases by `dt` and build this step's event list.
-    fn graph_pass(&mut self, dt: f32) {
+    /// Graph nodes (`AtomGraphConditionNode`) read `prev`, the previous step's event list, over
+    /// its window, like the transition rules of the update pass.
+    fn graph_pass(&mut self, dt: f32, prev: &[(usize, u32, f32, f32)]) {
         let mut rt = std::mem::replace(&mut self.rt, StateRt::Empty);
         let mut leaves = Vec::new();
         {
@@ -931,11 +945,12 @@ impl Player {
                 g: &self.graph,
                 values: &self.values,
                 clips: &self.clips,
-                events: &[],
-                window: (0.0, 0.0),
+                events: prev,
+                window: self.window,
                 scope: None,
                 handoff: None,
                 diag: &mut self.diag,
+                carry: &mut self.carry,
                 rng: &mut self.rng,
             };
             collect(&mut ctx, self.root, &mut rt, 1.0, dt, &mut leaves);
@@ -1263,7 +1278,13 @@ fn graph_leaves(ctx: &mut Ctx, s: usize, g: &mut GraphRt, w: f32, dt: f32, out: 
         damp: &mut g.damp,
         latch: &mut g.latch,
         pick: &mut g.pick,
-        handoff: handoff.as_ref(),
+        // A state-machine transition builds the new state's activation context with a null
+        // sync source (sub_140109CB0 -> sub_1400B7970: context qword +16 = 0), so a
+        // SelectBestMatchingTags node in a state entered this way latches port 2 (ACU-RE-0074).
+        // INFERENCE: entry rules below the new state inherit that context. The handed-over
+        // record still sets the entry phase (`handoff`).
+        select_source: None,
+        dt,
     };
     let pose = ev.pose(p0);
     let rec = pose.record;
@@ -1330,8 +1351,10 @@ struct Eval<'c, 'a> {
     damp: &'c mut HashMap<usize, f32>,
     latch: &'c mut HashMap<usize, f32>,
     pick: &'c mut HashMap<usize, usize>,
-    handoff: Option<&'c (Record, Pos)>,
+    /// Sync source of SelectBestMatchingTags activation (activation context +16).
+    select_source: Option<&'c (Record, Pos)>,
     sync: Sync,
+    dt: f32,
 }
 
 impl Eval<'_, '_> {
@@ -1379,7 +1402,7 @@ impl Eval<'_, '_> {
         let node = &self.nodes[n];
         match node.class {
             "AtomDampRTCPNode" => {
-                let (hash, _rate) = node.damp.unwrap_or((0, 0.0));
+                let (hash, rate) = node.damp.unwrap_or((0, 0.0));
                 let target = self
                     .ctx
                     .g
@@ -1388,10 +1411,20 @@ impl Eval<'_, '_> {
                     .and_then(|&i| self.ctx.values.get(i))
                     .map(|v| v.scalar())
                     .unwrap_or(0.0);
-                // CHOICE: the damp-table updater is not located (ACU-RE-0069); pass through.
-                self.ctx.diag.note("damp node passes its target through");
-                self.damp.insert(n, target);
-                target
+                // Activation (sub_1400D74D0) starts from the value of the previous graph's damp
+                // node with the same hash; with none, from the target (sub_14009FC40).
+                let x = match self.damp.get(&n) {
+                    Some(&x) => x,
+                    None => self.ctx.carry.get(&hash).copied().unwrap_or(target),
+                };
+                // INFERENCE: the rate updater (f96) is not located. Live MovementSpeed under a
+                // rate-5 node approaches its target exponentially with k ~ 20.6/s
+                // (ACU-RE-0074); CHOICE: k scales with the rate (k = 4.12 * rate).
+                let k = DAMP_K_PER_RATE * rate.max(0.0);
+                let x = x + (target - x) * (1.0 - (-k * self.dt).exp());
+                self.damp.insert(n, x);
+                self.ctx.carry.insert(hash, x);
+                x
             }
             "AtomWriteParamNode" => {
                 // INFERENCE: its one input feeds consumers through its output (walk-start graph
@@ -1429,12 +1462,25 @@ impl Eval<'_, '_> {
                 f32::from(u8::from(compare_f(a, b, op)))
             }
             "AtomGraphConditionNode" => {
-                // sub_1400EB6B0 (CHOICE: evaluated every frame against the step's events).
+                // Activation (sub_1400D6D00) clears the node's byte and, only when the activation
+                // context has a sync source, evaluates the expression once over that source's
+                // events; the update (sub_1400EB6B0) copies the byte (it re-evaluates only in
+                // context pass mode 2, not modelled). A state entered by a transition has no
+                // source (`select_source`), so the latch is false (ACU-RE-0074).
+                let Some(_) = self.select_source else {
+                    return 0.0;
+                };
+                if let Some(&v) = self.latch.get(&n) {
+                    return v;
+                }
+                // CHOICE (no caller yet): the instance's previous-step events stand in for the
+                // source's own event list.
                 let e = self.nodes[n].expr.clone();
                 let scope = self.ctx.scope.take();
-                let r = self.ctx.expr(&e, (0.0, 0.0));
+                let r = f32::from(u8::from(self.ctx.expr(&e, (0.0, 0.0))));
                 self.ctx.scope = scope;
-                f32::from(u8::from(r))
+                self.latch.insert(n, r);
+                r
             }
             "AtomIfNode" => {
                 let inputs = self.nodes[n].inputs.clone();
@@ -1558,7 +1604,7 @@ impl Eval<'_, '_> {
                     Some(&k) => k,
                     None => {
                         let mut k = 2;
-                        if let Some((orec, opos)) = self.handoff.cloned() {
+                        if let Some((orec, opos)) = self.select_source.cloned() {
                             let group = self.scalar(&inputs[0]) as i32;
                             if orec.id == group && orec.valid() {
                                 let mut pos = opos;
@@ -1573,7 +1619,8 @@ impl Eval<'_, '_> {
                                 // traced; FLT_MAX keeps the matched-sequence cost.
                                 let mut best = NOT_FOUND;
                                 for (c, port) in inputs.iter().enumerate().skip(2) {
-                                    let cost = self.pose(port).record.select_cost(&pos, NOT_FOUND);
+                                    let r = self.pose(port).record;
+                                    let cost = r.select_cost(&pos, NOT_FOUND);
                                     if cost < best {
                                         best = cost;
                                         k = c;
@@ -1743,6 +1790,7 @@ mod tests {
             scope: None,
             handoff: None,
             diag: &mut diag,
+            carry: &mut HashMap::new(),
             rng: &mut 1,
         };
         let int1 = Wrapped { ty: 2, i: 0, j: 1 };
@@ -1780,6 +1828,7 @@ mod tests {
             scope: None,
             handoff: None,
             diag: &mut diag,
+            carry: &mut HashMap::new(),
             rng: &mut 1,
         };
         let w = Wrapped::default();
