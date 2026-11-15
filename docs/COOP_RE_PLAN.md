@@ -198,6 +198,9 @@ pointless without them.
 - **Status 2026-11-15 (receiver):** [ACU-RE-0077](findings/ACU-RE-0077-proxy-receiver.md). The receiver keeps
   the newest update, and game code reads an extrapolated position that it applies directly. The heading
   decode shows z-up. A shared network clock is required.
+- **Status 2026-11-15 (clock):** [ACU-RE-0078](findings/ACU-RE-0078-session-clock.md). The Storm session
+  clock starts at 0 on the host. Clients ping it (100 ms, then 2 s), average `host + rtt/2` per 500 ms, and
+  slew toward the result with monotonic reads. The path is peer-to-peer only, with no backend crossing.
 
 ### Phase 5 - Backend boundary register (runs alongside every phase)
 - `docs/coop/BACKEND_BOUNDARY.md`, one row per call that crosses into Ubisoft

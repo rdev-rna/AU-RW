@@ -119,7 +119,8 @@ The entity reference is the u64 at absolute `+0x70`.
 
 ### Unknowns / incomplete coverage
 
-- What `sub_141F89950`'s provider object is, and how it is synchronized.
+- What `sub_141F89950`'s provider object is. How the clock is synchronized is covered in ACU-RE-0078:
+  a Storm host-origin session clock with ping averaging and slewing.
 - The `scale` argument each caller passes to `sub_141C4F340` (22 callers not read).
 - Whether locomotion or animation smooths the jump after a correction.
 - The meaning of role values 1 to 4 and of the `+0x71` flag.

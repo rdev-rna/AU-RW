@@ -56,7 +56,8 @@ The per-field bit widths and the field meanings are still open (ACU-RE-0075 unkn
 | P7 | Placed world entities are bound by entity ID to each peer's local copy, not spawned over the network. | O |
 | P8 | The receiver keeps only the newest update per entity (u32 timestamp, wrap-around comparison) and stores the dequantized position and velocity. Each position query returns `p + v·(now − ts)·0.001`, with the squared step capped at 16 or 48 and z clamped to ±2000. Consumers set the replica's transform straight from it; no blending was found in the proxy layer (ACU-RE-0077). | O |
 | P9 | Heading decode: `angle = code·4/(2^bits − 1)`. Facing = +y rotated about +z, so the proxy layer is z-up. | O |
-| P10 | Timestamps cross peers, so the transport must give all peers a shared millisecond clock. | I |
+| P10 | Timestamps are on a host-origin session clock (Storm `time` module, ACU-RE-0078). The host starts at 0. Each client pings with `{id, 1, client_ms}`, and the host replies `{id, 0, host_session_ms, echoed client_ms}` (big-endian u32). Each sample estimates host time as `host_session_ms + rtt/2`; samples are averaged and applied at most every 500 ms. Pings go every 100 ms for the first 10 replies, then every 2 s. | O |
+| P11 | Clock corrections are slewed (`max(1/30, err²·4e-8)` ms per ms, no overshoot), and reads are monotonic. When a session ends, the game latches `offset = net − local` so time stays continuous. That the game's clock getter is this session time is inferred. | O / I |
 
 ## 6. Open items for this spec
 - The owning entity class. Position is now covered in section 5 (ACU-RE-0076).
