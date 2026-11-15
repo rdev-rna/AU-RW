@@ -20,8 +20,11 @@ Tailored flap's motion comes from the `Cloth` soft-body resource, not from bones
   and frames (`0x141d98430`). On the installed flap, the bone binds match the mesh to 3.6e-7
   and the rest mapping lands within 0.075 mm of all 1,192 vertices. `--no-cloth` keeps the
   skinned flap.
-- **Collision (op 7) is not ported**: the flap can pass through the legs. The substep rule is an
-  implementation choice, and there is no side-by-side comparison with the game yet.
+- Collision (op 7) is ported: the swept path (`0x1423d58a0`) against the flap's seven leg
+  capsules from `LiteRagdoll_SkirtHV_Leg_ArnoBrigand`, which the cloth references. The capsules
+  follow the pose each tick.
+- The substep rule and the colliders' previous frame are implementation choices. There is no
+  side-by-side comparison with the game yet.
 
 Lighting (2026-11-15, [ACU-RE-0073](findings/ACU-RE-0073-baked-gi-and-world-ambiance.md)): the
 arena now uses the native Paris `WorldAmbiance` settings. Default `--lighting paris-noon`;

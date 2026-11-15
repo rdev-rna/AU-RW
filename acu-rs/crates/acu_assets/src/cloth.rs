@@ -403,6 +403,19 @@ impl<'a> Blob<'a> {
         if all.iter().any(|v| !v.is_finite()) || drag.b == 0.0 {
             return invalid("cloth blob: nonfinite or zero settings");
         }
+        // Serialized bytes 0 (S+7), 43 (S+192), 44 (S+196), 48 (S+8),
+        // 49 (S+9), 50 (S+195).
+        let collision = CollisionSettings {
+            rigid: d[0] != 0,
+            swept: d[43] != 0,
+            friction: f(44)?,
+            mesh: d[48] != 0,
+            cloth: d[49] != 0,
+            priority: d[50],
+        };
+        if !collision.friction.is_finite() {
+            return invalid("cloth blob: nonfinite friction");
+        }
         Ok(Settings {
             gravity,
             damping,
@@ -410,6 +423,7 @@ impl<'a> Blob<'a> {
             thickness,
             blend,
             drag,
+            collision,
         })
     }
 
@@ -529,6 +543,20 @@ pub struct Settings {
     /// S+56 (opcode 5 blend toward targets).
     pub blend: f32,
     pub drag: Drag,
+    /// Opcode-7 inputs (loader `0x1423ce370`): S+7 rigid/analytic colliders,
+    /// S+192 swept path, S+196 friction, S+8 mesh colliders, S+9 cloth
+    /// colliders, S+195 cloth-vs-cloth priority.
+    pub collision: CollisionSettings,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct CollisionSettings {
+    pub rigid: bool,
+    pub swept: bool,
+    pub friction: f32,
+    pub mesh: bool,
+    pub cloth: bool,
+    pub priority: u8,
 }
 
 /// Serialized pointer with a kind byte (fields with reflection flag `0x08`).
@@ -825,6 +853,80 @@ pub fn lod0_mesh(payload: &[u8], cloth: &Cloth) -> Result<LodMesh> {
         bones,
         end_offset: c.at,
     })
+}
+
+pub const TYPE_LITE_RAGDOLL: u32 = 0x8910_43d5;
+pub const CLASS_LITE_RAGDOLL_SHAPE: u32 = 0x2222_5754;
+pub const CLASS_CAPSULE_GROUP_FLAGS: u32 = 0x13e0_73f6;
+
+/// One `LiteRagdollShape` (descriptor `0x144e894f0`, deserializer
+/// `0x141d82960`). At runtime each becomes a small rigid body whose world
+/// frame is `local × bone` (row vectors) and which joins the cloth body's
+/// explicit collider list.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LiteRagdollShape {
+    /// `ShapeType`: 0 capsule, 1 sphere, 2 box, 3 mesh.
+    pub shape_type: u32,
+    /// `BoneID`: bone name hash.
+    pub bone: u32,
+    /// `HalfExtent` (boxes).
+    pub half_extent: [f32; 4],
+    /// `Height`: the capsule's half-length.
+    pub height: f32,
+    pub radius: f32,
+    /// `LocalMatrix` rows X, Y, Z, T (serialized order).
+    pub local: [[f32; 4]; 4],
+    /// `GroupFlags`, one byte per flag; not read by the collision path.
+    pub group_flags: [u8; 16],
+}
+
+/// `LiteRagdoll` (`891043d5`): `Capsules`, then `ExternalCapsules`
+/// (only an empty list is supported).
+pub fn lite_ragdoll(payload: &[u8], expected_id: &str) -> Result<Vec<LiteRagdollShape>> {
+    let mut c = Cursor { b: payload, at: 0 };
+    if c.u8()? != 1 || c.id()? != expected_id || c.u32()? != TYPE_LITE_RAGDOLL {
+        return invalid("lite ragdoll: unexpected root");
+    }
+    let shapes = c.array(136, |c| {
+        c.id()?;
+        if c.u32()? != CLASS_LITE_RAGDOLL_SHAPE {
+            return invalid("lite ragdoll: element is not a LiteRagdollShape");
+        }
+        let shape_type = c.u32()?;
+        let bone = c.u32()?;
+        let half_extent = [c.f32()?, c.f32()?, c.f32()?, c.f32()?];
+        let height = c.f32()?;
+        let radius = c.f32()?;
+        let mut local = [[0.0; 4]; 4];
+        for row in &mut local {
+            for v in row.iter_mut() {
+                *v = c.f32()?;
+            }
+        }
+        c.object(CLASS_CAPSULE_GROUP_FLAGS)?;
+        let mut group_flags = [0u8; 16];
+        group_flags.copy_from_slice(c.take(16)?);
+        let all = half_extent.iter().chain(local.iter().flatten());
+        if all.chain([&height, &radius]).any(|v| !v.is_finite()) {
+            return invalid("lite ragdoll: nonfinite shape values");
+        }
+        Ok(LiteRagdollShape {
+            shape_type,
+            bone,
+            half_extent,
+            height,
+            radius,
+            local,
+            group_flags,
+        })
+    })?;
+    if c.u32()? != 0 {
+        return invalid("lite ragdoll: external capsules are not supported");
+    }
+    if c.at != payload.len() {
+        return invalid("lite ragdoll: trailing bytes");
+    }
+    Ok(shapes)
 }
 
 struct Cursor<'a> {

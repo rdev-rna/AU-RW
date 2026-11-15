@@ -5,6 +5,8 @@
 //! The reciprocal square root defaults to the exact value; the native code uses
 //! the `rsqrtps` estimate (feature `hw-rsqrt` here uses this CPU's estimate).
 
+pub mod collision;
+
 use glam::{Mat4, Vec3, Vec4};
 
 /// Particle state. `w` of `pos` is the pin flag: negative = pinned to `target`.
@@ -350,7 +352,11 @@ pub struct Cloth {
     pub schedule: Vec<(u32, u32)>,
     pub blend: f32,
     pub drag: (Vec4, f32, f32),
-    /// Number of opcode-7 (collision) executions skipped: not ported.
+    /// Collision shapes for opcode 7 (swept path), refreshed per step.
+    pub shapes: Vec<collision::Shape>,
+    /// Swept-path collision inputs; `None` skips opcode 7.
+    pub collision: Option<collision::Params>,
+    /// Number of opcode-7 executions skipped (no collision configured).
     pub skipped_collision: u64,
 }
 
@@ -438,7 +444,12 @@ impl Cloth {
                 dt,
                 self.gravity_scale.as_deref(),
             ),
-            7 => self.skipped_collision += 1,
+            7 => match &self.collision {
+                Some(p) if !self.shapes.is_empty() => {
+                    collision::collide_swept(&mut self.state, &self.shapes, p)
+                }
+                _ => self.skipped_collision += 1,
+            },
             8 => {
                 let mut normals = std::mem::take(&mut self.normals);
                 let cap = normals.len();

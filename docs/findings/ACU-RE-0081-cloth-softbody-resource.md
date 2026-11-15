@@ -8,10 +8,11 @@ State: **partially established.**
   and field names.
 - Observed live: the cloth solver's functions and their per-frame order (section "Where the
   solver is"). They are in the corpus.
-- Ported: the solver program and every kernel the flap schedule uses, particle skinning, and the
-  render-vertex mapping. The viewer drives the Tailored flap with them (section "Viewer").
-- Not established: collision (not ported), the live substep rule, and numeric parity with the
-  game (no side-by-side capture yet).
+- Ported: the solver program and every kernel the flap schedule uses, particle skinning, the
+  render-vertex mapping, and swept collision against the flap's leg capsules. The viewer drives
+  the Tailored flap with them (sections "Viewer" and "Collision").
+- Not established: the live substep rule, the colliders' rigid-body type, and numeric parity
+  with the game (no side-by-side capture yet).
 
 ## Provenance
 
@@ -261,7 +262,9 @@ Tests:
   the three distance sets' sizes and clamps, rest lengths against the particles, 180 pinned
   anchors, flags, settings (gravity (0, 0, −10), damping 0, max speed 1000, drag 1.3/0.7), 1,039
   triangles and the schedule.
-- `acu_sim`: 15 unit tests with independent expected values (free fall, pinned snap, speed cap and
+- `acu_sim`: 22 unit tests with independent expected values (7 for swept collision: resting
+  push-out, no tunnelling through a capsule, a moving sphere pushing a particle, box snap,
+  pinned and distant particles, friction, and pose interpolation), and before that 15 (free fall, pinned snap, speed cap and
   damping, stretched pair, one-sided clamps, SIMD vs scalar agreement, backstop, max distance,
   tether, normals, drag, carry, the repeat program and opcode rejection, particle skinning, the
   render mapping and surface frames).
@@ -325,12 +328,86 @@ Fresh captures (`local/cloth/`, ignored): `idle-cloth.png`, `run-cloth.png` and 
 (the same frame, skinned), plus `run-cloth-side.png` and `walk-cloth-side.png`. The coat hangs at
 idle and trails behind the legs in the run.
 
-**Not implemented:** collision (op 7) is skipped, so the flap can pass through the legs. There is
-no comparison with the game's cloth yet.
+### Collision (opcode 7; static analysis 2026-11-15, ported)
+
+**Settings (observed).** Record `11.05` (loader `0x1423ce370`) serializes S+7 at byte 0, S+192
+at 43, friction S+196 at 44, S+8 at 48, S+9 at 49 and the priority S+195 at 50. Flap values:
+- S+7 = 1 (rigid colliders), S+192 = 1 (swept path), S+8 = 1, S+9 = 0;
+- friction 0, thickness S+48 = 0, priority 128.
+
+`0x1423d4700` therefore builds mask 0x15, and `0x1423d5510` routes it to the swept path
+`0x1423d58a0`, not `0x1423d68d0`. Record `11.b1` sets body+126 = 1 (per-particle thickness
+table, map slot 2) and body+127 = 0 (no per-particle friction table).
+
+**The flap's colliders (observed).** The cloth payload ends with `SoftBodyState.Ragdoll`, a tag-1
+pointer to `00000027d187b440`. That is `LiteRagdoll_SkirtHV_Leg_ArnoBrigand` (type `891043d5`,
+resource 2 of the same BelleEpoque_assets entry 5882; payload 973 bytes, SHA-256
+`f4fa2bd7720e516ecaae23cda9742bd462c44e32caf03ee653691f90b8536179`).
+- Reflection: `LiteRagdoll` (size 40) holds `Capsules` (`LiteRagdollShape`, `22225754`, size 112,
+  deserializer `0x141d82960`) and `ExternalCapsules` (empty here). The names are `crc-name` guesses
+  matched against the reflection hashes.
+- Each shape serializes, in stream order, `ShapeType`, `BoneID`, `HalfExtent` (float4), `Height`,
+  `Radius`, `LocalMatrix` (rows X, Y, Z, T) and `GroupFlags` (an inline `13e073f6` object, 16
+  bytes, which the collision path does not read).
+- The flap has seven capsules (`ShapeType` 0). Their bones are `3952b745`, `961763c6`, `88565c0b`,
+  `f1602d3a`, `ded10611` (`Hips`), `9b14362c` (`RightFoot`) and `58988870` (`LeftFoot`); the three
+  names are CRC-32 matches.
+
+**Runtime path (observed, except where marked).**
+- Each shape becomes a small rigid body that joins the cloth body's explicit collider list at
+  body+408 (`0x1423aa600`). It then follows `0x1423b24f0` → `0x1423b26e0` → `0x1423d26f0`.
+- World frame = `LocalMatrix × bone` (row vectors, `0x141d98be0`).
+- The capsule's shape-local frame (`0x141d7aaf0`) maps rows to (−Y, X, Z), so the record's axis
+  (local Y) is the element's X axis.
+- `Radius` is the record radius and `Height` its half-length, with no halving.
+- Unresolved: whether these bodies are static (previous frame = current) or dynamic (rewound by
+  velocity). They are created by `0x1423acb60`, which jumps into protected code.
+
+**Swept path `0x1423d58a0` (observed).** For each record, in order:
+1. Query the particle BVH (record `11.1e`) with the union of the shape's world box at the previous
+   and current frames.
+2. For each candidate, sample the particle's motion in shape-local space:
+   - start `L(M0, prev)`, end `L(M1, P)`;
+   - `0x1424389b0` bisects a 1/32 step grid while samples are farther apart than the spacing
+     (capsule and sphere r/2, box 0.8·min(e)), giving 2–33 samples;
+   - intermediate poses interpolate rotation by axis-angle and translation linearly
+     (`0x1424382b0`, `0x1424386b0`).
+3. Push each sample out of the shape, carrying the push forward:
+   - capsule: nearest point on the segment;
+   - sphere: from the origin;
+   - box: one axis snapped to 1e-4 inside.
+
+   Friction uses `min(L, μ·pen)`; capsules also resolve the start sample.
+4. Write back with the current frame, free particles only (w = +0). `prev` is never written.
+
+Arithmetic is exact `sqrtps`/`divps`, with thresholds 2^-23 and 1e-8.
+
+**Port (`acu_sim::cloth::collision`, `acu_bevy::cloth`).**
+- The kernel follows the steps above.
+- Per tick the viewer rebuilds the seven capsule frames from the pose. The previous frame is last
+  tick's, shifted by the character's translation change; this is an implementation choice
+  pending the rigid-body type.
+- Bind-pose placement, with capsule centres in mesh space:
+  - thighs at about 0.70 m, shins at 0.28 m;
+  - the pelvis capsule across the hips at 0.96 m;
+  - feet near the ground, pointing forward;
+  - 4 and 2 rest particles start inside the two thigh capsules.
+- Port differences:
+  - every particle's sweep box is tested instead of the native BVH. Rounding can differ, and the
+    native tail-leaf box bug (three flap particles) is not reproduced;
+  - Rust's `sin`/`cos`/`acos` replace the MSVC CRT's, with `acos` clamped;
+  - mesh (type 4) and cloth (type 5) colliders are not ported, and the flap has none.
+
+Captures (`local/cloth/`, ignored): `idle-coll-160.png`, `walk-coll-90.png`, `run-coll-90.png`
+and `run-coll-160.png`. With collision the coat still hangs at idle. In the run, the raised knee
+lifts the flap and the back panels part around the legs.
+
+**Not implemented:** no comparison with the game's cloth yet.
 
 ## Unknowns
 
-- Collision: the swept path `0x1423d58a0` and the character's collider shapes.
+- Collision: the colliders' rigid-body type (static or dynamic previous frame), and the four
+  unnamed leg bone hashes.
 - The live substep mode and rate (engine `0x141d96fb0`, mode c+92, rate c+108, default 30).
 - The per-frame writer of the pinned targets (sim+504) and the LOD repeat reduction in play.
 - Parity of the `rsqrtps` estimate; float determinism is unresolved.

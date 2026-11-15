@@ -23,6 +23,7 @@ use crate::options::ARNO_CLOTHS;
 use crate::rig::Skin;
 use acu_assets::{Limits, cloth, forge::Forge, sha256};
 use acu_sim::cloth as sim;
+use acu_sim::cloth::collision;
 use bevy::prelude::*;
 use serde_json::json;
 use std::path::{Path, PathBuf};
@@ -53,7 +54,20 @@ pub struct ClothDriver {
     /// Tangent handedness rule (see `load`).
     flip_sign: bool,
     translation: Option<Vec3>,
+    /// Leg capsules from the cloth's `LiteRagdoll` (opcode 7 shapes).
+    colliders: Vec<Collider>,
+    /// Last tick's collider frames, for the swept path's previous frame.
+    previous_shapes: Option<Vec<collision::Frame>>,
     pub steps: u64,
+}
+
+/// One `LiteRagdollShape` capsule bound to a skin joint.
+struct Collider {
+    joint: usize,
+    /// `LocalMatrix` in column form (its rows become columns).
+    local: Mat4,
+    radius: f32,
+    height: f32,
 }
 
 /// `DataPC_X.forge` -> `DataPC_X_assets.forge`, where the soft bodies live.
@@ -95,7 +109,25 @@ pub fn load(piece: &LoadedPiece, skin: &Skin, skin_index: usize) -> Result<Optio
             if lod.mesh_id != piece.file_id {
                 continue;
             }
-            let mut driver = build(piece, skin, &parsed.lod0_blob, &lod)?;
+            // SoftBodyState.Ragdoll: a tag-1 pointer near the payload's end
+            // to a LiteRagdoll in the same package.
+            let tail = &payload[payload.len().saturating_sub(64)..];
+            let ragdoll = package.resources.iter().find(|q| {
+                let Ok(v) = u64::from_str_radix(&q.file_id, 16) else {
+                    return false;
+                };
+                let pointer = [&[1u8, 0][..], &v.to_le_bytes()].concat();
+                q.type_id == "891043d5" && tail.windows(10).any(|w| w == pointer)
+            });
+            let ragdoll = match ragdoll {
+                Some(q) => Some((
+                    q.name.clone(),
+                    q.file_id.clone(),
+                    cloth::lite_ragdoll(&package.bytes[q.payload.clone()], &q.file_id)?,
+                )),
+                None => None,
+            };
+            let mut driver = build(piece, skin, &parsed.lod0_blob, &lod, ragdoll)?;
             driver.skin = skin_index;
             driver.report["resource"] = json!({"name":name,"file_id":id_text,
                 "archive":archive.display().to_string(),"entry":entry,
@@ -115,6 +147,7 @@ fn build(
     skin: &Skin,
     blob: &cloth::Blob,
     lod: &cloth::LodMesh,
+    ragdoll: Option<(String, String, Vec<cloth::LiteRagdollShape>)>,
 ) -> Result<ClothDriver> {
     let n = blob.particle_count()?;
     let cap = (n + 15) & !15;
@@ -181,6 +214,8 @@ fn build(
         schedule: blob.schedule()?,
         blend: settings.blend,
         drag: (Vec4::ZERO, settings.drag.a, settings.drag.b),
+        shapes: Vec::new(),
+        collision: None,
         skipped_collision: 0,
     };
     solver.validate()?;
@@ -237,8 +272,73 @@ fn build(
         duplicates: lod.duplicates.clone(),
         flip_sign: false,
         translation: None,
+        colliders: Vec::new(),
+        previous_shapes: None,
         steps: 0,
     };
+    // Opcode 7. The flap selects the swept path (S+192) with rigid colliders
+    // (S+7): its LiteRagdoll capsules (ACU-RE-0081).
+    let cs = settings.collision;
+    let mut collision_report = json!({"rigid":cs.rigid,"swept":cs.swept,"friction":cs.friction,
+        "mesh":cs.mesh,"cloth":cs.cloth,"thickness":settings.thickness});
+    match (&ragdoll, cs.rigid, cs.swept) {
+        (Some((name, id, shapes)), true, true) => {
+            for sh in shapes {
+                if sh.shape_type != 0 {
+                    return Err(format!(
+                        "cloth: ragdoll shape type {} is not ported",
+                        sh.shape_type
+                    )
+                    .into());
+                }
+                let joint = skin.joint(sh.bone).ok_or_else(|| {
+                    format!("cloth: ragdoll bone {:08x} is not a skin joint", sh.bone)
+                })?;
+                let l = sh.local.map(Vec4::from_array);
+                driver.colliders.push(Collider {
+                    joint,
+                    local: Mat4::from_cols(l[0], l[1], l[2], l[3]),
+                    radius: sh.radius,
+                    height: sh.height,
+                });
+            }
+            let map = |k: usize| maps[k].as_ref().map(|m| values(m).value[..n].to_vec());
+            driver.solver.collision = Some(collision::Params {
+                thickness: settings.thickness,
+                friction: cs.friction,
+                thickness_factor: if flags[30] != 0 { map(2) } else { None },
+                friction_table: if flags[31] != 0 { map(3) } else { None },
+            });
+            // Bind-pose check: capsule centres/axes in mesh space and how many
+            // rest particles start inside each (expected few: none pinned).
+            let bind_pose: Vec<serde_json::Value> = driver
+                .colliders
+                .iter()
+                .map(|c| {
+                    let w = skin.bind(c.joint) * c.local;
+                    let (a, t) = (w.x_axis.truncate(), w.w_axis.truncate());
+                    let inside = driver
+                        .rest
+                        .iter()
+                        .filter(|p| {
+                            let d = **p - t;
+                            let y = d.dot(a).clamp(-c.height, c.height);
+                            (d - a * y).length() < c.radius
+                        })
+                        .count();
+                    json!({"centre":t.to_array(),"axis":a.to_array(),"radius":c.radius,
+                        "half_length":c.height,"rest_particles_inside":inside})
+                })
+                .collect();
+            collision_report["bind_pose"] = json!(bind_pose);
+            collision_report["ragdoll"] = json!({"name":name,"file_id":id,"capsules":shapes.len(),
+                "bones":shapes.iter().map(|s| format!("{:08x}", s.bone)).collect::<Vec<_>>()});
+        }
+        (_, true, false) => {
+            return Err("cloth: the non-swept collision path is not ported".into());
+        }
+        _ => {}
+    }
     // Rest check: mapping the rest particles must reproduce the mesh's
     // vertices in order, and the native frames give the mesh's handedness.
     let q = driver.rest.clone();
@@ -292,8 +392,9 @@ fn build(
         "max_bone_bind_error":bind_error,"max_rest_mapping_error_m":rest_error,
         "rest_normal_min_dot_mesh":normal_dot,
         "tangent_sign_agreement":[agree, x.len()],"tangent_sign_flipped":driver.flip_sign,
-        "choices":"one solver step per 60 Hz tick; full repeat count; no ambient wind; scale 1",
-        "not_ported":"collision (opcode 7): the flap can pass through the legs"});
+        "choices":"one solver step per 60 Hz tick; full repeat count; no ambient wind; scale 1; collider previous frame = last tick's pose",
+        "collision":collision_report,
+        "not_ported":"mesh (type 4) and cloth (type 5) colliders; the native particle BVH"});
     Ok(driver)
 }
 
@@ -340,6 +441,44 @@ impl ClothDriver {
                 sim::carry(s, rows, old.extend(0.0), rows, t.extend(0.0));
             }
         }
+        // Collider frames: W = LocalMatrix x bone (row vectors); the record's
+        // axes are (-W.Y, W.X, W.Z), so the capsule runs along W.X.
+        let shapes: Vec<collision::Frame> = self
+            .colliders
+            .iter()
+            .map(|c| {
+                let w = rm * mats[c.joint] * skin.bind(c.joint) * c.local;
+                collision::Frame {
+                    x: -w.y_axis.truncate(),
+                    y: w.x_axis.truncate(),
+                    z: w.z_axis.truncate(),
+                    t: w.w_axis.truncate(),
+                }
+            })
+            .collect();
+        let shift = self.translation.map_or(Vec3::ZERO, |old| old - t);
+        let previous = self
+            .previous_shapes
+            .take()
+            .unwrap_or_else(|| shapes.clone());
+        self.solver.shapes = shapes
+            .iter()
+            .zip(&previous)
+            .zip(&self.colliders)
+            .map(|((cur, prev), c)| collision::Shape {
+                kind: collision::ShapeKind::Capsule {
+                    radius: c.radius,
+                    half_length: c.height,
+                },
+                current: *cur,
+                previous: collision::Frame {
+                    t: prev.t + shift,
+                    ..*prev
+                },
+            })
+            .collect();
+        self.previous_shapes = Some(shapes);
+        let s = &mut self.solver.state;
         self.translation = Some(t);
         s.target = targets;
         self.solver.step(dt, &target_normals);

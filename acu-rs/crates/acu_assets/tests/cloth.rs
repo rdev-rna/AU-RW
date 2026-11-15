@@ -105,6 +105,37 @@ fn installed_tailored_flap_cloth_decodes() -> Result<()> {
         assert!((w.iter().sum::<f32>() - 1.0).abs() < 1e-4);
     }
     assert_eq!(m.end_offset, 180560 + 18 * 81);
+    // Collision settings and the leg colliders (SoftBodyState.Ragdoll).
+    let cs = st.collision;
+    assert!(cs.rigid && cs.swept && cs.mesh && !cs.cloth);
+    assert_eq!((cs.friction, cs.priority), (0.0, 128));
+    let tail = &payload[payload.len() - 64..];
+    let pointer = [&[1u8, 0][..], &0x0000_0027_d187_b440u64.to_le_bytes()].concat();
+    assert_eq!(tail.windows(10).filter(|w| *w == pointer).count(), 1);
+    let rr = &p.resources[2];
+    assert_eq!(
+        (rr.name.as_str(), rr.type_id.as_str()),
+        ("LiteRagdoll_SkirtHV_Leg_ArnoBrigand", "891043d5")
+    );
+    let shapes = cloth::lite_ragdoll(&p.bytes[rr.payload.clone()], &rr.file_id)?;
+    let bones: Vec<u32> = shapes.iter().map(|s| s.bone).collect();
+    assert_eq!(
+        bones,
+        [
+            0x3952_b745,
+            0x9617_63c6,
+            0x8856_5c0b,
+            0xf160_2d3a,
+            0xded1_0611,
+            0x9b14_362c,
+            0x5898_8870
+        ]
+    );
+    assert!(shapes.iter().all(|s| s.shape_type == 0));
+    assert_eq!((shapes[0].height, shapes[0].radius), (0.16, 0.12));
+    let t4 = shapes[4].local[3];
+    assert!((t4[0] - 0.000_117).abs() < 1e-5 && (t4[2] + 0.002_837).abs() < 1e-5);
+    assert!((t4[3] - 1.0).abs() < 1e-6);
     assert_eq!(
         b.schedule()?,
         [
