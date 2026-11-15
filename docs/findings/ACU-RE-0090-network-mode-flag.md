@@ -639,6 +639,48 @@ LAN routes still open:
 - use slot 21, `AcceptFollowHost`, which takes a `storm::PeerDescriptor` (the host's address) and so fits a
   LAN join better. It has no caller found in ACU yet.
 
+## Static follow-up — what `AcceptFollowHost` needs (2026-11-16)
+
+Event names were read from the string after each event vtable in the mapped image. The session interface slots
+are:
+
+| Slot | Function | Event |
+|---|---|---|
+| 17 | `0x141B2CFF0` | `session::inEvent::Create` |
+| 19 | `0x141B2C2A0` | `player::inEvent::AcceptTicket` |
+| 20 | `0x141B358A0` | `player::inEvent::RefuseTicket` |
+| 21 | `0x141B2C220` | `player::inEvent::AcceptFollowHost` |
+| 22 | `0x141B35820` | `player::inEvent::RefuseFollowHost` (also builds a `storm::PeerDescriptor`) |
+| 27 | `0x141B2C870` | `session::inEvent::ChangeSessionDescriptor` |
+| 28 | `0x141B2CCD0` | `router::inEvent::Connect` |
+| 29 | `0x141B2D650` | `router::inEvent::Disconnect` |
+| 31 | `0x141B2C540` | `player::inEvent::RequestAddPlayer` (builder `0x141BB33D0`, event vtable `0x143005E48`) |
+
+Observations:
+67. Slot 21 (`0x141B2C220(iface, out, handler, int a4, PeerDescriptor* a5)`) calls the handler's vf3 and takes the
+    handler id at `handler[2]`. It passes `a4` into the event as its own field (`0x141B52100`, `v27 = a2`). Every
+    Accept has a matching Refuse (Ticket and FollowHost). So `a4` is most likely the id of an *incoming offer* that
+    is being accepted or refused, which is an inference.
+68. Address layout (`0x1426A9AA0`, `0x1426D1950`, `0x1426D1770`):
+    - vtable `0x14300D638`;
+    - kind `151` at `+8`;
+    - a `sockaddr_in` at `+16`: family `2`, port big-endian at `+18`, IPv4 at `+20`;
+    - the port again at `+144`.
+
+    `0x1426AAB40` builds the PeerDescriptor base. A `storm::PeerDescriptor` is that base with vtable `0x142FFD960`
+    set afterwards, as `0x141B423D0` does, and it carries an address object at `+112`. The LAN request handler
+    (`0x141B7E5B0`) builds such an address from the sender's IP and a 2-byte port read from the packet.
+
+Inference: `AcceptTicket` and `AcceptFollowHost` are both **answers to offers that arrive from the network**: a
+Ticket, or a FollowHost proposal, each with a request id. That fits run 12, where there was no ticket and no
+request. A joiner cannot start either one alone. The offer most likely comes from the host side:
+- `RequestAddPlayer` (slot 31), the host adding a player, which presumably sends that player a Ticket;
+- or a router `Connect` (slot 28).
+
+So calling `AcceptFollowHost` without an incoming offer was not tried. The next experiment is host-side: in
+game 2, find ACU's caller of slot 31 (or 28) and call it with game 1's address. Game 2 already sees that address,
+because each discovery request arrives from it.
+
 Unknowns / coverage:
 - Who sets the start-alone flag (statechart `+236`), and what the private-match host waits for before it
   launches (a joined peer, a host confirm, or both).
