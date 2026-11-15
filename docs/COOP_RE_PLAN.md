@@ -215,6 +215,10 @@ pointless without them.
   per manager go onto dirty lists, which the network tick flushes. Kind 1/2/3 records become replica
   message, master broadcast, master unicast, or forward-to-all-but-target. State 1 = replica (this
   corrects ACU-RE-0081). Intention replication is now traced from game action to Storm send.
+- **Status 2026-11-15 (second dirty list):** [ACU-RE-0083](findings/ACU-RE-0083-intention-cleanup-and-join-resync.md).
+  The second list deletes released intention instances at the tick; it is not a snapshot flush. When a peer
+  is added, the master re-sends every active intention to it (join-in-progress). This corrects ACU-RE-0080's
+  "context time". The snapshot send path is still untraced.
 
 ### Phase 5 - Backend boundary register (runs alongside every phase)
 - `docs/coop/BACKEND_BOUNDARY.md`, one row per call that crosses into Ubisoft

@@ -88,8 +88,8 @@ master is wrong. This also settles ACU-RE-0080's gate: StartIntention refuses so
 
 ### Unknowns / incomplete coverage
 
-- What `sub_141C4CA70` (the `+0x3C` list) sends. It probably flushes snapshots: it is reached through
-  `sub_141C527D0`, which is 11 bytes and was not followed.
+- What `sub_141C4CA70` (the `+0x3C` list) sends. *(Resolved by ACU-RE-0083: it deletes released
+  intention instances; it is not a snapshot flush, and `sub_141C527D0` is a full function.)*
 - The exact Storm event each virtual produces (inferred from names).
 - The target set used by kind-1 unicast on the master, and the peer list `qword_1452217B8`.
 

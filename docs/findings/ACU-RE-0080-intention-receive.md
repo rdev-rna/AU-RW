@@ -71,7 +71,9 @@ Exact commands and search boundary:
        is 1 and the start context's source field (`ctx+4`) is 2.
      - It looks up the intention ID in the manager's map (`+0x10`, `sub_14277AA00`) and allocates an
        instance ID from the atomic counter `0x145212F3C`.
-     - If the context has no time, it fills one from `qword_145212F48 + 0x20`, virtual `+0xD8`.
+     - If the context has no origin (`ctx+0xC` = −1), it fills the instance's time from the network clock
+       and its origin from `qword_145212F48 + 0x20`, virtual `+0xD8` (the local index). *(Corrected by
+       ACU-RE-0083; an earlier draft called the virtual `+0xD8` value a time.)*
      - It then creates the intention through the class's virtual `+0x78`.
    - **Typed variants with the same prologue:** they call `sub_141C45720` and then the same map lookup
      (for example `0x1405DFAC0` NavigateToEntity, `0x1405E1670` FireRangedWeapon, `0x1405E5540`
@@ -117,7 +119,7 @@ Exact commands and search boundary:
 - The target of the second delegate (virtual `+0x40`; ACU-RE-0081: the message builder) and what `0x1419F3240` (`+0x528` path) does.
 - The meaning of the gate values and of the start-context fields (`+4`, `+8`, `+0xC` to `+0x18`).
 - Where the builder (ACU-RE-0079) is called from. Covered in ACU-RE-0081.
-- Whether the context time from virtual `+0xD8` is used for latency compensation.
+- Whether the start time (network clock, ACU-RE-0083) is used for latency compensation.
 
 ### Independent comparison / falsification test
 
