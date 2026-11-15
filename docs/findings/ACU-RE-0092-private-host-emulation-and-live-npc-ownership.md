@@ -192,6 +192,23 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
         (`0x14022EC80` → `0x140B237E0` → `0x141B6BB70` → `0x14021D730` → `0x140B25550` → setter), each writing
         life 60 to a different object: the host sending its NPCs' authoritative life to the joiner's replicas.
 
+12. **What `HumanReplica` changes** (static; `local/symbol_index.sqlite` method table plus corpus):
+    - The destructor `0x140BF9E80` sets four vtables, so the class has extra bases:
+      - `0x142F18FC0` at `+0`;
+      - `0x142F19120` at `+456` (40 slots, 15 of them `nullsub_7` or `return 0`);
+      - `0x142F19260` at `+464`;
+      - `0x142F19298` at `+2448`.
+    - The interface query (slot 30) returns `this+456` for id 6 and `this+2448` for id 64, and otherwise defers to
+      `HumanBase` (`0x141EC18C0`). On `Human`, slot 30 is `0x14131B5E0`, the interface query that the debug
+      teleport uses (ACU-RE-0046).
+    - Slot 32 is the behaviour reset that `teleport.py` calls on `Human` (`0x14131A530`). On the replica it is
+      `sub_140C1D020(this+456)`, which drives the `+456` sub-object. Slot 14 runs `HumanBase`'s slot-14 body
+      (`0x140C20960`) and then the same driver call.
+    - Slots 13 and 16 do work in `HumanBase` (`0x141EB1C50`, `0x141EC3190`) and are `nullsub_7` on the replica.
+    - Slot 40 grows from 71 bytes (`0x1402900E0`) to 720 bytes (`0x140C2B190`). Slot 39 stores a byte at `+1856`
+      and pushes it to a looked-up object's `+41`.
+    - Class names for the three extra vtables are not in the symbol index.
+
 ## Inferences
 
 - **NPC simulation sits with one machine at a time, and it was not the mission host.** The enemy's intentions flowed
