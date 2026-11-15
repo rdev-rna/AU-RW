@@ -170,9 +170,47 @@ launch flow is waiting (in `0x140F5EF90`, the launch fires only once its flags `
 and their writers are not found), and the map hides other missions while a launch is pending. This is
 not verified.
 
+## Follow-up — the co-op launch gate (2026-11-15)
+
+The user confirmed the map missions vanished only **after** starting the co-op mission, not at load.
+
+Static observations (corpus files, vtables read from the hash-bound mapped image, class name from the
+symbol index `vtable` table):
+14. The object `0x140F5EF90` runs on is `qword_1451C58E8`, a **`MissionBeaconManager`** (primary vtable
+    `0x142F5FE30`, constructor `0x140F03E10`, deleted in `OnlineUniverseComponents::vf7`). `vf24` of
+    `OnlineUniverseComponents` (`0x140F5F270`) ticks it every update.
+15. The gate in `0x140F5EF90`, with `M` = the manager:
+    - **Stage 1.** When `M+112 == 1` and `M+104` is set but `M+105` and `M+106` are not, it creates the
+      mission session; `M+105` stores the result.
+    - **Stage 2.** When `M+112 == 1` and `M+104`, `M+106` and `M+107` are set but `M+108` is not, it sets
+      `M+112 = 0`, copies the mission descriptor at `M+92`, and calls `0x140F5AC80` (the launch).
+16. `M+106` and `M+107` are set by the session-listener interface at `M+16` (vtable `0x142F5FE90`): slots 0
+    (`0x140F43290`) and 2 (`0x140F432E0`) write `+90` = 1 and `+91` = mission session vf22. Relative to the
+    object these are `M+106` and `M+107`. Mission session vf22 is `0x141C53CC0`: true when there is no peer
+    list at `+144`, or when its two counts at `+16` and `+20` are equal (an inference: all expected peers
+    are present). Slot 2 also starts a further flow (`sub_1425580C0`, state 11) when its event id equals
+    `dword_145203C30`.
+17. The writers of `M+104`, `M+105` (outside stage 1) and `M+112 = 1` were not found. Only three
+    RIP-relative references to `qword_1451C58E8` exist, so the request probably reaches the manager through
+    a stored pointer.
+
+Live read of the running LAN game (PID 128320, after the attempt; `ReadProcessMemory`, read-only;
+`local/native-probe/runs/lan-mode-20261115/beacon.json`):
+18. `M+104` = 0, `M+105` = 0, `M+106` = 1, `M+107` = 1, `M+112` = 0, descriptor pointer `M+92` = null. The
+    flag still reads 1, and `NetMissionManager + 196` reads 3. Bytes `M+108`–`M+111` read `f4 7f 00 00`;
+    the constructor does not initialise them.
+
+Inference: the mission session reported back and its peer check passed (`M+106`, `M+107`). But the request
+fields (`M+104`, `M+112`, `M+92`) were cleared afterwards. So either the launch fired and the next step
+failed, or the request was cancelled. It is not established which. Note that stage 2 tests only the byte
+at `M+108`, and that byte was nonzero in this read. If it is never cleared, stage 2 can never fire.
+Falsification test (live, reversible): poll `M+88`–`M+127` every few ms and hook `0x140F5AC80` while the user
+starts a co-op mission. Restart the game first, because mission create refuses while `NetMissionManager +
+196` is nonzero.
+
 Unknowns / coverage:
-- What hides the map missions in mode 1, and what the launch path in `0x140F5EF90` waits for after `Create`
-  (writers of its `+106`/`+107` flags).
+- Whether the `MissionBeaconManager` launch (`0x140F5AC80`) fired in mode 1, who writes `M+104`/`M+112`,
+  and whether the uninitialised `M+108` blocks stage 2.
 - Whether a second mode-1 game finds the session (LAN discovery), and what a joiner needs.
 - What mode 1 does to the online services (selector 7, ACU-RE-0088). The custom loader has no online.
 - Stability over a longer session.
