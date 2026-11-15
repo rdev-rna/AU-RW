@@ -11,7 +11,8 @@ inferred (**I**).
 |---|---|---|
 | R1 | Every replicated character has one **master** peer, which simulates it. The other peers hold **replicas**. Master role can be acquired, given away, or replaced when the master leaves (Storm `object::inEvent` master-role events). | O (names), I (behaviour) |
 | R2b | A gate in StartIntention (`sub_141C45720`) refuses when the net component's state is 1 (replica, ACU-RE-0082) and the start source is 2. This stops a replica from starting intentions from its own AI or input. | O (code), I (source 2 = local) |
-| R2 | A replica never changes authoritative state directly. It sends a request RFC to the master (`RFCSetMaster*`, `SendFightDamageEventToMaster`). | I (names) |
+| R2 | A replica never changes authoritative state directly. It sends a request to the master (`RFCSetMaster*`, `SendFightDamageEventToMaster`). Seen live in a two-game co-op mission: the game that simulated the attacking NPCs sent `SendFightDamageEventToMaster` while the other game's player was hurt (ACU-RE-0092). | O (live) |
+| R4 | Mission NPCs are simulated by one peer at a time, and it need not be the session host. In a live fight, the peer fighting an NPC ran its AI and broadcast its intentions (`NavigateInFight`, `SetLastDamageEvent`, `EnterIncapacitated`), while the host ran the replica (ACU-RE-0092). The ownership rule and hand-over were not observed. | O (one fight), I (rule) |
 | R3 | With no network handle, the same call runs locally. Single-player is the degenerate case of this design. Live in solo (ACU-RE-0085): the replicate path runs about 30 times per second and stops at the network-component checks; the memento push stops at "session active" (`S+0x30 ≠ −1`). | O (send sites, live solo probe) |
 
 ## 2. Channels
@@ -75,7 +76,38 @@ How Storm then serializes and paces them is not traced (I).
 | P10 | Timestamps are on a host-origin session clock (Storm `time` module, ACU-RE-0078). The host starts at 0. Each client pings with `{id, 1, client_ms}`, and the host replies `{id, 0, host_session_ms, echoed client_ms}` (big-endian u32). Each sample estimates host time as `host_session_ms + rtt/2`; samples are averaged and applied at most every 500 ms. Pings go every 100 ms for the first 10 replies, then every 2 s. | O |
 | P11 | Clock corrections are slewed (`max(1/30, err²·4e-8)` ms per ms, no overshoot), and reads are monotonic. When a session ends, the game latches `offset = net − local` so time stays continuous. That the game's clock getter is this session time is inferred. | O / I |
 
-## 6. Open items for this spec
+## 6. Damage and health (ACU-RE-0092)
+
+| | Rule | Evidence |
+|---|---|---|
+| D1 | The attacker's hit routine (`sub_140576270`) never writes the victim's health. It fills a `FightDamageEvent` and starts `SendFightDamageEventToMaster` on the victim's own net component: NetHumanIntention for a human (`entity+212 & 7 == 2`), NetBehaviorAI for an AI NPC (`== 1`). | O (code), O (live sends) |
+| D2 | The intention router delivers by the victim component's state: replica → unicast to the master; master → local. Game code has no co-op branch. | O (code, ACU-RE-0081), I (live coverage is partial) |
+| D3 | The master rebuilds the event as an intention (receive handler `0x1407269B0`) and applies it. | O (receive), unknown (apply site) |
+| D4 | One damage record travels on two lanes with identical 16-field layouts: `SendFightDamageEventToMaster` (request, unicast to the master) and `SetLastDamageEvent` (outcome, broadcast). | O (layouts) |
+| D5 | `CSrvHealth.Life` belongs to the master. A replica's getter reads the replicated value (`+260` set → `sub_14066B710(+240)`); the master keeps a local int16 at `+256`. | O (code) |
+| D6 | Replicas receive life with `ZenHealthReplication_RFCSetMasterLife`. The handler `0x140B25550` writes through the life setter only when the entity's role bits `(+212 & 0xC0000) == 0x80000` (replica). | O (code), O (live: the joiner applied the host's NPC life values) |
+| D7 | Health regeneration runs every second in the health state machine on each peer, for both local and replica player-health objects. | O (live) |
+
+## 7. Porting checklist (AC4 co-op mod and other titles)
+
+Ordered so that each step is testable on its own. Each step names the ACU rule it copies.
+
+1. **One owner per entity** (R1, R4). Tag every replicated entity with an owner peer and a local role
+   (master or replica). Gameplay code may read the role but should not need to.
+2. **Requests up, outcomes down** (R2, D1–D4). Any change to an entity the local peer does not own becomes a
+   request addressed to the owner. Only the owner applies it, then broadcasts the result. For hits: the attacker
+   sends a damage record to the victim's owner; the owner applies it and broadcasts the outcome.
+3. **Replicas display, never simulate, health** (D5–D6). The remote body's health is a copy of the owner's
+   value, pushed on change. It is not a second health pool with its own damage handling.
+4. **Same code path solo and online** (R3, D2). The router decides local versus network. With no session,
+   requests apply locally, so single-player stays the degenerate case.
+5. **Replica class with a driver** (ACU-RE-0092 observation 12). The remote body is its own type, or an explicit
+   mode. Its behaviour reset and update run a replication driver instead of local AI or input, and some
+   local-only behaviours are switched off.
+6. **Name-hashed message IDs** (section 3). Derive wire IDs from type names, so both peers agree without a
+   shared table.
+
+## 8. Open items for this spec
 - The owning entity class: Storm object type `NetPlayer` (ACU-RE-0084). The game class behind it is still
   unnamed. Position is covered in section 5 (ACU-RE-0076).
 - Whether the player avatar holds a proxy slot, and whether animation smooths proxy corrections.
