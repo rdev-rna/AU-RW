@@ -3,11 +3,13 @@
 //! Bevy `IrradianceVolume` (1 m voxels) placed so the spot lands on Arno at the arena origin.
 //!
 //! Native: which cells, their bounds and levels, and every cell voxel's L0 / L1 colour (GICP +
-//! `GIDecodeYCbCr`).
-//! Inferred: SH evaluation `dot(L1, n) + L0` per colour (For Honor's form; ACU's forward shader not
-//! read), coefficient j -> native axis j, GICP voxel axes = native x, y, z with texel centres at
-//! `min + (i + 0.5) * size / 16` (the field reflected as `Center` equals the tree leaf's min corner),
-//! and "finest containing leaf wins" where levels overlap (ACU's indirection was not read).
+//! `GIDecodeYCbCr`). Observed in the deferred lighting shader (`0x143211F50`): irradiance per
+//! colour is `dot(L1, n) + L0` with `n` the world normal and atlas u, v, w = world x, y, z; the
+//! volumes hold bounce light only (sky light = an L2 sky SH times GIData 3's visibility, not
+//! ported: the sky SH is a runtime constant).
+//! Inferred: texel centres at `min + (i + 0.5) * size / 16` (the native `UnitToVolume` inset is a
+//! runtime value), and "finest containing leaf wins" (the native indirection grid is built at
+//! runtime).
 //! Synthetic: the arena, the resampling grid, and the `intensity` calibration (ACU's GI scale
 //! relative to exposure is unknown).
 
@@ -320,9 +322,9 @@ pub fn report(gi: Option<&NativeGi>, intensity: f32) -> serde_json::Value {
             "uncovered_voxels": g.uncovered,
             "median_l0_luminance": g.median_luminance,
             "intensity_synthetic": intensity,
-            "inferred": ["SH evaluation dot(L1,n)+L0", "coefficient j = native axis j",
-                         "voxel axes = native x,y,z, texel centres from the cell min corner",
-                         "finest containing leaf wins"],
+            "observed": ["bounce irradiance dot(L1,n)+L0 per colour, world axes (0x143211F50)"],
+            "inferred": ["texel centres from the cell min corner", "finest containing leaf wins"],
+            "missing": ["sky SH x GIData 3 visibility (runtime constant)"],
         }),
     }
 }

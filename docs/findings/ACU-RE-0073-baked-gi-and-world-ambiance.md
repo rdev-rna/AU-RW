@@ -170,6 +170,27 @@ No FH parser module was imported.
   `j < 3` has (Y, Cb, Cr) = `m * (comp_j of GIData 0, 1, 2)`; coefficient 3 has (`w0`, `m*w1`,
   `m*w2`). BT.601 rows give R, G, B, stored to `u0`, `u1`, `u2` (one texel = four coefficients).
   `u3 = (a3, b3, c3)*|w3|, w3`.
+- Forward GI evaluation, from the deferred lighting pixel shader at `0x143211F50` (ps_5_0, 41 other
+  shaders in the image bind the same `g_WorldGIIndirection`; DXBC disassembled with
+  `D3DDisassemble`, `local/lighting/fwd/`). Reflected names from its RDEF:
+  - `cb_g_Frame.m_GIConsts` (`GISamplingConfig`: `Params`, `WSToIndirectionScale`, `...Bias`,
+    `InvVolumeSize`, `InvVolumeAtlasSize`), `m_SunLight` (`DirectLightConsts`: `m_Direction`,
+    `m_Color`), `m_SunShadows` (`m_SplitBlendMulAddUVAndZ[4]`, `m_CascadesRangesMax/Min`...),
+    `cb_g_Pass.m_GlobalLightingScale`; `g_WorldGICells` (`GIIndirectionCell`, 52 bytes:
+    `WSToUnitScale`, `WSToUnitBias`, `UnitToVolumeScale`, `UnitToVolumeBias`, `NormalBiasScale`),
+    `g_IndoorGIVolumes` (64-byte matrices), `g_SkySHConstants` (`SkyLightingSH`: `Values[7]`,
+    `SkyLightingUp`, `SkyLightingScale`).
+  - Lookup: `i = g_WorldGIIndirection.Load((p + n*Params.y*0.5)*WSToIndirectionScale +
+    WSToIndirectionBias)`; `i == 0` (or `Params.x == 0`) falls back to a cube map. Otherwise cell
+    `i - 1`: `unit = saturate(p*WSToUnitScale + WSToUnitBias + n*NormalBiasScale*Params.y)`,
+    `uvw = unit*UnitToVolumeScale + UnitToVolumeBias`, then `t_g_WorldGIVolume0..3` at `uvw`
+    (per-axis, no swizzle: atlas u, v, w = world x, y, z). Up to two indoor volumes blend in by
+    8-bit weights.
+  - Evaluation: `GI_c = (dot(V_c.xyz, n) + V_c.w) * s` for c = R, G, B (`V_c` = volume c,
+    `n` = world normal, `s = occlusion * m_GlobalLightingScale.y`), plus
+    `max(0, SkySH_L2(n)) * (dot(V3.xyz, n) + V3.w)`. So volumes 0..2 hold bounce light and volume 3
+    is a sky-visibility L1 that multiplies a separate L2 sky SH. The pass output is scaled by
+    `m_GlobalLightingScale.x`.
 - `0x14331D630` (4 inputs `t0/t4/t8/t12`, `cb_g_DecodeConstants` = `InputScale`, `InputBias`,
   `WriteOffset`, `Scale[4]`, `Bias[4]`) does the following:
   - samples each input with `sample_l` at a half-texel-corrected coordinate;
@@ -213,11 +234,10 @@ No FH parser module was imported.
 
 - GILoader `+16` / `+32` are the world-space minimum and size of the GI domain (Paris:
   x −960..608, y −864..512, z −112..16). Tree `min` / `size` are cell corners.
-- GIData 0..2 are the Y, Cb, Cr planes of an L1 SH: coefficients 0..2 are the three L1 axes
-  (stored relative to `|L0|`), coefficient 3 is L0 (its blob is the sometimes-32^3 one). The
-  forward evaluation is assumed to be `dot(xyz, n) + w` per colour, as in For Honor's SH planes;
-  the ACU forward shader was not read. GIData 3 (`u3`) is another L1 quantity (sky visibility is
-  one reading). Evidence: in the reference texel L0 is positive and warm and `|L1| < L0`.
+- GIData 0..2 are the Y, Cb, Cr planes of an L1 SH (coefficients 0..2 the world x, y, z terms,
+  stored relative to `|L0|`; coefficient 3 is L0). Now supported by the forward shader above,
+  which evaluates `dot(xyz, n) + w`; GIData 3 is the sky visibility the shader multiplies with
+  the sky SH.
 - GIData `+0` / `+16` are the shader's `Scale` / `Bias` (`cb5[3..6]` / `cb5[7..10]`): copied into
   two consecutive 4 x vec4 blocks; the constant-buffer binding was not observed.
 - The output sample position uses `cb5[0] = 1/(n-1)` (not observed); the implementation resamples
@@ -232,8 +252,9 @@ No FH parser module was imported.
 
 ### Unknowns
 
-- The forward GI evaluation and the cell -> world-volume indirection (`g_WorldGIIndirection`),
-  hence the voxel axis order inside a cell and the irradiance scale relative to exposure.
+- The runtime values of `m_GlobalLightingScale`, `m_SunLight`, `g_SkySHConstants` and the
+  per-cell `UnitToVolume` inset (texel placement inside a cell). Without the sky SH the Bevy port
+  shows bounce light only, at a synthetic scale.
 - `GIData +96` (7 / 15), `+105`; the RGB (`sub_1421C44F0`) path is implemented only as the
   decoder's channel count (Paris data does not exercise it).
 - Sun direction and intensity (the time-of-day manager), the `LayeredSky` layout, the 24 later post
