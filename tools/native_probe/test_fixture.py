@@ -128,6 +128,36 @@ class FixtureTest(unittest.TestCase):
             hits = checked(pid, "STATUS")["hits"]
             time.sleep(.1)
             self.assertEqual(checked(pid, "STATUS")["hits"], hits)
+            # CALLAT: one call of ProbeFixtureAdd on the fixture's main thread at the next tick hit; the
+            # hooked function must keep running afterwards (the counter keeps rising).
+            add = base+sites["ProbeFixtureAdd"]
+            self.assertFalse(command(pid, f"CALLAT 3 {add:x} 1 2 3 4")["ok"])  # no hook in slot 3
+            self.assertFalse(command(pid, f"CALLAT 0 {counter:x} 1 2 3 4")["ok"])  # target not executable (also no hook)
+            checked(pid, f"HOOK 0 {tick:x} {expected} fixture_tick")
+            self.assertFalse(command(pid, f"CALLAT 0 {counter:x} 1 2 3 4")["ok"])
+            checked(pid, f"CALLAT 0 {add:x} 1 2 3 4")
+            self.assertFalse(command(pid, f"CALLAT 0 {add:x} 1 2 3 4")["ok"])  # one at a time
+            for _ in range(100):
+                call = checked(pid, "CALLSTATUS")
+                if call["state"] == 3:
+                    break
+                time.sleep(.01)
+            self.assertEqual(call["state"], 3, call)
+            self.assertEqual(int(call["result"], 16), 1+2*2+3*3+4*4)
+            self.assertEqual(int(call["site"], 16), base+tick)
+            read = lambda name, n: int.from_bytes(bytes.fromhex(checked(pid, f"READ {base+sites[name]:x} {n}")["hex"]), "little")
+            self.assertEqual(read("ProbeFixtureCallSum", 8), 30)
+            self.assertEqual(read("ProbeFixtureCallThread", 4), call["tid"])
+            before = read("ProbeFixtureCounter", 8)
+            time.sleep(.1)
+            self.assertGreater(read("ProbeFixtureCounter", 8), before)
+            self.assertEqual(read("ProbeFixtureCallSum", 8), 30)  # exactly once
+            checked(pid, f"CALLAT 0 {add:x} 1 0 0 0 1")  # return filter that never matches
+            time.sleep(.1)
+            self.assertEqual(checked(pid, "CALLSTATUS")["state"], 1)
+            self.assertTrue(checked(pid, "CALLCANCEL")["cancelled"])
+            self.assertEqual(read("ProbeFixtureCallSum", 8), 30)
+            checked(pid, "UNHOOK 0")
             # Data-write watch: the fixture writes ProbeFixtureCounter in ProbeFixtureTick every 20 ms.
             self.assertFalse(command(pid, f"HOOKDATA 2 {counter+1:x} 8 misaligned")["ok"])
             self.assertFalse(command(pid, f"HOOKDATA 2 {counter:x} 3 badlen")["ok"])

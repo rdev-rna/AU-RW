@@ -173,6 +173,17 @@ groups of up to4 probes, emit group metadata/time/status and bounded JSONL,
 and remove active probes on exit. Categories are organizational metadata,
 not implemented semantic decoders. Rotated groups observe different time
 windows: whole-profile breadth does not mean whole-engine simultaneous coverage.
+`CALLAT slot target rcx rdx r8 r9 [return_address]` (all hex, absolute addresses) calls one native
+function once, on the game's own thread. At the next hit of the execute hook in `slot` (only when the
+hooked call's return address equals `return_address`, if given), the trapping thread is sent to a
+thunk. The thunk calls `target(rcx, rdx, r8, r9)` 4 KiB below the trapped stack, then restores the
+saved trap context with `RtlRestoreContext`, so the hooked function then runs unchanged. `CALLSTATUS`
+reports `state` (0 idle, 1 armed, 2 running, 3 done), `result` (RAX), `tid` and `site`; `CALLCANCEL`
+disarms a call that has not fired yet. Only one call can be pending, and data watches cannot carry one.
+This runs game code with chosen arguments: use it only for a call whose arguments have been read from
+the live process and whose effect is understood, and unhook the slot afterwards.
+The fixture regression covers a correct result, the thread, exactly-once and a non-matching filter.
+
 An optional `redirect` object can set `slot`, `from_index`, `to_index`,
 `return_module` and hex `return_rva`; the exact conditional RCX redirect is
 applied before the session emits `armed`. It requires a redirect-capable probe
