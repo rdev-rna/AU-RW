@@ -812,6 +812,39 @@ but never reached the watch phase:
 The cause of the drop in run 13 is still unknown. Next: a fresh game 1 (LAN flag, then discovery), then one
 join with the drop hooks armed from the start, and no leave and rejoin.
 
+## Run 15 — relaunched game 1 rejoins on its own (2026-11-16)
+
+82. Game 1 was relaunched (`capture_run.py --direct --until world --fps-cap 60 --cpu-cores 0-3`, plus `lanflag.py`).
+    It came up on the original ports (3074) with its own sessions: game-session handle 1, mission −1. Game 2
+    was unchanged since run 14: `PRIVATE_MATCH_HOST`, port offset 10.
+
+    After discovery was turned on (`CALLAT` LAN matchmaker slot 4), game 1 received game 2's 103 B replies but
+    stored no record. Instruction hooks in `0x141B7E5B0` locate the rejection:
+    - the request-type check at `0x141B7E6A1` gives `al` = 1;
+    - the reply check at `0x141B7E768` gives `al` = 1;
+    - the address comparison `0x141B4BF80`, called at `0x141B7E7C1` and read at `0x141B7E808`, gives `bl` = 1,
+      so the reply is discarded.
+
+    The two compared address objects (vtable `0x143002270`, kind 151) were equal: same IPv4, port 3074.
+    **Game 2's reply carried game 1's own address.** That is the address the crashed game 1 had.
+83. Within minutes, with **no join call from the tools**, game 1 was in game 2's sessions:
+    - game-session id = game 2's `…e4398d9e`, handle 4;
+    - mission session handle 3, base `+196` = 3;
+    - both session records (`session+144`) hold game 2's PeerDescriptor, port 3084, and the record ints at
+      `+12`/`+16` are (4, 2) and (3, 2).
+
+    Inference: game 2 never removed the crashed peer. A new game at the same IP and port was taken back into
+    the session as that peer. The mechanism was not traced.
+84. User visual check: **both games show the other player.**
+85. Watch run (scratchpad `dropwatch.py --watch-only`, data in `local/native-probe/runs/lan-drop2-20261116/`):
+    - session state of both games polled every 0.25 s;
+    - hooks on game 1's `Secede` 24, `Leave` 23, `Create` 17 and router `Disconnect` 29;
+    - hooks on game 2's `Kick` 25, `Leave` 23, router `Disconnect` 29 and `Dissolve` 26.
+
+    During it, the co-op objective failed (the protected NPC died) and **both games reloaded**, as reported by
+    the user. No session id or handle changed in either game, and none of the eight hooks fired. **The link
+    survived a mission-fail reload.**
+
 Unknowns / coverage:
 - Who sets the start-alone flag (statechart `+236`), and what the private-match host waits for before it
   launches (a joined peer, a host confirm, or both).
