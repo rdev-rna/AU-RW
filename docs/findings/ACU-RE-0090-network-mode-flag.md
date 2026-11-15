@@ -775,6 +775,43 @@ link did not last (observation 78). This is the LAN route the UI never offers: d
 - whether game 2's statechart or UI noticed the join;
 - whether mission launch works.
 
+## Run 14 — catching the drop: the rejoin crashed game 1 (2026-11-16)
+
+79. After the drop (observation 78), game 1 still got game 2's 103 B discovery replies. Both games also kept
+    exchanging small datagrams: 30 B both ways, and 26 B into game 2. But no record reached the `+152` map:
+    - the LAN packet handler `0x141B7E5B0` ran;
+    - the reply-event constructor `0x141B423D0` and the record store `0x141B32630` did not.
+
+    The reply branch skips a session that `0x141B85600` finds in the handler's list at `+64`, matching on
+    `info+72`. Game 1's mission session was still handle 3 with base `+196` = 3. So **only the free-roam game
+    session had dropped; the mission-session link stayed up**, which is an inference from the filter plus the
+    traffic.
+80. ACU's `LeaveSession` for the mission session is `0x141C55040(mission_base)`. It runs only when
+    `base+196 == 3`, calls Storm slot 23 `Leave` with the handle at `base+80` (= `session+48`), and sets `+196`
+    to 0. The party variant is `0x141C550B0`, using `+188` and `+72`. The game-session form is `0x141C355F0`.
+
+    Live, one `CALLAT` of `0x141C55040` in game 1 completed. Game 1's mission session became handle −1 with state
+    0, and game 2's record was back in the `+152` map at once.
+81. One second later, a second `JoinSession` (same call as run 13, with the fresh record) **ended game 1**:
+    - the probe pipe closed while `CALLSTATUS` was being polled;
+    - there was no Windows Application-log entry and no new crash dump;
+    - the game's save index shows a save written by game 1 at the moment of the call (local time 01:40:29).
+
+    Game 2 kept running. The launcher save folder still matches its backup hashes. The live save folder was
+    copied to `local/game-backups/save3dm-after-crash-20261116/`.
+
+    Inference, not tested: Storm was still leaving that same session when the join arrived. Slot 18 queues a
+    join when controller `+1016` is set (`0x141C41370`) and otherwise starts it.
+
+Run data: `local/native-probe/runs/lan-drop-20261116/` (scratchpad `dropwatch.py`). The drop-hook set was armed
+but never reached the watch phase:
+- joiner: `Leave` 23, `Create` 17, router `Disconnect` 29, `Secede` 24;
+- host: `Kick` 25, `Leave` 23, router `Disconnect` 29, `Dissolve` 26;
+- all with 256-byte stack snapshots.
+
+The cause of the drop in run 13 is still unknown. Next: a fresh game 1 (LAN flag, then discovery), then one
+join with the drop hooks armed from the start, and no leave and rejoin.
+
 Unknowns / coverage:
 - Who sets the start-alone flag (statechart `+236`), and what the private-match host waits for before it
   launches (a joined peer, a host confirm, or both).
