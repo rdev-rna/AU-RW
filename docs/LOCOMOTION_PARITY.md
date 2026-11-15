@@ -99,7 +99,17 @@ Tests: `forced_start_holds_a_self_sustaining_state` and `reset_does_not_depend_o
    - Native, on a clear 1.59 s segment of `loco-stops-2`: 5.96 m/s (0.5 s windows 5.45–6.17).
      Rust is about 7 % faster.
    - Older captures gave 5.26 and 5.79–5.95 m/s, with blending.
-   - Native TimeScale during the sprint was not sampled in that run.
+   - Checked (ACU-RE-0074): Rust and native both sprint in graph 3381 (machine 3370 → 3379).
+     It blends `Sprint_3-Loop_V02` with `Run_3-Loop` by damped MovementSpeed (thresholds 3.5
+     and 7).
+     - Native sprint-side weight is about 0.76, run side 0.18; Rust has 0.79 / 0.21.
+     - The sync blend makes the sprint clip play at 0.88–0.90× natively (run clip 1.24–1.28×);
+       Rust gives 0.88–0.95× (run 1.19–1.47×). The native TimeScale parameter stays 1.0.
+     - Native sprints ran near walls (`WallDistanceY` median 4.5 m, down to 0.57 m; below 4 m
+       graph 3381 brings in wall-anticipate clips), with slope −5° to +8° and nonzero
+       `TargetDistanceX`. Rust's arena is flat and open.
+     - So the remaining ~5 % (native 6.05 m/s on dominant runs, Rust 6.39) is not shown to be
+       a Rust defect. Needs a native sprint on open, level ground with parameters captured.
 4. **After a sprint stop.**
    - Native plays `IdleHigh_tr_IdleLow_footl/footr` (1.09–1.1 s) in 3 of 3 runs; Rust goes
      straight to `IdleLow_Footr`.
@@ -107,6 +117,13 @@ Tests: `forced_start_holds_a_self_sustaining_state` and `reset_does_not_depend_o
      reachable from the navigation hub (3296) contains it.
    - The interpreter is rooted at the hub, so it cannot play this clip. Native reaches it
      through a machine above or beside the hub, which is not decoded.
+   - Checked (ACU-RE-0074): state 8947 has the shape of the root layering state's masked
+     overlay layers (for example 6739, sheathe/unsheathe):
+     - state 0 (8948) is a non-graph placeholder;
+     - state 1 (8949) plays the transition clips and exits to target 65534.
+   - No layering state the interpreter parses lists 8947, and no transition carries a graph
+     index (all transitions have only f16 node id, f32, f36 target and f38 bits). How native
+     activates it is unknown.
 5. **Minor, not asserted:**
    - On release, Rust shows `WalkSlow_3-Loop` dominant for 0.10 s (hub idle/stop state 5,
      which leaves after 0.05 s) before the stop clip; native keeps `Walk_3-Loop` dominant

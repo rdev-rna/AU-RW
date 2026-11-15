@@ -7,10 +7,11 @@ order:
 1. The half-stick stop (`WalkSlow_Stop_LP/LC`): find which path hands state 3723 a sync source
    whose events hold `0x00400026` (candidates in ACU-RE-0074, Unknowns), and why the full-walk
    stop still does not pick by phase.
-2. Sprint speed: Rust 6.3-6.4 m/s against native 5.96 m/s. Sample the sprint TimeScale live
-   (`graph_params.py`).
-3. The machine owning state 8947 (`IdleHigh_tr_IdleLow` after a sprint stop), which is
-   outside the navigation hub.
+2. Sprint speed: graph, weights and sync rates match native (ACU-RE-0074). The native sprints
+   ran near walls and on uneven ground. Capture an open, level sprint with
+   `graph_params.py` before changing anything.
+3. State 8947 (`IdleHigh_tr_IdleLow` after a sprint stop) is shaped like an overlay layer
+   machine. Find what activates it (no parsed layering state or transition references it).
 4. Damp law for rates other than 5 (k = 4.12 x rate is a CHOICE).
 
 User priority (2026-10-20): reconstruct predictive traversal scanning linked to

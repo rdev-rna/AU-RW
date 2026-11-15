@@ -733,8 +733,8 @@ mod tests {
                         .collect();
                     println!("{s} graph ev{:x?} {}", g.states[s].events, clips.join(", "));
                 }
-                Body::Layering { base, .. } => {
-                    println!("{s} layering");
+                Body::Layering { base, layers } => {
+                    println!("{s} layering, masked layers {layers:?}");
                     dump(d, *base, depth + 1);
                 }
                 Body::Other => println!("{s} other"),
@@ -891,6 +891,24 @@ mod tests {
                 pos += advance(&mut player, driver, input, None);
                 if std::env::var_os("ACU_LOCO_TRACE").is_some() {
                     trace_transitions(driver, tick);
+                }
+                // `ACU_LEAF_TRACE=1`: every leaf with weight, rate and clip time.
+                if std::env::var_os("ACU_LEAF_TRACE").is_some() {
+                    let leaves: Vec<String> = driver
+                        .player
+                        .leaves
+                        .iter()
+                        .filter(|l| l.weight > 0.01)
+                        .map(|l| {
+                            let n = driver.name(l.clip).replace("xx_Nav_", "");
+                            format!("{n} w{:.2} r{:.3} t{:.3}", l.weight, l.rate, l.time)
+                        })
+                        .collect();
+                    println!(
+                        "leaves {:.3} {}",
+                        tick as f32 * acu_sim::DT,
+                        leaves.join(" | ")
+                    );
                 }
                 // Keep the arena body away from synthetic obstacles; only `pos` is measured.
                 player.position = Vec3::new(2.0, 0.0, 0.0);
@@ -1141,6 +1159,8 @@ mod tests {
             first_sprint.is_some_and(|t| (0.9..=1.9).contains(&t)),
             format!("time to sprint {first_sprint:?} s (native 1.00-1.82)"),
         );
+        // ACU-RE-0074: graph 3381, blend weights and sync rates match native; the native
+        // sprints ran near walls and on uneven ground, so this gap is not shown to be a defect.
         // Native Sprint_3-Loop_V02: 5.96 m/s over a clear 1.59 s segment (loco-stops-2, 60 Hz);
         // 5.26 (loco-turn-delta-2) and 5.79-5.95 m/s (loco-params-1, blended) elsewhere.
         let v = speed(&s, 4.0, 5.0);

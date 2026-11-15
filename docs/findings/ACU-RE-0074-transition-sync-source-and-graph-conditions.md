@@ -83,6 +83,37 @@ State: **partially established**.
    - The error to the target falls by about one half per 30 Hz sample. That gives
      k ≈ 20.6 /s for the rate-5 damp node.
 
+7. **Sprint graph and blend agree with native.**
+   - Both sprint in graph 3381: hub run machine 3358 state 2 = 3370, then 3379, then 3381.
+     The start machine 3359 leaves to state 2 after 0.05 s.
+   - 3381 blends a run side and a sprint side with an axial node on damped MovementSpeed:
+     - the damp node has hash 4170351878 = `MovementSpeed` and rate 10;
+     - thresholds are 3.5 and 7.
+   - Native while `Sprint_3-Loop_V02` dominates (`loco-stops-2`, 59 samples):
+     - sprint 0.68, slope sprint 0.08, avoid 0.02;
+     - `Run_3-Loop` 0.16, run slopes 0.02.
+     Rust: sprint 0.79, run 0.21.
+   - Sync blend rates:
+     - native sprint clip 0.88–0.90×, run clip 1.24–1.28× (clip time against QPC);
+     - Rust sprint 0.88–0.95×, run 1.19–1.47× (`ACU_LEAF_TRACE`).
+   - Native parameters during sprints (`loco-params-1/params2.jsonl`):
+     - TimeScale 1.0 and SpeedFactor 1.0;
+     - `WallDistanceY` median 4.55 m, min 0.57 m;
+     - `VirtualFootIkSlope` −5.1° to +8.3°;
+     - `TargetDistanceX` median 0.27.
+   - Speeds: native 6.05 m/s over dominant runs, Rust 6.39 m/s.
+   - Correction: damp hash 1736508977 is `WallDistanceY`, not `MovementSpeed`.
+8. **State 8947 is shaped like an overlay layer machine.**
+   - The masked layers of the root layering state (state 1: 6739, 6764, …) have the same form:
+     - state 0 is a non-graph placeholder (`Body::Other`);
+     - later states play overlay clips.
+   - In 8947, 8948 moves to state 1 (8949) at once. 8949 plays `IdleHigh_tr_IdleLow_*` and
+     exits to target 65534.
+   - Not checked:
+     - no layering state the interpreter parses lists 8947;
+     - all 6,494 transitions carry only `f16` (node id), `f32`, `f36` and `f38` bits, so none
+       references a graph.
+
 ## Inferences
 
 - With no source at transition entry, every SelectBestMatchingTags in a newly entered state
@@ -106,6 +137,10 @@ State: **partially established**.
       `0x140116AC0`, `0x14011C0D0`).
   - If such a source exists, the full-walk stop must still not pick by phase, and its events
     must lack the 4 % `WalkSlow` leaf. Neither is explained.
+- Sprint speed: the native runs were near walls and on uneven ground, which Rust's arena
+  doesn't model. An open, level native sprint with parameters captured would show whether
+  any gap is left.
+- Who activates state 8947 (game code request, or a layering link the parser misses).
 - What sets `*(source+20)`.
 - Context pass mode 2 (`+92`).
 - The 0.01 / 1.0 values of the event-gathering context.
