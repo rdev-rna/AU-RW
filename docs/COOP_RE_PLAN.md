@@ -393,8 +393,10 @@ Steps, in order. Each one is a small stride with its own finding update:
 
    First use: call LAN matchmaker slot 4 on `*(qword_145137930 + 1792)`, then confirm that `+692` = 1 and that
    `0x141B35E10` fires.
-3. **In progress (ACU-RE-0090 run 10):** discovery request (73 B) and reply (103 B) flow between two games
-   on one PC; nothing consumes the reply yet. Original step:
+3. **Done (ACU-RE-0090 run 13):** discovery stores the host's mission session as a record in the joiner's
+   `+152` map. ACU's `JoinSession` `0x141C54B30(mission_session, *(rec+640), rec+24, 0)`, called with `CALLAT`,
+   moved the joiner's game session onto the host's (same id, synced clock, game traffic). Visual check pending.
+   Original step:
    **Follow the discovery result.** Read the handler that `0x141B34FC0` installs. Find what a
    DiscoverSession reply produces (a session list, or a join request) and what starts the join:
    - `PRIVATE_MATCH_JOIN`, `JOIN_PARTY_INVITE` or `GHOST_JIP` in the matchmaking statechart;

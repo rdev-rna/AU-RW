@@ -681,6 +681,78 @@ So calling `AcceptFollowHost` without an incoming offer was not tried. The next 
 game 2, find ACU's caller of slot 31 (or 28) and call it with game 1's address. Game 2 already sees that address,
 because each discovery request arrives from it.
 
+## Run 13 — game 1 joins game 2 through `JoinSession` (2026-11-16)
+
+Static path (mapped image, binary SHA-256 `748abdc6…8b27e40`, image base `0x140000000`):
+69. `RequestAddPlayer` (slot 31) is **not** a host invite. Its only direct caller is Storm startup (slot 15,
+    `0x141C61EE0`, call at `0x141C620B2`). That caller builds a random peer id and adds the **local** player
+    (handler from `sub_141C42780`).
+70. The image's event names (`storm::echo::session::…`) describe a ticket handshake:
+    - `RequestTicketSessionId`;
+    - `TicketRequest` → `AcceptTicketRequest`;
+    - `TicketReceived` → `AcceptTicket`;
+    - `JoinRequest` → `AcceptJoinRequest`;
+    - `FollowHost`.
+
+    ACU names its Storm requests with strings at `0x143012690`–`0x1430127E8`, among them `JoinSession`,
+    `SendFollowHost` and `AcceptTicketRequest`.
+71. `JoinSession` is ACU's `0x141C54B30(session, info, peer, bool)`, the only user of the `JoinSession` string
+    (at `0x141C54B6C`):
+    - it copies `info+72` (the session id descriptor) into `session+56`;
+    - it builds player data from `qword_145219C80`;
+    - it calls Storm controller interface slot 18, `Join` (`0x141C54E60` → `0x141B30900` → builder
+      `0x141BB3580`, which uses `info+72`, `info+208` and the peer).
+
+    It has three callers:
+    - `0x141C350A0`, a statechart action, which joins the game session with `bool = 1`;
+    - `0x141C60210` (vtable `0x1430119A8`), which joins the mission session with `0` for type 1, and calls
+      `0x141C6BCB0` for type 2;
+    - `0x142560C20` (vtable `0x14360D900`, slot 54), which joins party or mission with `obj+96` / `obj+504`.
+72. LAN record layout (`0x141B29170`, record size 840, vtable `0x142FFE588`):
+    - ints at `+12`, `+16` and `+20`;
+    - a `storm::PeerDescriptor` at `+24`, copied from the discovery event `+56`, with its Address at `+24+112`;
+    - a handle at `+640` to the session info (vtable `0x142FFDFE8`), whose id descriptor is at `+72`.
+
+    The `+152` map is a tree: root at `+16`, node `[0]`/`[1]` children, key at `node+32`, record pointer at
+    `node+72`. Live, game 1 had one record: game 2's **mission** session (`PRIVATE_MATCH_HOST`) at game 2's
+    LAN address, port 3084. The info id was equal to game 2's mission-session id.
+
+Live (both games as in runs 10–12; offline LAN mode; scratchpad `lanjoin2.py` and `lanrec.py`; data in
+`local/native-probe/runs/lan-joinsession-20261116/`):
+73. One `CALLAT 0 141c54b30 <mission_session> <record+640 value> <record+24> 0` on Storm slot 12, in game 1.
+    This is the call `0x141C60210` makes for type 1.
+    - It completed on the game thread.
+    - Storm `Join` (slot 18 / `0x141B30900`) fired once from it (return `0x141C54C2F`).
+    - About 5 s later **Join fired again on another game thread**, with the info at `iface+0x850`. That is ACU
+      itself following into a second session.
+74. After 40 s:
+
+    | Field | Game 1 before | Game 1 after | Game 2 |
+    |---|---|---|---|
+    | game-session id | `…a4f52d47` (its own) | `…e4398d9e` | `…e4398d9e` |
+    | local handle | 1 | 4 | — |
+    | session clock (`+0x98`) | 3,206,723 | 2,713,460 | 2,713,442 |
+    | mission handle | −1 | 3 | — |
+
+    - Game 1's game-session id became **game 2's** id.
+    - Its session clock jumped to game 2's value, within 18 units.
+    - Its mission session gained handle 3, but no id at `+8`.
+    - The party sessions did not change.
+    - Both games now read and send steady full-size datagrams (1,080–1,464 B) as well as discovery.
+75. Correction to runs 10–12 and observation 16: `session+144` is not a peer list. It points to a Storm session
+    record of the same class as the LAN records (vtable `0x142FFE588`), and its `+16` equals the session handle
+    at `session+48`. So the "counts" read at `+16`/`+20` were the record's constructor ints (`+20` is 1 in game 1's
+    joined sessions and 0 in game 2's), not peer counts. Each record also holds maps at `+712` and `+776`, each
+    of size 2 in both games after the join. These were not read before the join, so they are not yet evidence
+    of membership.
+
+Inference: game 1's free-roam game session joined game 2's. The id was taken over, the clock was synced and
+game traffic is flowing. This is the LAN route the UI never offers: discovery (slot 4 via `CALLAT`), then
+`JoinSession` with the stored record. Not established:
+- whether game 2's player is visible in game 1, or the reverse (no visual check yet);
+- whether game 2's statechart or UI noticed the join;
+- whether mission launch works.
+
 Unknowns / coverage:
 - Who sets the start-alone flag (statechart `+236`), and what the private-match host waits for before it
   launches (a joined peer, a host confirm, or both).
