@@ -223,6 +223,9 @@ deliverable and acceptance criterion. Phases 1-5 are static. Phase 7 is dynamic.
     session (LAN `GenerateSessionId`, peer 3). The map hides the co-op markers in this mode, and nothing shows
     in the UI. Next: find the reader that hides co-op markers in mode 1, then run two mode-1 games and see
     whether the second discovers the first.
+  - Live run 2: the co-op mission start in LAN mode enters the private-match host flow
+    (`PRIVATE_MATCH_HOST`, start-alone off), creates the mission session and waits for a partner. The map
+    hides other missions meanwhile. Next: two mode-1 games, the second trying to join.
 
 ### Phase 3 - Replication model (static)
 - Echo objects: how a replica is created and deleted, what an "object shape" is

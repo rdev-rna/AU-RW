@@ -208,9 +208,55 @@ Falsification test (live, reversible): poll `M+88`–`M+127` every few ms and ho
 starts a co-op mission. Restart the game first, because mission create refuses while `NetMissionManager +
 196` is nonzero.
 
+## Live run 2 — watching the launch (2026-11-15)
+
+Fresh LAN-mode game, launched and flagged as in the first live run: PID 106876. The flag poller wrote `1` at
+1.578 s (`lan-launch-20261115/lanflag.json` `63013b8c…`, `run/capture.json` `f2537dc7…`). Before the
+attempt, `beacon_watch.py` armed four execute hooks with matching entry bytes:
+- `0x140F5AC80` (beacon launch);
+- `0x141C46B10` (mission create);
+- `0x140F43290` and `0x140F432E0` (listener slots 0 and 2).
+
+It also polled `M+88`–`M+127`, `NetMissionManager + 196` and the flag every 2 ms. Log:
+`watch.jsonl` `4b44a363…`. All hooks were removed at the end. The user started a co-op mission, and again
+nothing visible happened.
+
+Observations:
+19. Before the attempt, every `MissionBeaconManager` launch field was zero, including `M+108`. So the
+    nonzero bytes in the first run were not what blocked anything here.
+20. Order of events:
+    1. `t = 49.219 s`: mission create was hit once, with return address `0x142755AFB` and `RDX` low byte
+       `1` (is-LAN). `R9` still held `0x14252AC10`, the callback that `0x142569B50` stores just before
+       its tail `jmp` into mission create. So the caller was `0x142569B50`, run by the statechart
+       dispatcher `0x1427556F0`.
+    2. `NetMissionManager + 196` went 0 → 1 → 3.
+    3. About 1 s later, listener slot 0 was hit (return address `0x141C5EEBD`), setting `M+106` = `M+107` = 1.
+    4. Beacon launch and listener slot 2: 0 hits.
+    5. `M+104`, `M+105` and `M+112` stayed 0 throughout.
+
+    So the `MissionBeaconManager` launch request is not the path the map uses here. Its stage 1 never ran.
+21. `0x142569B50` is entered from `0x142552BC0`, `0x142552D20` and `0x14255C3E0`. `0x142552BC0` first labels the
+    matchmaking context `PRIVATE_MATCH_HOST_START_ALONE` when byte `+236` of the statechart object is
+    set, and `PRIVATE_MATCH_HOST` when it is not. `0x14256F380` writes that label as a string at `+224`.
+    State changes go through `0x14256A000` with ids such as `dword_14525370C` = 20078.
+22. Live read after the attempt (read-only):
+    - matchmaking manager `qword_145137930` (vtable `0x14360D4E0`): `+152` = 1;
+    - its statechart at `+1472`: context string **`PRIVATE_MATCH_HOST`**;
+    - `+236` (start alone) = 0; `+232` = 0.
+
+    In the corpus, `+236` is only ever cleared (`0x14255A7A0`); its setter was not found.
+
+Inference: in LAN mode, choosing the co-op mission puts the game into the **private-match host** flow. It
+creates a live Storm mission session and then waits for a second player. It does not start alone,
+because the start-alone flag is off. The map hides the other missions while this lobby is open. The
+"nothing happens" is a host waiting with no lobby UI. That fits the co-op path being built to need a
+partner here, and it is the state a second LAN game would have to join (`PRIVATE_MATCH_JOIN`). This is not
+verified.
+
 Unknowns / coverage:
-- Whether the `MissionBeaconManager` launch (`0x140F5AC80`) fired in mode 1, who writes `M+104`/`M+112`,
-  and whether the uninitialised `M+108` blocks stage 2.
+- Who sets the start-alone flag (statechart `+236`), and what the private-match host waits for before it
+  launches (a joined peer, a host confirm, or both).
+- Whether a second mode-1 game can discover and join the `PRIVATE_MATCH_HOST` session.
 - Whether a second mode-1 game finds the session (LAN discovery), and what a joiner needs.
 - What mode 1 does to the online services (selector 7, ACU-RE-0088). The custom loader has no online.
 - Stability over a longer session.
