@@ -7,9 +7,11 @@ Tailored flap's motion comes from the `Cloth` soft-body resource, not from bones
   `ClothSettings_Standard_Avatars`.
 - Class and field names come from reflection (`Cloth : SoftBody`, `MotionClothState`,
   `MotionClothLOD`, `SoftBodySettings`, `SoftBodyVertexMapping`).
-- **No simulation yet.** The solver is absent from the corpus (only the 69 loaders are present),
-  and the viewer runs no substitute cloth.
-- Next: disassemble or trace the step function of the 824-byte body object (`0x1423f0bc0`).
+- Live trace (PID 128144, write watch on a moving body's particles): the solver runs on workers
+  through non-virtual code. Per frame: `0x1423b10d0` (frame carry), `0x1423d7720`, then twice
+  { 3 x (`0x1423e51f0`, `0x1423bd180`), `0x142419cc0`, collision `0x1423d7f20`/`0x1423d8f20`,
+  `0x1423da5b0` }. All are in the corpus.
+- **No simulation yet.** Those functions are not ported, and the viewer runs no substitute cloth.
 
 Lighting (2026-11-15, [ACU-RE-0073](findings/ACU-RE-0073-baked-gi-and-world-ambiance.md)): the
 arena now uses the native Paris `WorldAmbiance` settings. Default `--lighting paris-noon`;

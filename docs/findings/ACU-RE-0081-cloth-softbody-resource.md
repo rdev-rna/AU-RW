@@ -6,8 +6,10 @@ Tailored outfit, [ACU-RE-0070](ACU-RE-0070-arnos-tailored-visual-pieces.md)).
 State: **partially established.**
 - Observed: the resource layout prefix, the record framing, three record meanings, and the class
   and field names.
-- Not established: the cloth solver. It is not in the decompiled corpus and has not been ported.
-  No simulation runs in the viewer yet.
+- Observed live: the cloth solver's functions and their per-frame order (section "Where the
+  solver is"). They are in the corpus.
+- Not established: the solver's semantics. It has not been ported, and no simulation runs in the
+  viewer yet.
 
 ## Provenance
 
@@ -117,17 +119,84 @@ Other records are sized but have unknown meanings:
 The `11.0b` loader also allocates sub-objects according to flag bytes in the `11.04` record
 (`+108` … `+129`), which `0x1423cdc40` loads.
 
-### Where the solver is (not established)
+### Where the solver is (observed live, 2026-11-15)
 
-The corpus has only 135 functions in `0x1423a0000`–`0x142450000`, and 69 of them are these
-loaders. The library's other functions, including the step function, are absent from the corpus.
-Opening the existing IDA database `ACU.runtime-analysis.pe.i64` headless did not respond within
-30 minutes in this session.
+**Correction:** an earlier version of this finding said the solver is absent from the corpus. That
+was a listing error: the corpus names files in upper-case hex, and a lower-case filter missed them.
+The range holds 1,792 corpus functions, including every function below.
 
-The next step is one of two routes:
-- disassemble the step function from the mapped image (Capstone, as in ACU-RE-0028);
-- locate it live through the acu_tap pipe: trace the vtable of the 824-byte body object built by
-  `0x1423f0bc0`.
+**Body object (static).** Kind 1 is built by `0x1423f0bc0` with vtable `0x1435f4de0`, which has
+10 slots:
+
+| Slot | Function | Role |
+|---|---|---|
+| 0 | `0x1423f0ce0` | destructor |
+| 5 | `0x1423f1190` | pushes particles to the `+488` object |
+| 6 | `0x1423f0920` | forwards to `+488` slot 5 |
+| 7 | `0x1423f0f80` | loader (records `11.12`/`11.13`/`11.20`/`11.21` after `0x1423b0860`) |
+| 8 | `0x1423f0d20` | clone |
+| 9 | `0x1423f0ed0` | size |
+
+The kind-0 table `0x1435f4d90` sits directly before it.
+- `+480` and `+488` are 288-byte spatial-query objects (vtables `0x1435f56c0`/`0x1435f5710`; box
+  and ray traversal).
+- Live: body fields are `+8` kind (1), `+12` particle count, `+16` the positions pointer, `+24`
+  capacity (count rounded up to 16).
+
+**Live run.**
+- Game: PID 128144, `capture_run.py --save-pin capture-start-1 --until world --fps-cap 60`. Arno
+  in a long-coated outfit (`local/native-probe/runs/cloth-live-1/screenshots/arno-now.png`).
+- Instrumentation: `acu_probe.dll` SHA-256 `d7b69cca…3781f`, and `acu_tap13.dll` SHA-256
+  `1d6ccbc0…39d2`, attached with `acu_probe_launcher --attach`.
+
+1. **The vtable is not used per frame.** Hardware execution hooks were set on slots 5, 6 and 7,
+   and on the container class's methods (`0x1423be7b0`/`be800`/`be850`/`be8a0`, `0x1423f1300`/
+   `f1350`). None recorded a hit in 3 seconds. A control hook on the coat apply at `0x140045240`
+   (ACU-RE-0028) recorded 4,270 hits in 2 seconds.
+2. **Bodies exist and move.**
+   - A read-only scan of 3.6 GiB of private RW memory found 708 qwords equal to the vtable
+     (`body-scan.json`, SHA-256 `8f5624ea…42bb`).
+   - 615 of them are consistent bodies: kind 1, with capacity equal to the count rounded up to 16.
+     Particle counts include 144, 45, 84, 15, 69, 70, …
+   - 32 of those had particle positions that changed between two reads 50 ms apart.
+3. **Write trace.**
+   - Method: `WWATCH` page guard on the 144-particle buffer `0x1380ad880` (2,304 bytes) of body
+     `0x1380ad4f0`, for 0.6 s.
+   - Result: 101,897 write hits (`wtrace-1380ad880.bin`, 376-byte WHit records, SHA-256
+     `b706c5ee…356f`) from six worker threads.
+   - Writer RIPs map to these corpus functions:
+     - `0x1423e51f0` (62,985 hits, 2,746 bytes);
+     - `0x142419cc0` (10,979);
+     - `0x1423d7f20` (6,120);
+     - `0x1423d8f20` (6,003);
+     - `0x1423da5b0` (6,000);
+     - `0x1423bd180` (3,570);
+     - `0x1423b10d0` (3,120);
+     - `0x1423d7720` (3,120).
+4. **Per-frame order of writers (observed, by QPC).**
+   ```
+   b10d0, d7720, { (e51f0, bd180) x3, 419cc0, d7f20, d8f20, da5b0 } x2, then b10d0 again
+   ```
+   Calls nested beneath a writer can appear as separate writers.
+   - Stack copies place `0x1423b10d0` under `0x1423af520` ← `0x1423c2c00` ← `0x1423aa040`.
+     `0x1423af520` sets the instance's world matrix (`+64…+112`) and passes the old-to-new delta
+     to `b10d0`.
+   - `0x1423d7f20`/`0x1423d8f20` run under the collision pass `0x1423d68d0`. That pass iterates
+     160-byte shape records of types 1–5 with per-shape matrices.
+   - `0x1423bd180` runs under `0x1423e51f0`.
+   - The top-level driver is deeper than the 40-qword stack copy.
+
+**Inference (to verify by porting):**
+- `b10d0` carries particles with the moving frame.
+- The `{…} x2` block is two substeps per frame (60 fps cap). Each substep runs three iterations of
+  a constraint sweep (`e51f0`, with `bd180`), then the other writers. `d7f20`/`d8f20` are
+  collision.
+
+Static support for "constraints in batches": record `11.0c` holds six counts (71, 62, 76, 37, 37,
+37). `11.1d` holds 592. `11.0d` holds 16 × (sum + 2·592/16) = 394 sixteen-byte blocks, exactly its
+6,304 bytes. This suggests six independently solvable batches packed four-wide (an inference).
+
+The game was closed with `capture_run.py --close` (graceful, 2.9 s), and the saves were put back.
 
 ## Implementation
 
@@ -147,7 +216,7 @@ substitute cloth, because the solver's behaviour is not recovered.
 
 ## Unknowns
 
-- The solver, integration and constraints.
+- The semantics of the eight writer functions, the top-level driver, dt and the substep rule.
 - The meanings of the six u8 arrays and the w flag.
 - The pointer kind byte.
 - The undecoded LOD fields.
