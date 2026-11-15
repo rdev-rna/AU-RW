@@ -75,7 +75,12 @@ Research acceptance:
   record differences in shading_deltas.md. Keep the grey arena synthetic even
   when using recovered Paris lighting.
 
-No native lighting asset selection or visual change has been implemented here.
+Update 2026-11-15 ([ACU-RE-0073](findings/ACU-RE-0073-baked-gi-and-world-ambiance.md)):
+- The Paris presets are `PAR_WorldAmbiance_{Dawn,Noon,Sunset,Night}` (entries 22301–22304) and
+  their `GILoader`s (entry 21267).
+- The GI is a GILoader tree of per-cell `GIDatablock`s in `*_gi.forge`. Its GICP blobs are
+  undecoded; the GPU `GIDecode*` shaders run after the CPU codec.
+- The arena applies the Noon exposure and shadow settings; sun, sky and fill remain synthetic.
 
 ## Sibling Anvil reference reviewed
 

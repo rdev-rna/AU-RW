@@ -1,5 +1,22 @@
 # Project status
 
+Lighting (2026-11-15, [ACU-RE-0073](findings/ACU-RE-0073-baked-gi-and-world-ambiance.md)): the
+arena now uses the native Paris `WorldAmbiance` settings. Default `--lighting paris-noon`;
+`synthetic` restores the old rig.
+- `acu_assets::gi` decodes the baked-GI containers to their exact end, using the native loaders:
+  - the four Paris `GILoader` trees (61–65k nodes, one per time-of-day Season);
+  - `GIDatablock` (`_gi.forge`) → `GIResult` (16 m cells) → `GIData` (four GICP blobs each).
+- The For Honor `GIStream` layout does not transfer.
+- **The GI irradiance itself is not decoded.** The GICP blobs use a CPU codec that is not yet
+  found; the `GIDecode*` compute shaders (YCbCr → RGB) run after it.
+- `acu_assets::ambiance` decodes part of WorldAmbiance: the SSAO / HDR camera prefix and the fixed
+  shadow tail. Applied in Bevy:
+  - EV100 12.94 (f/5.6, 1/250 s, `ISO` 100; aperture and shutter roles inferred);
+  - shadow map 1024;
+  - cascade bounds 5 / 14 / 38 / 72 m.
+- Still synthetic: sun direction and magnitude, ambient fill, sky.
+- Capture: `outputs/lighting/arno-paris-noon.png`, beside `arno-synthetic.png`.
+
 Locomotion parity (2026-11-15, [ACU-RE-0072](findings/ACU-RE-0072-flat-ground-locomotion-parity.md),
 report [LOCOMOTION_PARITY.md](LOCOMOTION_PARITY.md)): flat-ground locomotion is checked against the
 existing live captures by the ignored test `installed_locomotion_segments` (`acu_bevy`).

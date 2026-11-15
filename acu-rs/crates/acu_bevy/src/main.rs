@@ -16,6 +16,7 @@ mod arena;
 mod character_material;
 mod controls;
 mod io;
+mod lighting;
 mod load;
 mod options;
 mod player;
@@ -200,6 +201,13 @@ fn setup_world(
         eprintln!("asset load failed: {e}");
         std::process::exit(3);
     });
+    let native_lighting =
+        lighting::load(&options.game_dir, &options.lighting).unwrap_or_else(|e| {
+            eprintln!("lighting preset {:?} failed: {e}", options.lighting);
+            std::process::exit(3);
+        });
+    let lighting_report = lighting::report(native_lighting.as_ref());
+    println!("lighting: {lighting_report}");
     let mut library = options
         .rigged
         .then(|| rig::load(&options.game_dir).expect("load original rig candidates"));
@@ -514,39 +522,20 @@ fn setup_world(
                 "index":index,"name_hash":format!("{:08x}",state.driver.rig.hashes[index]),
                 "parent":state.driver.rig.parents[index],"matrix_cols":matrix.to_cols_array()
             })).collect::<Vec<_>>(),
-            "lighting":"Synthetic daylight/PBR, not native Day Paris","motion":state.motion_report,
+            "lighting":lighting_report.clone(),"motion":state.motion_report,
             "selected_leaf":state.driver.dominant().map(|l|serde_json::json!({"clip":format!("{:016x}",l.clip),"name":state.driver.name(l.clip),"time":l.time,"weight":l.weight,"mirror":l.mirror}))}),
         );
         commands.insert_resource(state);
     }
     if let Some(path) = &options.report {
-        let report = serde_json::to_vec_pretty(&loaded.scene).expect("serialize scene report");
+        let mut scene = serde_json::to_value(&loaded.scene).expect("serialize scene report");
+        scene["lighting"] = lighting_report.clone();
+        let report = serde_json::to_vec_pretty(&scene).expect("serialize scene report");
         std::fs::write(path, report).expect("write scene report");
     }
 
-    // Lighting: overcast sun plus a soft ambient fill so grey reads clearly.
-    commands.insert_resource(GlobalAmbientLight {
-        color: Color::srgb(0.70, 0.81, 1.0),
-        brightness: 550.0,
-        ..default()
-    });
-    commands.spawn((
-        DirectionalLight {
-            color: Color::srgb(1.0, 0.91, 0.78),
-            illuminance: 18_000.0,
-            shadow_maps_enabled: true,
-            ..default()
-        },
-        Transform::from_rotation(Quat::from_euler(EulerRot::YXZ, 0.6, -0.9, 0.0)),
-    ));
-    // Second dim light from the opposite side to avoid pure black backsides.
-    commands.spawn((
-        DirectionalLight {
-            illuminance: 2_000.0,
-            ..default()
-        },
-        Transform::from_rotation(Quat::from_euler(EulerRot::YXZ, -2.4, -0.4, 0.0)),
-    ));
+    // Lighting (ACU-RE-0073): native Paris WorldAmbiance settings, synthetic remainder.
+    let exposure = lighting::spawn(&mut commands, native_lighting.as_ref());
 
     // Camera framing the decoded bounds.
     let center = (bevy_min + bevy_max) / 2.0;
@@ -585,6 +574,9 @@ fn setup_world(
             distance,
         },
     ));
+    if let Some(exposure) = exposure {
+        camera.insert(exposure);
+    }
     if let Some(mut capture) = capture {
         let (width, height) = options.size;
         let image = Image::new_target_texture(

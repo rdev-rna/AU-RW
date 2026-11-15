@@ -507,6 +507,13 @@ The movement mission is sequenced in MOVEMENT_PLAN.md / PROGRESS.md. Required
 defaults are Arno's Tailored hood/coat/gloves/greaves and Day, Paris lighting;
 their native asset selection remains unresolved. LIGHTING_RESEARCH.md and
 RENDERING_SOURCES.md track the reviewed video and developer rendering reference.
+Lighting slice 1 (ACU-RE-0073, done): GI containers decoded (exact end); Paris
+WorldAmbiance exposure and shadow settings applied (`--lighting paris-noon`).
+Next, in order:
+- the GICP codec (CPU decoder, or a live hook on the texture upload);
+- the GIData → `GIDecode*` variant and the world-volume indirection;
+- the time-of-day sun / LayeredSky;
+- the remaining PostEffects, Wind and WorldFog.
 
 Completed bounded numerical skin audit (ACU-RE-0015): eleven pieces, 29,481
 vertices, 19 parts; all weighted hardware-palette accesses and weight sums pass.
