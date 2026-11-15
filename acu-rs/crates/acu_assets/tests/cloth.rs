@@ -84,6 +84,27 @@ fn installed_tailored_flap_cloth_decodes() -> Result<()> {
     assert_eq!((st.damping, st.max_speed, st.blend), (0.0, 1000.0, 0.0));
     assert_eq!((st.drag.a, st.drag.b), (1.3, 0.7));
     assert_eq!(b.triangles()?.len(), 1039);
+    // LOD0 fields after the blob: particle skinning and the render-vertex mapping.
+    let m = cloth::lod0_mesh(payload, &c)?;
+    assert_eq!(m.mesh_id, "00000013c1e4eb9a");
+    assert_eq!(m.triangles, b.triangles()?);
+    assert_eq!(
+        (m.mappings.len(), m.duplicates.len(), m.indices.len()),
+        (1192, 203, 5385)
+    );
+    assert_eq!(m.mappings.iter().filter(|v| v.skinned).count(), 234);
+    assert_eq!(
+        (m.lod_index, m.particle_influences, m.vertex_influences),
+        (0, 8, 8)
+    );
+    assert_eq!(m.bones.len(), 18);
+    for (r, p) in m.rest_positions.iter().zip(&ps) {
+        assert_eq!(r[..], p[..3]);
+    }
+    for w in m.particle_weights.chunks(8) {
+        assert!((w.iter().sum::<f32>() - 1.0).abs() < 1e-4);
+    }
+    assert_eq!(m.end_offset, 180560 + 18 * 81);
     assert_eq!(
         b.schedule()?,
         [

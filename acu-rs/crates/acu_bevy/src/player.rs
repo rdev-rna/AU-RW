@@ -110,6 +110,11 @@ fn spawn_player(block: Option<&ArenaBlock>) -> Player {
     }
 }
 
+/// Replay ticks kept for the capture-mode cloth warm-up (4 s at 60 Hz).
+const CLOTH_HISTORY: usize = 240;
+/// Fixed tick length the cloth steps with (`Time::<Fixed>::from_hz(60.0)`).
+const CLOTH_DT: f32 = 1.0 / 60.0;
+
 #[derive(Resource)]
 pub struct State {
     pub driver: GraphDriver,
@@ -118,6 +123,11 @@ pub struct State {
     pub player: Player,
     previous: Player,
     pub skins: Vec<Skin>,
+    /// Cloth-simulated pieces; their skins are not updated directly.
+    pub cloths: Vec<crate::cloth::ClothDriver>,
+    /// Capture mode: (pose, position, yaw) of the last replay ticks, so the
+    /// cloth can be stepped through the motion before the still frame.
+    pub history: std::collections::VecDeque<(Vec<Mat4>, Vec3, f32)>,
     pub block: Option<ArenaBlock>,
     pub bind: bool,
     pub deform: bool,
@@ -234,11 +244,18 @@ impl State {
     ) -> Self {
         let mut player = spawn_player(block.as_ref());
         let mut motion_trace = Vec::new();
+        let mut history = std::collections::VecDeque::new();
         for tick in 0..options.ticks {
             let input = replay(&options.scenario, tick);
             let selected = driver.dominant().map(|l| (l.clip, l.mirror));
             let mode = player.mode;
             advance(&mut player, &mut driver, input, block.as_ref());
+            if options.capture.is_some() && options.cloth {
+                if history.len() == CLOTH_HISTORY {
+                    history.pop_front();
+                }
+                history.push_back((driver.pose.clone(), player.position, player.yaw));
+            }
             if selected != driver.dominant().map(|l| (l.clip, l.mirror))
                 || std::mem::discriminant(&mode) != std::mem::discriminant(&player.mode)
                 || tick == 0
@@ -259,6 +276,8 @@ impl State {
             player,
             previous: player,
             skins: Vec::new(),
+            cloths: Vec::new(),
+            history,
             block,
             bind: options.scenario == "bind",
             deform: options.scenario == "deform",
@@ -386,8 +405,47 @@ pub fn present(
     }
     if !state.frozen {
         let start = std::time::Instant::now();
-        for skin in &state.skins {
-            skin.update(&mut meshes, &state.driver.pose, state.bind, state.deform);
+        for (i, skin) in state.skins.iter().enumerate() {
+            if !state.cloths.iter().any(|c| c.skin == i) {
+                skin.update(&mut meshes, &state.driver.pose, state.bind, state.deform);
+            }
+        }
+        let State {
+            cloths,
+            skins,
+            history,
+            driver,
+            player,
+            bind,
+            deform,
+            ..
+        } = &mut *state;
+        for cloth in cloths.iter_mut() {
+            let skin = &skins[cloth.skin];
+            if cloth.last_tick.is_none() {
+                // Capture: step through the recorded replay first.
+                for (pose, position, yaw) in history.iter() {
+                    cloth.tick(skin, pose, *bind, *deform, *yaw, *position, CLOTH_DT);
+                }
+            }
+            // One step per new fixed tick (bounded catch-up with the latest pose).
+            let pending = match cloth.last_tick {
+                None => u64::from(history.is_empty()),
+                Some(t) => player.tick.saturating_sub(t).min(4),
+            };
+            for _ in 0..pending {
+                cloth.tick(
+                    skin,
+                    &driver.pose,
+                    *bind,
+                    *deform,
+                    player.yaw,
+                    player.position,
+                    CLOTH_DT,
+                );
+            }
+            cloth.last_tick = Some(player.tick);
+            cloth.present(&mut meshes, skin, &driver.pose, *bind, *deform, player.yaw);
         }
         state.skin_seconds += start.elapsed().as_secs_f64();
         state.frames += 1;

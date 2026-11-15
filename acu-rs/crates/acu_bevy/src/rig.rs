@@ -434,7 +434,31 @@ impl Library {
 }
 
 impl Skin {
+    /// Joint slot of a mesh bone name hash.
+    pub fn joint(&self, hash: u32) -> Option<usize> {
+        self.hashes.iter().position(|&h| h == hash)
+    }
+
+    /// Mesh-frame bind matrix of a joint slot.
+    pub fn bind(&self, joint: usize) -> Mat4 {
+        self.rig.bind[joint]
+    }
+
     pub fn update(&self, meshes: &mut Assets<Mesh>, pose: &[Mat4], bind: bool, deform: bool) {
+        let matrices = self.matrices(pose, bind, deform);
+        let surface =
+            acu_sim::skin::surface(&self.vertices, &self.tangents, &self.weights, &matrices);
+        for h in &self.handles {
+            if let Some(mut m) = meshes.get_mut(h) {
+                m.insert_attribute(Mesh::ATTRIBUTE_POSITION, surface.positions.clone());
+                m.insert_attribute(Mesh::ATTRIBUTE_NORMAL, surface.normals.clone());
+                m.insert_attribute(Mesh::ATTRIBUTE_TANGENT, surface.tangents.clone());
+            }
+        }
+    }
+
+    /// Mesh-frame skinning matrices (posed times inverse bind) per joint slot.
+    pub fn matrices(&self, pose: &[Mat4], bind: bool, deform: bool) -> Vec<Mat4> {
         let mut rotations = vec![Quat::IDENTITY; self.hashes.len()];
         for (i, &h) in self.hashes.iter().enumerate() {
             let angle = if deform {
@@ -451,15 +475,7 @@ impl Skin {
                 matrices[i] = inverse * pose[i] * bind_inverse * self.common;
             }
         }
-        let surface =
-            acu_sim::skin::surface(&self.vertices, &self.tangents, &self.weights, &matrices);
-        for h in &self.handles {
-            if let Some(mut m) = meshes.get_mut(h) {
-                m.insert_attribute(Mesh::ATTRIBUTE_POSITION, surface.positions.clone());
-                m.insert_attribute(Mesh::ATTRIBUTE_NORMAL, surface.normals.clone());
-                m.insert_attribute(Mesh::ATTRIBUTE_TANGENT, surface.tangents.clone());
-            }
-        }
+        matrices
     }
 }
 
@@ -965,6 +981,7 @@ mod tests {
             report: None,
             color_set: None,
             lighting: "synthetic".into(),
+            cloth: false,
         };
         let loaded = crate::load::load_all(&options).unwrap();
         let mut library = load(&dir).unwrap();

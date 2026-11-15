@@ -8,8 +8,10 @@ State: **partially established.**
   and field names.
 - Observed live: the cloth solver's functions and their per-frame order (section "Where the
   solver is"). They are in the corpus.
-- Not established: the solver's semantics. It has not been ported, and no simulation runs in the
-  viewer yet.
+- Ported: the solver program and every kernel the flap schedule uses, particle skinning, and the
+  render-vertex mapping. The viewer drives the Tailored flap with them (section "Viewer").
+- Not established: collision (not ported), the live substep rule, and numeric parity with the
+  game (no side-by-side capture yet).
 
 ## Provenance
 
@@ -259,12 +261,72 @@ Tests:
   the three distance sets' sizes and clamps, rest lengths against the particles, 180 pinned
   anchors, flags, settings (gravity (0, 0, −10), damping 0, max speed 1000, drag 1.3/0.7), 1,039
   triangles and the schedule.
-- `acu_sim`: 12 unit tests with independent expected values (free fall, pinned snap, speed cap and
+- `acu_sim`: 15 unit tests with independent expected values (free fall, pinned snap, speed cap and
   damping, stretched pair, one-sided clamps, SIMD vs scalar agreement, backstop, max distance,
-  tether, normals, drag, carry, the repeat program and opcode rejection).
+  tether, normals, drag, carry, the repeat program and opcode rejection, particle skinning, the
+  render mapping and surface frames).
+- The installed-flap test also checks the post-blob fields: mesh id, 1,192 mappings (234
+  skinned), 203 duplicates, 8/8 influences, 18 bones, weight sums and the end offset.
 
-**Not implemented:** collision (op 7), so the cloth can pass through the body; no Bevy
-integration yet (targets from particle skinning and the render-vertex mapping are next).
+### Particle skinning and the render mapping (observed, static)
+
+The LOD0 fields after the blob decode to the payload's byte 182,018, in reflection order
+(serializer `0x141d83740`; `acu_assets::cloth::lod0_mesh`):
+- u16 ×1039 (`77b91c50`, meaning unknown);
+- rest particle positions and normals (float3 ×587; the positions equal `11.0b` exactly);
+- particle triangles (identical to `11.13`);
+- 1,192 `SoftBodyVertexMapping` elements (37 bytes: inline header, u8 skinned flag, u16 triangle,
+  f32 `Offset`, u16[3] particles equal to the triangle's, f32[3] `(h, u, v)`);
+- 203 `DuplicateVertex` pairs, u16 ×1192 canonical map, u16 ×5385 index buffer, float2 ×1192 UVs;
+- three empty LOD-transfer arrays, the Mesh id `00000013c1e4eb9a` (tag byte 0);
+- u16 LOD index 0, u16 particle influences 8, u16 render influences 8, two bytes (0, 1);
+- particle bones u16 ×4696 and weights f32 ×4696;
+- 234 skinned render rest positions with 8 bones/weights each;
+- 18 `MeshBone` elements (81 bytes each, the mesh layout).
+
+Native use:
+- **Targets.** `0x141d7a4a0` skins each rest particle and normal with up to 8 bone matrices,
+  skipping bone 0xffff or weight ≤ `0x3727c5ac` (about 1e-5), and divides by the kept weight sum.
+  `0x141d97aa0` copies the results to sim+504/+520, which `0x1423aa760` binds as body+64/+80.
+- **Render vertices.** `0x141d70840`: `X = Q0 + u(Q1 − Q0) + h·TN + v(Q2 − Q0)` with
+  `TN = nz(cross(nz(Q1 − Q0), nz(Q2 − Q1)))`; flagged vertices are bone-skinned without dividing
+  by the weight sum.
+- **Frames.** `0x141d98430`: area-weighted normals and UV tangents over the canonical index
+  buffer, copied to duplicates, Gram-Schmidt with degenerate fallbacks; the bitangent is stored
+  negated.
+
+### Viewer (implementation, 2026-11-15)
+
+`acu_bevy::cloth` binds a `Cloth` resource from `options::ARNO_CLOTHS` to the loaded piece whose
+mesh id its LOD0 names. It looks in the piece's archive and that archive's `_assets` sibling;
+this is a lookup choice, not load precedence. Load checks, all observed on the installed flap:
+- the 18 cloth bones resolve to skin joints, and their matrices match the mesh's inverse binds
+  to 3.6e-7;
+- mapping the rest particles reproduces all 1,192 mesh vertices, in order, within 0.075 mm;
+- the native frame rule gives the mesh's tangent handedness on 1,186 of 1,192 vertices.
+
+Per 60 Hz tick:
+1. skin the targets with the pose;
+2. carry free particles by the character's translation change;
+3. one solver step;
+4. rebuild positions, normals and tangents.
+
+The simulation frame uses native world axes (gravity `(0, 0, −10)`) relative to the character's
+position. In capture mode the replay's last 240 ticks are stepped before the still frame.
+`--no-cloth` restores the skinned flap.
+
+Implementation choices (not native evidence):
+- one solver step per tick, with the full repeat count of 4;
+- no ambient wind (the authored drag wind vector is zero);
+- scale 1;
+- unported branches (body +118, +125, 4-wide tether) refuse to load rather than approximate.
+
+Fresh captures (`local/cloth/`, ignored): `idle-cloth.png`, `run-cloth.png` and `run-skinned.png`
+(the same frame, skinned), plus `run-cloth-side.png` and `walk-cloth-side.png`. The coat hangs at
+idle and trails behind the legs in the run.
+
+**Not implemented:** collision (op 7) is skipped, so the flap can pass through the legs. There is
+no comparison with the game's cloth yet.
 
 ## Unknowns
 
@@ -274,6 +336,8 @@ integration yet (targets from particle skinning and the render-vertex mapping ar
 - Parity of the `rsqrtps` estimate; float determinism is unresolved.
 - The 4-wide tether mode (unused by the flap); op 12 sub-objects.
 - The pointer kind byte; the 736-byte body class; the scarf resource; load precedence.
+- Field `77b91c50`, the mapping `Offset`, and the two bytes after the influence counts.
+- Visual and numeric parity with the game's coat: no side-by-side capture yet.
 
 ## Reproduction
 

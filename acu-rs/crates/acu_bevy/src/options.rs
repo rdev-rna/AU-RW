@@ -33,6 +33,12 @@ pub const ARNO_PIECES: &[(usize, usize, &str)] = &[
     (655, 1, "CN_U_Arno_HairPlane_HoodUp_LOD0"),
 ];
 
+/// `Cloth` soft-body resources the Tailored pieces use: (file id, name).
+/// UpperBodies table row 2, column 6 (ACU-RE-0016, ACU-RE-0081). Each binds
+/// to the loaded piece whose mesh id its LOD0 names, in that piece's archive.
+/// The scarf (column 7) is not driven yet.
+pub const ARNO_CLOTHS: &[(u64, &str)] = &[(0x0000_0014_60e4_5330, "Softbody_CN_P_Flap_ArnaudV2")];
+
 #[derive(Debug, Clone)]
 pub struct Piece {
     pub archive: PathBuf,
@@ -81,6 +87,9 @@ pub struct Options {
     pub color_set: Option<usize>,
     /// Lighting preset (`lighting::PRESETS`, ACU-RE-0073); default `paris-noon`.
     pub lighting: String,
+    /// Drive cloth-simulated pieces with the ported solver (ACU-RE-0081);
+    /// `--no-cloth` leaves them on their mesh skin.
+    pub cloth: bool,
 }
 
 fn parse_piece(
@@ -138,6 +147,7 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut size: (u32, u32) = (1280, 720);
     let mut texture_archives: Vec<String> = Vec::new();
     let mut no_textures = false;
+    let mut cloth = true;
     let mut color_set: Option<usize> = Some(1);
     let mut lighting = "paris-noon".to_string();
     let mut static_scene = false;
@@ -188,6 +198,7 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
                 texture_archives.push(args.next().ok_or("--texture-archive needs a value")?)
             }
             "--no-textures" => no_textures = true,
+            "--no-cloth" => cloth = false,
             "--color-set" => {
                 let value = args.next().ok_or("--color-set needs a value")?;
                 color_set = if value == "none" {
@@ -369,6 +380,7 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
         texture_archives,
         no_textures,
         report,
+        cloth,
     })
 }
 
@@ -396,6 +408,8 @@ OPTIONS:
                        (repeatable; default: DataPC_SharedGroup_00.forge,
                        DataPC.forge)
     --no-textures      Render the grey fallback without touching materials
+    --no-cloth         Skin cloth pieces (the Tailored flap) instead of
+                       simulating them with the ported solver
     --color-set N|none Colour-set row for colour-masked cloth (default 1, the
                        default assassin blue; none = raw diffuse)
     --lighting NAME    synthetic|paris-dawn|paris-noon|paris-sunset|paris-night

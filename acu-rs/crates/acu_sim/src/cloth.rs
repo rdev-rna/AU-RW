@@ -5,7 +5,7 @@
 //! The reciprocal square root defaults to the exact value; the native code uses
 //! the `rsqrtps` estimate (feature `hw-rsqrt` here uses this CPU's estimate).
 
-use glam::Vec4;
+use glam::{Mat4, Vec3, Vec4};
 
 /// Particle state. `w` of `pos` is the pin flag: negative = pinned to `target`.
 #[derive(Clone, Debug, Default)]
@@ -490,6 +490,198 @@ fn solve_tether_padded(pos: &mut [Vec4], anchors: &[u16], len: &ParticleValues) 
     }
 }
 
+/// Particle skinning, native `0x141d7a4a0`. `k` influences per particle;
+/// an influence is skipped when its bone is 0xffff or its weight is at most
+/// `1e-5`. The result is divided by the kept weight sum; the normal is not
+/// renormalised. With nothing kept, the particle takes `fallback`'s
+/// translation and Y axis.
+pub fn skin_particles(
+    rest: &[Vec3],
+    rest_normals: &[Vec3],
+    bones: &[u16],
+    weights: &[f32],
+    k: usize,
+    matrices: &[Mat4],
+    fallback: Mat4,
+) -> (Vec<Vec4>, Vec<Vec4>) {
+    const MIN_WEIGHT: f32 = f32::from_bits(0x3727_c5ac); // about 1e-5
+    let mut pos = Vec::with_capacity(rest.len());
+    let mut nrm = Vec::with_capacity(rest.len());
+    for (i, (&p, &n)) in rest.iter().zip(rest_normals).enumerate() {
+        let (mut sp, mut sn, mut sw) = (Vec3::ZERO, Vec3::ZERO, 0.0f32);
+        for s in i * k..(i + 1) * k {
+            let (b, w) = (bones[s], weights[s]);
+            if b == 0xffff || w <= MIN_WEIGHT {
+                continue;
+            }
+            let m = matrices[b as usize];
+            sp += m.transform_point3(p) * w;
+            sn += m.transform_vector3(n) * w;
+            sw += w;
+        }
+        if sw > 0.0 {
+            pos.push((sp / sw).extend(0.0));
+            nrm.push((sn / sw).extend(0.0));
+        } else {
+            pos.push(fallback.w_axis.truncate().extend(0.0));
+            nrm.push(fallback.y_axis.truncate().extend(0.0));
+        }
+    }
+    (pos, nrm)
+}
+
+/// One render vertex's attachment (`SoftBodyVertexMapping`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VertexMapping {
+    pub skinned: bool,
+    pub triangle: u16,
+    /// `(h, u, v)`.
+    pub weights: [f32; 3],
+}
+
+/// Bone-driven render vertices: rest positions in mapping order, `k`
+/// influences each. Natively summed without dividing by the weight sum.
+#[derive(Clone, Debug, Default)]
+pub struct SkinnedVertices {
+    pub rest: Vec<Vec3>,
+    pub bones: Vec<u16>,
+    pub weights: Vec<f32>,
+    pub k: usize,
+}
+
+/// `nz()` in `0x141d70840`: normalise unless `|v|^2 < 1e-6` (`0x358637bd`).
+fn nz(v: Vec3) -> Vec3 {
+    let l2 = v.length_squared();
+    if l2 < f32::from_bits(0x3586_37bd) {
+        v
+    } else {
+        v * rsqrt(l2)
+    }
+}
+
+/// Render positions, native `0x141d70840`. Cloth-driven vertex:
+/// `Q[i0] + u (Q[i1] - Q[i0]) + h TN + v (Q[i2] - Q[i0])` with
+/// `TN = nz(cross(nz(Q1 - Q0), nz(Q2 - Q1)))`. Skinned vertices take the
+/// next entry of `skinned` (`sum w M p`, or `fallback * p` with no bone).
+pub fn render_positions(
+    q: &[Vec3],
+    triangles: &[[u16; 3]],
+    mappings: &[VertexMapping],
+    skinned: &SkinnedVertices,
+    matrices: &[Mat4],
+    fallback: Mat4,
+    out: &mut Vec<Vec3>,
+) {
+    let tn: Vec<Vec3> = triangles
+        .iter()
+        .map(|t| {
+            let (a, b, c) = (q[t[0] as usize], q[t[1] as usize], q[t[2] as usize]);
+            nz(nz(b - a).cross(nz(c - b)))
+        })
+        .collect();
+    out.clear();
+    let mut s = 0usize;
+    for m in mappings {
+        if m.skinned {
+            let p = skinned.rest[s];
+            let mut x = Vec3::ZERO;
+            let mut any = false;
+            for j in s * skinned.k..(s + 1) * skinned.k {
+                let b = skinned.bones[j];
+                if b == 0xffff {
+                    continue;
+                }
+                any = true;
+                x += matrices[b as usize].transform_point3(p) * skinned.weights[j];
+            }
+            out.push(if any { x } else { fallback.transform_point3(p) });
+            s += 1;
+        } else {
+            let t = triangles[m.triangle as usize];
+            let (a, b, c) = (q[t[0] as usize], q[t[1] as usize], q[t[2] as usize]);
+            let [h, u, v] = m.weights;
+            out.push(a + (b - a) * u + tn[m.triangle as usize] * h + (c - a) * v);
+        }
+    }
+}
+
+/// Render normals, tangents and bitangents, native `0x141d98430`. Area-weighted
+/// face sums over the index buffer remapped to canonical vertices, copied to
+/// duplicates, then Gram-Schmidt with the native degenerate fallbacks. The
+/// bitangent is returned negated, as the native code stores it.
+pub fn surface_frames(
+    x: &[Vec3],
+    uv: &[[f32; 2]],
+    indices: &[u16],
+    canonical: &[u16],
+    duplicates: &[(u16, u16)],
+) -> (Vec<Vec3>, Vec<Vec3>, Vec<Vec3>) {
+    let n_v = x.len();
+    let (mut nn, mut tt, mut bb) = (
+        vec![Vec3::ZERO; n_v],
+        vec![Vec3::ZERO; n_v],
+        vec![Vec3::ZERO; n_v],
+    );
+    for tri in indices.as_chunks::<3>().0 {
+        let [a, b, c] = tri.map(|i| canonical[i as usize] as usize);
+        let (e1, e2) = (x[b] - x[a], x[c] - x[a]);
+        let (du1, dv1) = (uv[b][0] - uv[a][0], uv[b][1] - uv[a][1]);
+        let (du2, dv2) = (uv[c][0] - uv[a][0], uv[c][1] - uv[a][1]);
+        let n = e1.cross(e2);
+        let det = dv2 * du1 - du2 * dv1;
+        let r = if det.abs() > 1e-6 { 1.0 / det } else { 1.0 };
+        let t = (e1 * dv2 - e2 * dv1) * r;
+        let bt = (e2 * du1 - e1 * du2) * r;
+        for v in [a, b, c] {
+            nn[v] += n;
+            tt[v] += t;
+            bb[v] += bt;
+        }
+    }
+    for &(o, d) in duplicates {
+        let (o, d) = (o as usize, d as usize);
+        nn[d] = nn[o];
+        tt[d] = tt[o];
+        bb[d] = bb[o];
+    }
+    let tiny = f32::from_bits(0x2000_0000); // 2^-63
+    let unit = |v: Vec3, eps: f32| {
+        let l2 = v.length_squared();
+        if l2 <= eps { v } else { v * rsqrt(l2) }
+    };
+    for i in 0..n_v {
+        let n = unit(nn[i], tiny);
+        let t = unit(tt[i], tiny);
+        let b = unit(bb[i], tiny);
+        let t1 = unit(t - n * t.dot(n), 1e-6);
+        let b1 = unit(b - n * b.dot(n) - t1 * b.dot(t1), 1e-6);
+        let ok = |v: Vec3| v.length_squared() > 1e-6;
+        let (t2, b2) = if !ok(t1) || !ok(b1) {
+            if t1.length_squared() > 0.5 {
+                (t1, n.cross(t1))
+            } else if b1.length_squared() <= 0.5 {
+                let axis = if n.dot(Vec3::X) >= n.dot(Vec3::Y) {
+                    Vec3::Y
+                } else {
+                    Vec3::X
+                };
+                let t = n.cross(axis);
+                (t, n.cross(t))
+            } else {
+                (b1.cross(n), b1)
+            }
+        } else if t1.dot(b1) > 0.999 {
+            (t1, n.cross(t1))
+        } else {
+            (t1, b1)
+        };
+        nn[i] = n;
+        tt[i] = t2;
+        bb[i] = -b2;
+    }
+    (nn, tt, bb)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -731,5 +923,79 @@ mod tests {
         assert!(c.validate().is_err());
         c.schedule = vec![(10, 1), (6, 1)];
         assert!(c.validate().is_err());
+    }
+
+    #[test]
+    fn particle_skinning_divides_by_kept_weights() {
+        let m = [
+            Mat4::from_translation(Vec3::X),
+            Mat4::from_rotation_z(std::f32::consts::FRAC_PI_2),
+        ];
+        let fallback = Mat4::from_translation(Vec3::new(0.0, 0.0, 5.0));
+        let rest = [Vec3::Y, Vec3::Y, Vec3::Y];
+        let normals = [Vec3::Z; 3];
+        // Particle 0: bones 0 and 1 at 0.5 each. Particle 1: bone 0 with weight
+        // 1e-6 skipped, so only bone 1 counts (weight 0.25, divided out).
+        // Particle 2: nothing kept, takes the fallback.
+        let bones = [0, 1, 0, 1, 0xffff, 0xffff];
+        let weights = [0.5, 0.5, 1e-6, 0.25, 1.0, 1.0];
+        let (p, n) = skin_particles(&rest, &normals, &bones, &weights, 2, &m, fallback);
+        assert!((p[0].truncate() - Vec3::new(0.0, 0.5, 0.0)).length() < 1e-6);
+        assert!((p[1].truncate() - Vec3::new(-1.0, 0.0, 0.0)).length() < 1e-6);
+        assert_eq!(p[2], Vec4::new(0.0, 0.0, 5.0, 0.0));
+        assert_eq!(n[2], Vec4::Y);
+        assert!((n[0].truncate() - Vec3::Z).length() < 1e-6);
+    }
+
+    #[test]
+    fn render_positions_use_barycentrics_and_normal_offset() {
+        let q = [Vec3::ZERO, Vec3::X, Vec3::new(1.0, 1.0, 0.0)];
+        let tris = [[0, 1, 2]];
+        let maps = [
+            VertexMapping {
+                skinned: false,
+                triangle: 0,
+                weights: [0.5, 0.25, 0.5],
+            },
+            VertexMapping {
+                skinned: true,
+                triangle: 0,
+                weights: [0.0; 3],
+            },
+        ];
+        let skinned = SkinnedVertices {
+            rest: vec![Vec3::Z],
+            bones: vec![0, 0xffff],
+            weights: vec![0.5, 0.5],
+            k: 2,
+        };
+        let m = [Mat4::from_translation(Vec3::X)];
+        let mut out = Vec::new();
+        render_positions(&q, &tris, &maps, &skinned, &m, Mat4::IDENTITY, &mut out);
+        // u (Q1 - Q0) = (0.25, 0, 0); v (Q2 - Q0) = (0.5, 0.5, 0); h TN = 0.5 Z.
+        assert!((out[0] - Vec3::new(0.75, 0.5, 0.5)).length() < 1e-6);
+        // No division by the weight sum: 0.5 * (Z + X).
+        assert!((out[1] - Vec3::new(0.5, 0.0, 0.5)).length() < 1e-6);
+    }
+
+    #[test]
+    fn surface_frames_of_a_flat_quad() {
+        // Quad in the XY plane, u along X and v along Y; vertex 3 duplicates 2.
+        let x = [
+            Vec3::ZERO,
+            Vec3::X,
+            Vec3::new(1.0, 1.0, 0.0),
+            Vec3::new(1.0, 1.0, 0.0),
+            Vec3::Y,
+        ];
+        let uv = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [1.0, 1.0], [0.0, 1.0]];
+        let indices = [0, 1, 2, 0, 3, 4];
+        let canonical = [0, 1, 2, 2, 4];
+        let (n, t, b) = surface_frames(&x, &uv, &indices, &canonical, &[(2, 3)]);
+        for i in 0..5 {
+            assert!((n[i] - Vec3::Z).length() < 1e-6, "n {i}");
+            assert!((t[i] - Vec3::X).length() < 1e-6, "t {i}");
+            assert!((b[i] + Vec3::Y).length() < 1e-6, "b {i}");
+        }
     }
 }

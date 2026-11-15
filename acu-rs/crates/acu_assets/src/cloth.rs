@@ -4,14 +4,14 @@
 //! - The Anvil-serialized object prefix: `Cloth : SoftBody` holding one
 //!   `MotionClothState`, which holds `MotionClothLOD` objects. Class and
 //!   field names come from ACU's reflection tables. Only the first LOD's
-//!   fields up to its simulation blob are decoded; the remaining LOD fields
-//!   are not.
+//!   fields are decoded: up to its simulation blob by `parse`, and the rest
+//!   (particle skinning, render-vertex mapping, bones) by `lod0_mesh`.
 //! - The simulation blob (`SoftBodyLOD` field `64f250cd`): a self-describing
 //!   tagged container read by the native cloth library. Each record is
 //!   `u32 tag, u32 total_length, data`. The tag's high half must be `0xecd7`.
 //!   This mirrors the native record search at `0x1423aee50`.
 //!
-//! The solver that consumes these records is not decoded here.
+//! The solver that consumes these records is ported in `acu_sim::cloth`.
 
 use crate::{Result, invalid};
 use std::ops::Range;
@@ -19,6 +19,9 @@ use std::ops::Range;
 pub const TYPE_CLOTH: u32 = 0xe330_44ba;
 pub const CLASS_MOTION_CLOTH_STATE: u32 = 0x6119_d4ce;
 pub const CLASS_MOTION_CLOTH_LOD: u32 = 0x2955_83ef;
+pub const CLASS_SOFT_BODY_VERTEX_MAPPING: u32 = 0x62ba_80e1;
+pub const CLASS_DUPLICATE_VERTEX: u32 = 0x9a6e_3e7d;
+pub const CLASS_MESH_BONE: u32 = 0x9ef0_e7a1;
 const TAG_MAGIC: u32 = 0xecd7_0000;
 const MAX_ITEMS: usize = 1 << 20;
 
@@ -616,6 +619,214 @@ pub fn parse<'a>(payload: &'a [u8], expected_id: &str) -> Result<Cloth<'a>> {
     })
 }
 
+/// How one render vertex follows the particles (`SoftBodyVertexMapping`,
+/// render path `0x141d70840`). Cloth-driven vertices sit at
+/// `Q[i0] + u (Q[i1] - Q[i0]) + h TN + v (Q[i2] - Q[i0])`, where `TN` is the
+/// triangle's unit normal. `skinned` vertices are bone-driven instead.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct VertexMapping {
+    pub skinned: bool,
+    pub triangle: u16,
+    /// Serialized `Offset`; the render path does not read it.
+    pub offset: f32,
+    pub particles: [u16; 3],
+    /// `(h, u, v)`.
+    pub weights: [f32; 3],
+}
+
+/// A `MeshBone` element (the same 81-byte layout as in meshes).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Bone {
+    pub name_hash: u32,
+    /// Serialized order (the mesh's inverse bind matrix).
+    pub matrix: [f32; 16],
+    pub used: bool,
+}
+
+/// LOD0 `SoftBodyLOD`/`ClothLOD` fields after the simulation blob
+/// (serializer `0x141d83740`, reflection field order).
+#[derive(Clone, Debug, PartialEq)]
+pub struct LodMesh {
+    /// Field `77b91c50`, one u16 per particle triangle; meaning unknown.
+    pub unknown_77b91c50: Vec<u16>,
+    /// Rest particle positions and normals (`2c820548`, `c8debfc8`).
+    pub rest_positions: Vec<[f32; 3]>,
+    pub rest_normals: Vec<[f32; 3]>,
+    /// Particle triangles (`cf8a22e7`).
+    pub triangles: Vec<[u16; 3]>,
+    /// One per render vertex (`744516ed`).
+    pub mappings: Vec<VertexMapping>,
+    /// `(original, duplicate)` render vertices (`f46419d3`).
+    pub duplicates: Vec<(u16, u16)>,
+    /// Render vertex to canonical vertex (`aa937f60`).
+    pub canonical: Vec<u16>,
+    /// Render index buffer (`fafa5f13`).
+    pub indices: Vec<u16>,
+    pub uvs: Vec<[f32; 2]>,
+    pub mesh_id: String,
+    pub lod_index: u16,
+    pub particle_influences: usize,
+    pub vertex_influences: usize,
+    /// The two bytes after the influence counts; meanings unknown.
+    pub unknown_bytes: [u8; 2],
+    /// `particle_influences` per particle; 0xffff = none (`9b03474f`, `81e62f6c`).
+    pub particle_bones: Vec<u16>,
+    pub particle_weights: Vec<f32>,
+    /// Rest positions of the skinned render vertices, in mapping order
+    /// (`72e61900`), with `vertex_influences` bones and weights each.
+    pub skinned_rest: Vec<[f32; 3]>,
+    pub skinned_bones: Vec<u16>,
+    pub skinned_weights: Vec<f32>,
+    pub bones: Vec<Bone>,
+    /// Payload offset after the bones; later fields and LODs are undecoded.
+    pub end_offset: usize,
+}
+
+/// Decode LOD0's fields after its blob (from `cloth.lod0_rest_offset`).
+pub fn lod0_mesh(payload: &[u8], cloth: &Cloth) -> Result<LodMesh> {
+    let mut c = Cursor {
+        b: payload,
+        at: cloth.lod0_rest_offset,
+    };
+    let particles = cloth.lod0_blob.particle_count()?;
+    let unknown_77b91c50 = c.array(2, |c| c.u16())?;
+    let rest_positions = c.array(12, |c| c.vec3())?;
+    let rest_normals = c.array(12, |c| c.vec3())?;
+    if rest_positions.len() != particles || rest_normals.len() != particles {
+        return invalid("cloth lod: rest arrays disagree with the particle count");
+    }
+    let flat = c.array(2, |c| c.u16())?;
+    if flat.len() % 3 != 0 || flat.iter().any(|&i| i as usize >= particles) {
+        return invalid("cloth lod: bad particle triangles");
+    }
+    let triangles: Vec<[u16; 3]> = flat.as_chunks::<3>().0.to_vec();
+    let mappings = c.array(37, |c| {
+        c.object(CLASS_SOFT_BODY_VERTEX_MAPPING)?;
+        let skinned = match c.u8()? {
+            0 => false,
+            1 => true,
+            _ => return invalid("cloth lod: vertex mapping flag is not 0/1"),
+        };
+        Ok(VertexMapping {
+            skinned,
+            triangle: c.u16()?,
+            offset: c.f32()?,
+            particles: [c.u16()?, c.u16()?, c.u16()?],
+            weights: [c.f32()?, c.f32()?, c.f32()?],
+        })
+    })?;
+    let vertices = mappings.len();
+    for m in &mappings {
+        let t = triangles
+            .get(m.triangle as usize)
+            .ok_or("cloth lod: mapping triangle out of range")?;
+        if *t != m.particles || m.weights.iter().any(|w| !w.is_finite()) {
+            return invalid("cloth lod: mapping disagrees with its triangle");
+        }
+    }
+    let duplicates = c.array(16, |c| {
+        c.object(CLASS_DUPLICATE_VERTEX)?;
+        Ok((c.u16()?, c.u16()?))
+    })?;
+    let canonical = c.array(2, |c| c.u16())?;
+    let indices = c.array(2, |c| c.u16())?;
+    let uvs = c.array(8, |c| Ok([c.f32()?, c.f32()?]))?;
+    let outside = |v: u16| v as usize >= vertices;
+    if canonical.len() != vertices
+        || uvs.len() != vertices
+        || indices.len() % 3 != 0
+        || indices.iter().any(|&i| outside(i))
+        || canonical.iter().any(|&i| outside(i))
+        || duplicates.iter().any(|&(a, b)| outside(a) || outside(b))
+    {
+        return invalid("cloth lod: render arrays disagree with the vertex count");
+    }
+    for _ in 0..3 {
+        // `379eb726` and the two LOD-transfer mapping arrays.
+        if c.u32()? != 0 {
+            return invalid("cloth lod: LOD-transfer arrays are not supported");
+        }
+    }
+    if c.u8()? != 0 {
+        return invalid("cloth lod: unsupported mesh pointer");
+    }
+    let mesh_id = c.id()?;
+    let lod_index = c.u16()?;
+    let particle_influences = c.u16()? as usize;
+    let vertex_influences = c.u16()? as usize;
+    let unknown_bytes = [c.u8()?, c.u8()?];
+    if !(1..=8).contains(&particle_influences) || !(1..=8).contains(&vertex_influences) {
+        return invalid("cloth lod: unsupported influence count");
+    }
+    let particle_bones = c.array(2, |c| c.u16())?;
+    let particle_weights = c.array(4, |c| c.f32())?;
+    let skinned_rest = c.array(12, |c| c.vec3())?;
+    let skinned_bones = c.array(2, |c| c.u16())?;
+    let skinned_weights = c.array(4, |c| c.f32())?;
+    let bones = c.array(81, |c| {
+        c.object(CLASS_MESH_BONE)?;
+        let name_hash = c.u32()?;
+        let mut matrix = [0.0; 16];
+        for m in &mut matrix {
+            *m = c.f32()?;
+        }
+        let used = c.u8()? != 0;
+        Ok(Bone {
+            name_hash,
+            matrix,
+            used,
+        })
+    })?;
+    let flagged = mappings.iter().filter(|m| m.skinned).count();
+    let bad_bone = |v: &[u16]| v.iter().any(|&b| b != 0xffff && b as usize >= bones.len());
+    if particle_bones.len() != particles * particle_influences
+        || particle_weights.len() != particle_bones.len()
+        || skinned_rest.len() != flagged
+        || skinned_bones.len() != flagged * vertex_influences
+        || skinned_weights.len() != skinned_bones.len()
+        || bad_bone(&particle_bones)
+        || bad_bone(&skinned_bones)
+    {
+        return invalid("cloth lod: skinning arrays disagree with their counts");
+    }
+    let nonfinite = rest_positions
+        .iter()
+        .chain(&rest_normals)
+        .chain(&skinned_rest)
+        .flatten()
+        .chain(uvs.iter().flatten())
+        .chain(&particle_weights)
+        .chain(&skinned_weights)
+        .chain(bones.iter().flat_map(|b| b.matrix.iter()))
+        .any(|v| !v.is_finite());
+    if nonfinite {
+        return invalid("cloth lod: nonfinite values");
+    }
+    Ok(LodMesh {
+        unknown_77b91c50,
+        rest_positions,
+        rest_normals,
+        triangles,
+        mappings,
+        duplicates,
+        canonical,
+        indices,
+        uvs,
+        mesh_id,
+        lod_index,
+        particle_influences,
+        vertex_influences,
+        unknown_bytes,
+        particle_bones,
+        particle_weights,
+        skinned_rest,
+        skinned_bones,
+        skinned_weights,
+        bones,
+        end_offset: c.at,
+    })
+}
+
 struct Cursor<'a> {
     b: &'a [u8],
     at: usize,
@@ -632,6 +843,39 @@ impl<'a> Cursor<'a> {
     }
     fn u8(&mut self) -> Result<u8> {
         Ok(self.take(1)?[0])
+    }
+    fn u16(&mut self) -> Result<u16> {
+        let s = self.take(2)?;
+        Ok(u16::from_le_bytes([s[0], s[1]]))
+    }
+    fn f32(&mut self) -> Result<f32> {
+        self.u32().map(f32::from_bits)
+    }
+    fn vec3(&mut self) -> Result<[f32; 3]> {
+        Ok([self.f32()?, self.f32()?, self.f32()?])
+    }
+    /// `u32 count`, then `count` elements of at least `min_size` bytes each.
+    fn array<T>(
+        &mut self,
+        min_size: usize,
+        mut f: impl FnMut(&mut Self) -> Result<T>,
+    ) -> Result<Vec<T>> {
+        let n = self.u32()? as usize;
+        if n > MAX_ITEMS || n * min_size > self.b.len() - self.at {
+            return invalid(format!("cloth: array of {n} past end at {}", self.at));
+        }
+        let mut v = Vec::with_capacity(n);
+        for _ in 0..n {
+            v.push(f(self)?);
+        }
+        Ok(v)
+    }
+    /// Inline object header: u64 0, then the class hash.
+    fn object(&mut self, class: u32) -> Result<()> {
+        if self.id()? != "0000000000000000" || self.u32()? != class {
+            return invalid(format!("cloth: expected inline object {class:08x}"));
+        }
+        Ok(())
     }
     fn u32(&mut self) -> Result<u32> {
         let s = self.take(4)?;

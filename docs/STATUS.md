@@ -15,7 +15,13 @@ Tailored flap's motion comes from the `Cloth` soft-body resource, not from bones
   schedule uses: integrate, drag, blend, three distance sets, backstop, max distance, tether and
   normals, with the frame carry. `acu_assets::cloth` decodes all their inputs. 12 unit tests and the
   installed-flap test pass.
-- **Collision (op 7) is not ported**, and the viewer does not drive the flap yet.
+- The viewer drives the flap with it (`acu_bevy::cloth`): particle skinning (`0x141d7a4a0`)
+  for targets, one solver step per 60 Hz tick, and the native render mapping (`0x141d70840`)
+  and frames (`0x141d98430`). On the installed flap, the bone binds match the mesh to 3.6e-7
+  and the rest mapping lands within 0.075 mm of all 1,192 vertices. `--no-cloth` keeps the
+  skinned flap.
+- **Collision (op 7) is not ported**: the flap can pass through the legs. The substep rule is an
+  implementation choice, and there is no side-by-side comparison with the game yet.
 
 Lighting (2026-11-15, [ACU-RE-0073](findings/ACU-RE-0073-baked-gi-and-world-ambiance.md)): the
 arena now uses the native Paris `WorldAmbiance` settings. Default `--lighting paris-noon`;

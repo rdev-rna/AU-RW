@@ -14,6 +14,7 @@
 
 mod arena;
 mod character_material;
+mod cloth;
 mod controls;
 mod gi_volume;
 mod io;
@@ -528,6 +529,17 @@ fn setup_world(
                     ));
                 }
                 if let (Some(state), Some(skin)) = (state.as_mut(), skin) {
+                    if options.cloth {
+                        match cloth::load(piece, &skin, state.skins.len()) {
+                            Ok(Some(mut driver)) => {
+                                driver.handles = skin.handles.clone();
+                                println!("cloth: {}", driver.report);
+                                state.cloths.push(driver);
+                            }
+                            Ok(None) => {}
+                            Err(e) => eprintln!("cloth: {} stays skinned: {e}", piece.label),
+                        }
+                    }
                     state.skins.push(skin);
                 }
             }
