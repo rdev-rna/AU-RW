@@ -749,8 +749,28 @@ Live (both games as in runs 10–12; offline LAN mode; scratchpad `lanjoin2.py` 
 76. Visual check (user, same session, after run 13): **each game shows the other player.** The user reported
     seeing them after looking at both game windows. No screenshot was kept.
 
+77. The user's screenshot, taken before the drop:
+    - each game's HUD lists **two players**, its own and the other game's;
+    - game 2's view shows **two assassins side by side** on a roof;
+    - game 2 shows a co-op objective (`DEFEND Danton`).
+
+    So the players were together in game 2's co-op content, not only in free roam. Shortly after, the user saw
+    the other player **disconnect**. My tools only read memory after the join call, and all hooks were removed
+    43 s after it.
+78. State after the drop (read only):
+    - Game 1's game session has a **new id of its own** (`…a2a23b18`, handle 5), and its LAN map at `+152` is
+      empty.
+    - Game 1's mission session still has handle 3 and no id.
+    - Game 2 is unchanged: game session `…e4398d9e`, mission `…bad93d2d`, context `PRIVATE_MATCH_HOST`.
+
+    Why the link dropped is not known. Candidates, none tested:
+    - game 1's mission session never got an id at `+8`, so the join may have been half done;
+    - game 2's statechart never left `PRIVATE_MATCH_HOST`;
+    - a timeout.
+
 Inference: game 1's free-roam game session joined game 2's. The id was taken over, the clock was synced,
-game traffic is flowing and the players see each other (observation 76). This is the LAN route the UI never offers: discovery (slot 4 via `CALLAT`), then
+game traffic flowed and the players saw each other in game 2's co-op content (observations 76–77). The
+link did not last (observation 78). This is the LAN route the UI never offers: discovery (slot 4 via `CALLAT`), then
 `JoinSession` with the stored record. Not established:
 - whether game 2's statechart or UI noticed the join;
 - whether mission launch works.
