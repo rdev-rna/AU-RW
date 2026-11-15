@@ -1,5 +1,23 @@
 # Project status
 
+Locomotion parity (2026-11-15, [ACU-RE-0072](findings/ACU-RE-0072-flat-ground-locomotion-parity.md),
+report [LOCOMOTION_PARITY.md](LOCOMOTION_PARITY.md)): flat-ground locomotion is checked against the
+existing live captures by the ignored test `installed_locomotion_segments` (`acu_bevy`).
+- Matching (16 checks): idle; walk start clip, length and latency; full- and half-stick loop
+  speeds; time to sprint; sprint stop clip, length and travel; walking turn (2.15° per frame,
+  90°); plant-and-turn reversal.
+- Fixed: a reset played `SprintStop_Fd100cm` and moved the body 0.68 m with no input, because
+  the hub's walk -> idle/stop rule saw an empty event list. `start_in` now primes the forced
+  states' events, and the start is `IdleLow_Footr` (`IDLE_START`). Live replay agreement rose
+  from 649 to 674 of 1051.
+- Different:
+  - Rust's walk stop alternates RP/RC with phase, where native picked RC in 5 of 5 stops;
+  - the half-stick stop clip;
+  - sprint 6.3 m/s against native 5.3–5.95 m/s;
+  - the post-sprint `IdleHigh_tr_IdleLow` lives outside the hub the interpreter is rooted at.
+- Unverified: bank/avoid clips in turns, the free-run turn law, TimeScale. No new capture was
+  taken.
+
 Outfit (2026-11-15, [ACU-RE-0070](findings/ACU-RE-0070-arnos-tailored-visual-pieces.md)): the default
 Arno now wears Arno's Tailored. The seven pieces are hood, coat, flap, scarf, belts, bracers and
 breeches, all `CN_P_FR_*_Arnaud_V2_LOD0` from BelleEpoque entries 364–370. The AGM tier code

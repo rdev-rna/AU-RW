@@ -605,4 +605,497 @@ mod tests {
         );
         assert!((turned(239) - 90.0).abs() < 5.0, "final {:.1}", turned(239));
     }
+
+    /// One tick of a scripted flat-ground run: time, root-motion position (arena x, z), yaw
+    /// (left positive) and the dominant leaf.
+    struct Sample {
+        t: f32,
+        pos: Vec2,
+        yaw: f32,
+        clip: String,
+    }
+
+    /// Conditions as text: parameter conditions by name, event conditions by id.
+    fn conds_text(g: &acu_motion::atom_graph::Graph, c: &[acu_motion::atom_graph::Cond]) -> String {
+        c.iter()
+            .map(|c| {
+                let name = if c.kind == 0 {
+                    g.params
+                        .get(c.id as usize)
+                        .map(|p| p.name.clone())
+                        .unwrap_or_default()
+                } else {
+                    format!("{:#010x}", c.id)
+                };
+                let join = if c.join == 1 { " or" } else { "" };
+                let value = match c.value.ty {
+                    0 => format!("{}", c.value.j != 0),
+                    1 => format!("{}", f32::from_bits(c.value.i)),
+                    2 => format!("{}", c.value.j as i32),
+                    _ => String::new(),
+                };
+                if c.children.is_empty() {
+                    format!(
+                        "[k{} {name} op{} mode{} {value}]{join}",
+                        c.kind, c.op, c.mode
+                    )
+                } else {
+                    format!("({}){join}", conds_text(g, &c.children))
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+
+    /// Print the transitions of the last step with the rule that fired and the entered
+    /// machine's entry rules (`ACU_LOCO_TRACE`).
+    fn trace_transitions(driver: &GraphDriver, tick: u32) {
+        use acu_motion::atom_graph::Body;
+        let g = &driver.player.graph;
+        for &(at, from, to, rule) in &driver.player.diag.transitions {
+            let Some(s) = g.state_at(at) else { continue };
+            let Body::Machine {
+                states, machine, ..
+            } = &g.states[s].body
+            else {
+                continue;
+            };
+            let own = &g.states[states[from as usize]].transitions;
+            let all: Vec<_> = own
+                .iter()
+                .chain(machine.iter().filter(|t| t.target != from))
+                .collect();
+            let text = all
+                .get(rule)
+                .and_then(|t| t.expr.as_ref())
+                .map(|e| conds_text(g, e))
+                .unwrap_or_else(|| "always".into());
+            println!("  t{tick} machine {s}: {from} -> {to} (rule {rule}): {text}");
+            // Entry rules of every machine entered below the transition.
+            let path = driver.player.path();
+            let below = path.iter().skip_while(|&&p| p != states[to as usize]);
+            for &m in below {
+                if let Body::Machine { entries, .. } = &g.states[m].body {
+                    println!("      machine {m} entries:");
+                    for (e, t) in entries {
+                        let text = e.as_ref().map(|e| conds_text(g, e));
+                        println!(
+                            "        -> {t}: {}",
+                            text.unwrap_or_else(|| "always".into())
+                        );
+                    }
+                }
+            }
+        }
+        if !driver.player.diag.transitions.is_empty() {
+            let ev: Vec<String> = driver
+                .player
+                .events()
+                .iter()
+                .map(|(s, id, a, b)| format!("{s}:{id:#x}[{a:.2},{b:.2}]"))
+                .collect();
+            println!(
+                "      path {:?} events {}",
+                driver.player.path(),
+                ev.join(" ")
+            );
+        }
+    }
+
+    /// Diagnostic: `ACU_DUMP=3348,3677` prints those states' subtrees with their clips;
+    /// `ACU_FIND=<clip name part>` prints every graph state holding a matching clip with its
+    /// machine ancestry (a state with no parent is outside every machine).
+    #[test]
+    #[ignore = "requires original ACU install; diagnostic dump of NewDemo states"]
+    fn installed_graph_dump() {
+        use acu_motion::atom_graph::Body;
+        let dir = std::env::var("ACU_GAME_DIR").expect("ACU_GAME_DIR required");
+        let dir = std::path::Path::new(&dir);
+        let library = crate::rig::load(dir).unwrap();
+        let (driver, _) = crate::motion::load_graph(dir, &library).unwrap();
+        let g = &driver.player.graph;
+        fn dump(d: &GraphDriver, s: usize, depth: usize) {
+            let g = &d.player.graph;
+            let pad = "  ".repeat(depth);
+            match &g.states[s].body {
+                Body::Machine { states, .. } => {
+                    println!("{pad}{s} machine ev{:x?}", g.states[s].events);
+                    for (i, &c) in states.iter().enumerate() {
+                        print!("{pad} [{i}] ");
+                        dump(d, c, depth + 1);
+                    }
+                }
+                Body::Graph { nodes, .. } => {
+                    let clips: Vec<String> = nodes
+                        .iter()
+                        .filter_map(|n| n.clip)
+                        .map(|c| d.name(c).replace("xx_Nav_", ""))
+                        .collect();
+                    println!("{s} graph ev{:x?} {}", g.states[s].events, clips.join(", "));
+                }
+                Body::Layering { base, .. } => {
+                    println!("{s} layering");
+                    dump(d, *base, depth + 1);
+                }
+                Body::Other => println!("{s} other"),
+            }
+        }
+        let mut parent = vec![None; g.states.len()];
+        for (i, st) in g.states.iter().enumerate() {
+            if let Body::Machine { states, .. } = &st.body {
+                for (k, &c) in states.iter().enumerate() {
+                    parent[c] = Some((i, k));
+                }
+            }
+            if let Body::Layering { base, .. } = &st.body {
+                parent[*base] = Some((i, 0));
+            }
+        }
+        if let Ok(f) = std::env::var("ACU_FIND") {
+            for (i, st) in g.states.iter().enumerate() {
+                if let Body::Graph { nodes, .. } = &st.body
+                    && nodes
+                        .iter()
+                        .filter_map(|n| n.clip)
+                        .any(|c| driver.name(c).contains(&f))
+                {
+                    let mut chain = vec![format!("{i}")];
+                    let mut s = i;
+                    while let Some((p, k)) = parent[s] {
+                        chain.push(format!("{p}[{k}]"));
+                        s = p;
+                    }
+                    println!("found {f} in {}", chain.join(" < "));
+                }
+            }
+        }
+        for s in std::env::var("ACU_DUMP")
+            .unwrap_or_default()
+            .split(',')
+            .filter_map(|x| x.parse().ok())
+        {
+            dump(&driver, s, 0);
+        }
+    }
+
+    /// Drive the graph from the captured idle start through `steps` of (seconds, arena
+    /// direction, free run). The body follows the requested root displacement alone, so the
+    /// synthetic arena's obstacles cannot change the result.
+    fn script(driver: &mut GraphDriver, steps: &[(f32, Vec2, bool)]) -> Vec<Sample> {
+        driver.reset();
+        let mut player = Player {
+            position: Vec3::new(2.0, 0.0, 0.0),
+            ..Player::default()
+        };
+        let mut pos = Vec2::ZERO;
+        let mut out = Vec::new();
+        let mut tick = 0u32;
+        for &(secs, direction, run) in steps {
+            for _ in 0..(secs / acu_sim::DT).round() as u32 {
+                let input = Input {
+                    direction,
+                    run,
+                    ..Default::default()
+                };
+                driver.player.diag.transitions.clear();
+                pos += advance(&mut player, driver, input, None);
+                if std::env::var_os("ACU_LOCO_TRACE").is_some() {
+                    trace_transitions(driver, tick);
+                }
+                // Keep the arena body away from synthetic obstacles; only `pos` is measured.
+                player.position = Vec3::new(2.0, 0.0, 0.0);
+                tick += 1;
+                let clip = driver
+                    .dominant()
+                    .map(|l| {
+                        let n = driver.name(l.clip).replace("xx_Nav_", "");
+                        if l.mirror { format!("{n} (m)") } else { n }
+                    })
+                    .unwrap_or_else(|| "-".into());
+                out.push(Sample {
+                    t: tick as f32 * acu_sim::DT,
+                    pos,
+                    yaw: player.yaw,
+                    clip,
+                });
+            }
+        }
+        out
+    }
+
+    /// Run-length segments by dominant clip: (start s, end s, clip, mean ground speed m/s,
+    /// yaw change degrees).
+    fn segments(s: &[Sample]) -> Vec<(f32, f32, String, f32, f32)> {
+        let mut out: Vec<(usize, usize)> = Vec::new();
+        for (i, x) in s.iter().enumerate() {
+            match out.last_mut() {
+                Some((_, e)) if s[*e].clip == x.clip => *e = i,
+                _ => out.push((i, i)),
+            }
+        }
+        out.iter()
+            .map(|&(a, b)| {
+                let a0 = a.saturating_sub(1);
+                let dt = s[b].t - s[a0].t;
+                let d = (s[b].pos - s[a0].pos).length();
+                let dyaw = acu_motion::amo::wrap_angle(s[b].yaw - s[a0].yaw).to_degrees();
+                (
+                    s[a].t - acu_sim::DT,
+                    s[b].t,
+                    s[a].clip.clone(),
+                    if dt > 0.0 { d / dt } else { 0.0 },
+                    dyaw,
+                )
+            })
+            .collect()
+    }
+
+    fn print_segments(label: &str, s: &[Sample]) {
+        println!("== {label}");
+        for (a, b, clip, v, dyaw) in segments(s) {
+            println!("  {a:6.2}-{b:6.2} {clip:44} v={v:5.2} m/s dyaw {dyaw:7.1}");
+        }
+    }
+
+    type Script = Vec<(f32, Vec2, bool)>;
+
+    /// The segment of `s` dominant at `t` seconds.
+    fn segment_at(s: &[Sample], t: f32) -> (f32, f32, String, f32, f32) {
+        segments(s)
+            .into_iter()
+            .find(|g| g.0 <= t && t < g.1 + 1e-4)
+            .expect("segment")
+    }
+
+    /// Ground speed over [a, b] seconds of a script, m/s.
+    fn speed(s: &[Sample], a: f32, b: f32) -> f32 {
+        let at = |t: f32| s[((t / acu_sim::DT).round() as usize).clamp(1, s.len()) - 1].pos;
+        (at(b) - at(a)).length() / (b - a)
+    }
+
+    /// Flat-ground locomotion against the live captures (docs/LOCOMOTION_PARITY.md). Native
+    /// bands come from `local/native-probe/runs/`:
+    /// - loco-params-1 `live-state2.jsonl` + `params2.jsonl` (30 Hz, aligned by QPC);
+    /// - loco-turn-delta-1 / -2 and loco-turns-1 (`live-state.jsonl`, 30 / 60 Hz).
+    ///
+    /// Only open-ground segments are used (no wall-brace, crowd-avoid or slope clip dominant).
+    /// Known differences are printed and listed; any other difference fails.
+    #[test]
+    #[ignore = "requires original ACU install; compares flat-ground locomotion with live captures"]
+    fn installed_locomotion_segments() {
+        let dir = std::env::var("ACU_GAME_DIR").expect("ACU_GAME_DIR required");
+        let dir = std::path::Path::new(&dir);
+        let library = crate::rig::load(dir).unwrap();
+        let (mut driver, _) = crate::motion::load_graph(dir, &library).unwrap();
+        let fwd = -Vec2::Y;
+        let none = Vec2::ZERO;
+        let mut failures = Vec::new();
+        let mut check = |ok: bool, what: String| {
+            println!("  {} {what}", if ok { "MATCH" } else { "DIFF " });
+            if !ok {
+                failures.push(what);
+            }
+        };
+
+        // Idle: native IdleLow_Footr/Footl at 0 m/s in every capture's first seconds.
+        let s = script(&mut driver, &[(3.0, none, false)]);
+        print_segments("idle", &s);
+        let still = s.iter().all(|x| x.pos.length() < 1e-4);
+        let idle = segments(&s).iter().all(|g| g.2.starts_with("IdleLow_Foot"));
+        check(
+            still && idle,
+            format!("idle: IdleLow_Foot*, no travel ({still}, {idle})"),
+        );
+
+        // Full-stick walk from idle, then release.
+        let walk: Script = vec![(1.0, none, false), (4.0, fwd, false), (3.0, none, false)];
+        let s = script(&mut driver, &walk);
+        print_segments("walk full stick, stop", &s);
+        let start = segment_at(&s, 1.05);
+        // Native PreNavWalkMid_Lt0/Rt0_tr_Walk dominant 0.60-1.12 s (7 starts).
+        check(
+            start.2.starts_with("PreNavWalkMid_") && start.2.contains("t0_tr_Walk"),
+            format!(
+                "walk start clip {} (native PreNavWalkMid_Lt0/Rt0_tr_Walk)",
+                start.2
+            ),
+        );
+        let len = start.1 - start.0;
+        check(
+            (0.55..=1.15).contains(&len),
+            format!("walk start {len:.2} s (native 0.60-1.12 s)"),
+        );
+        // Native first dominant frame within one 30 Hz sample of MovementSpeed > 0.
+        check(
+            start.0 - 1.0 <= 0.05,
+            format!("start latency {:.3} s (native <= 0.033 s)", start.0 - 1.0),
+        );
+        check(
+            segment_at(&s, 4.0).2 == "Walk_3-Loop",
+            format!("walk loop {} (native Walk_3-Loop)", segment_at(&s, 4.0).2),
+        );
+        // Native open-ground Walk_3-Loop over 0.5 s windows: 1.75-1.99 m/s (loco-turn-delta-1),
+        // 2.22-2.31 m/s (loco-params-1 fwd_again and turns); TimeScale varies 0.9-1.3 there.
+        let v = speed(&s, 4.0, 5.0);
+        check(
+            (1.7..=2.4).contains(&v),
+            format!("walk speed {v:.2} m/s (native 1.75-2.31)"),
+        );
+        let stop = segment_at(&s, 5.3);
+        check(
+            stop.2.starts_with("WalkStop_RC"),
+            format!(
+                "walk stop clip {} (native WalkStop_RC in 4/4 stops)",
+                stop.2
+            ),
+        );
+        // Native stop travel 0.39-0.45 m from the stop clip's first frame (4 stops).
+        let first = (stop.0 / acu_sim::DT) as usize;
+        let travel = (s[s.len() - 1].pos - s[first].pos).length();
+        check(
+            (0.3..=0.55).contains(&travel),
+            format!("walk stop travel {travel:.2} m (native 0.39-0.45)"),
+        );
+        check(
+            segment_at(&s, 7.9).2.starts_with("IdleLow_Foot"),
+            "back to IdleLow after the walk stop".into(),
+        );
+
+        // Half stick (MovementSpeed 0.621).
+        let half: Script = vec![
+            (1.0, none, false),
+            (4.0, fwd * 0.5, false),
+            (3.0, none, false),
+        ];
+        let s = script(&mut driver, &half);
+        print_segments("walk half stick, stop", &s);
+        check(
+            segment_at(&s, 4.0).2 == "WalkSlow_3-Loop",
+            format!(
+                "half-stick loop {} (native WalkSlow_3-Loop)",
+                segment_at(&s, 4.0).2
+            ),
+        );
+        // Native WalkSlow_3-Loop at MovementSpeed 0.621: 0.76-0.87 m/s (TimeScale 0.7-0.84).
+        let v = speed(&s, 4.0, 5.0);
+        check(
+            (0.7..=0.95).contains(&v),
+            format!("half-stick speed {v:.2} m/s (native 0.76-0.87)"),
+        );
+        let stop = segment_at(&s, 5.5);
+        check(
+            stop.2.starts_with("WalkSlow_Stop"),
+            format!(
+                "half-stick stop {} (native WalkSlow_Stop_LP, 1 stop)",
+                stop.2
+            ),
+        );
+
+        // Free run (high profile) from idle, then release.
+        let run: Script = vec![(1.0, none, false), (4.0, fwd, true), (3.0, none, false)];
+        let s = script(&mut driver, &run);
+        print_segments("free run, stop", &s);
+        let first_sprint = s
+            .iter()
+            .find(|x| x.clip.starts_with("Sprint_3-Loop"))
+            .map(|x| x.t - 1.0);
+        // Native: input to Sprint_3-Loop_V02 dominant 1.00-1.82 s (loco-params-1 twice,
+        // loco-turn-delta-2), through Run_3-Loop or acu_nav_run_impultion.
+        check(
+            first_sprint.is_some_and(|t| (0.9..=1.9).contains(&t)),
+            format!("time to sprint {first_sprint:?} s (native 1.00-1.82)"),
+        );
+        // Native Sprint_3-Loop_V02: 5.26 (60 Hz, loco-turn-delta-2), 5.79-5.95 m/s (30 Hz
+        // windows, partly blended with avoid clips).
+        let v = speed(&s, 4.0, 5.0);
+        check(
+            (5.2..=6.0).contains(&v),
+            format!("sprint speed {v:.2} m/s (native 5.26-5.95)"),
+        );
+        let stop = segment_at(&s, 5.4);
+        check(
+            stop.2.starts_with("SprintStop_Fd100cm"),
+            format!("sprint stop {} (native SprintStop_Fd100cm)", stop.2),
+        );
+        let len = stop.1 - stop.0;
+        check(
+            (0.65..=0.9).contains(&len),
+            format!("sprint stop {len:.2} s (native 0.74-0.78)"),
+        );
+        let (a, b) = (
+            (stop.0 / acu_sim::DT) as usize,
+            (stop.1 / acu_sim::DT) as usize,
+        );
+        let travel = (s[b.min(s.len() - 1)].pos - s[a].pos).length();
+        check(
+            (0.5..=0.9).contains(&travel),
+            format!("sprint stop travel {travel:.2} m (native 0.60-0.81)"),
+        );
+        let after = segment_at(&s, stop.1 + 0.05).2;
+        check(
+            after.starts_with("IdleHigh_tr_IdleLow"),
+            format!("after the sprint stop {after} (native IdleHigh_tr_IdleLow_footl, 2/2)"),
+        );
+
+        // Walking turn: stick 90 degrees right after 2.5 s of walking.
+        let turn: Script = vec![
+            (1.0, none, false),
+            (2.5, fwd, false),
+            (2.5, Vec2::X, false),
+            (3.0, none, false),
+        ];
+        let s = script(&mut driver, &turn);
+        print_segments("walk, stick right 90, stop", &s);
+        let tick = |t: f32| (t / acu_sim::DT).round() as usize - 1;
+        let yaw = |a: f32, b: f32| acu_motion::amo::wrap_angle(s[tick(b)].yaw - s[tick(a)].yaw);
+        let rate = yaw(3.55, 3.75).to_degrees() / 12.0;
+        // Native loco-turn-delta-1: 2.14-2.15 degrees per 60 Hz frame, identity root rotation.
+        check(
+            (rate + 2.15).abs() < 0.1,
+            format!("walking turn {rate:.2} deg/frame (native -2.15, right)"),
+        );
+        let total = yaw(3.5, 5.5).to_degrees();
+        check(
+            (total + 90.0).abs() < 2.0 && segment_at(&s, 4.0).2 == "Walk_3-Loop",
+            format!(
+                "walking turn total {total:.1} deg in Walk_3-Loop (native about 90, no turn clip)"
+            ),
+        );
+
+        // Stick reversed while walking.
+        let reverse: Script = vec![
+            (1.0, none, false),
+            (2.5, fwd, false),
+            (2.0, -fwd, false),
+            (3.0, none, false),
+        ];
+        let s = script(&mut driver, &reverse);
+        print_segments("walk, stick reversed, stop", &s);
+        let plant = segments(&s)
+            .into_iter()
+            .find(|g| g.2.contains("PlantAndTurnLt180"));
+        // Native WalkFwd_PlantAndTurnLt180_ProperRP 0.52 s / 175.5 deg, _Improper 0.78 s /
+        // 177.5 deg (loco-params-1, two runs).
+        check(
+            plant.as_ref().is_some_and(|g| {
+                (0.45..=0.85).contains(&(g.1 - g.0)) && (g.4.abs() - 177.0).abs() < 6.0
+            }),
+            format!("plant and turn {plant:?} (native 0.52-0.78 s, 175-178 deg)"),
+        );
+
+        println!("differences from native: {failures:#?}");
+        // Known differences, reported in docs/LOCOMOTION_PARITY.md; any other is a regression.
+        let known = [
+            "walk stop clip",
+            "walk stop travel",
+            "half-stick stop",
+            "sprint speed",
+            "after the sprint stop",
+        ];
+        let unexpected: Vec<_> = failures
+            .iter()
+            .filter(|f| !known.iter().any(|k| f.starts_with(k)))
+            .collect();
+        assert!(unexpected.is_empty(), "{unexpected:#?}");
+    }
 }

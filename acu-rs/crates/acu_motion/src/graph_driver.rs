@@ -13,6 +13,12 @@ use std::collections::HashMap;
 /// Navigation hub of NewDemo (ACU-RE-0066).
 pub const HUB_AT: usize = 9_974_731;
 
+/// Forced start: hub walk machine (1), its idle machine (5), state 1 (`xx_Nav_IdleLow_Footr`).
+/// Every live capture starts idle in `IdleLow_Footr` (loco-params-1, loco-turns-1,
+/// loco-turn-delta-1/2). State 0 of the idle machine (`IdleLow-FullLookDnLedge_Fwd0_Footl`) is
+/// its entry pose, left after 0.03 s when the stick is released.
+pub const IDLE_START: [u16; 3] = [1, 5, 1];
+
 /// Controller state for one simulation tick.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Controls {
@@ -116,8 +122,7 @@ impl GraphDriver {
         }
         player.set("TimeScale", Value::Scalar(1.0));
         player.set("UseBipedFootIK", Value::Bool(true));
-        // The capture starts idle in the hub's walk machine (1), idle state (5).
-        player.start_in(&[1, 5]);
+        player.start_in(&IDLE_START);
         let pose = rig.compose(rig.local_pose(clips.values().next().ok_or("no clips")?, 0.0, None));
         Ok(Self {
             player,
@@ -132,7 +137,7 @@ impl GraphDriver {
     /// Back to the captured idle start with neutral controls.
     pub fn reset(&mut self) {
         self.apply(Controls::default());
-        self.player.start_in(&[1, 5]);
+        self.player.start_in(&IDLE_START);
     }
 
     /// The heaviest playing leaf.

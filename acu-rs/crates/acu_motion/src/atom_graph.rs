@@ -859,6 +859,16 @@ impl Player {
             })
         }
         self.rt = forced(&mut ctx, self.root, path);
+        // CHOICE (forced start, not a native path): the forced states behave as if they were
+        // already playing. Transition and entry rules read the previous step's event list, and
+        // the hub's walk -> idle/stop rule fires when the idle events (`0x0040000b`,
+        // `0x00400034`) are absent with Parkour 0. An empty list would leave the forced idle
+        // on the first step; a stale one from an earlier run made a reset depend on the
+        // past. So the clock and the seed restart, and a zero-length graph pass builds the
+        // forced states' own events.
+        self.clock = 0.0;
+        self.rng = 1;
+        self.graph_pass(0.0);
     }
 
     /// Active state path from the root (state indices), for inspection.
@@ -908,7 +918,13 @@ impl Player {
             }
             update(&mut ctx, self.root, &mut rt, dt);
         }
-        // Graph pass: collect weighted leaves and advance clip phases.
+        self.rt = rt;
+        self.graph_pass(dt);
+    }
+
+    /// Collect weighted leaves, advance clip phases by `dt` and build this step's event list.
+    fn graph_pass(&mut self, dt: f32) {
+        let mut rt = std::mem::replace(&mut self.rt, StateRt::Empty);
         let mut leaves = Vec::new();
         {
             let mut ctx = Ctx {
@@ -1787,6 +1803,80 @@ mod tests {
             ctx.chain(&[cond(1, 0, 0, 5, w)], (0.0, 1.0), (0.0, 0.0))
                 .is_none()
         );
+    }
+
+    /// Root machine 0 with states A (1) and B (2). A raises event 0x42 every frame (`f88`) and
+    /// leaves for B when 0x42 is absent (event condition mode 2), the shape of the hub's
+    /// walk -> idle/stop rule. While A plays, its own event is present, so the rule never
+    /// fires; a forced start in A must behave the same from its first step, and a reset must
+    /// not depend on what played before.
+    fn self_holding_graph() -> Player {
+        let empty = || Body::Graph {
+            nodes: vec![],
+            outputs: vec![],
+            root: None,
+        };
+        let mut leave = cond(1, 0, 0, 0x42, Wrapped::default());
+        leave.mode = 2;
+        let state = |events: Vec<u32>, transitions: Vec<Transition>, body: Body| State {
+            class: "test",
+            at: 0,
+            transitions,
+            events,
+            body,
+        };
+        let g = Graph {
+            params: vec![],
+            states: vec![
+                state(
+                    vec![],
+                    vec![],
+                    Body::Machine {
+                        states: vec![1, 2],
+                        entries: vec![(None, 0)],
+                        machine: vec![],
+                    },
+                ),
+                state(
+                    vec![0x42],
+                    vec![Transition {
+                        target: 1,
+                        blend: 0.0,
+                        expr: Some(vec![leave]),
+                    }],
+                    empty(),
+                ),
+                state(vec![], vec![], empty()),
+            ],
+            by_at: HashMap::new(),
+            hash_to_param: HashMap::new(),
+            parent: vec![None, Some(0), Some(0)],
+        };
+        Player::new(g, 0, HashMap::new()).unwrap()
+    }
+
+    #[test]
+    fn forced_start_holds_a_self_sustaining_state() {
+        let mut p = self_holding_graph();
+        p.start_in(&[0]);
+        for _ in 0..10 {
+            p.step(1.0 / 60.0);
+        }
+        assert_eq!(p.path(), vec![0, 1], "{:?}", p.diag.transitions);
+        assert!(p.diag.transitions.is_empty());
+    }
+
+    #[test]
+    fn reset_does_not_depend_on_the_previous_run() {
+        let mut p = self_holding_graph();
+        // Run in B (no events), then force A again: the stale event list of B must not
+        // decide A's first step.
+        p.start_in(&[1]);
+        p.step(1.0 / 60.0);
+        p.start_in(&[0]);
+        assert_eq!(p.clock, 0.0);
+        p.step(1.0 / 60.0);
+        assert_eq!(p.path(), vec![0, 1]);
     }
 
     #[test]

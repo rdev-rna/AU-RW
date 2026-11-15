@@ -16,7 +16,6 @@ pub mod amo_samples;
 pub mod amo_search;
 pub mod amo_velocity_smoother;
 pub mod atom_graph;
-pub mod sync;
 pub mod bone_modifier;
 pub mod coat;
 pub mod graph_driver;
@@ -26,6 +25,7 @@ pub mod modifier_order;
 pub mod native_pose;
 pub mod reflex;
 pub mod root_delta;
+pub mod sync;
 pub mod target_warp;
 pub mod traversal;
 

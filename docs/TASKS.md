@@ -1,5 +1,17 @@
 # Task queue
 
+Locomotion parity (2026-11-15, ACU-RE-0072, `docs/LOCOMOTION_PARITY.md`): flat-ground idle /
+walk / sprint / stops / walking turn are checked by `installed_locomotion_segments` against the
+live captures. The reset defect is fixed. Open, in order:
+1. Walk stop selection (native RC in 5/5; Rust alternates RP/RC with phase). Look at
+   SelectBestMatchingTags `0x1400ECD90` / cost `0x1400CDE10` and the sync handoff into graph state
+   3723.
+2. A capture with repeated walk stops at varied hold times and a sprint along a clear line
+   (native sprint speed, stop statistics).
+3. The machine owning state 8947 (`IdleHigh_tr_IdleLow` after a sprint stop), which is
+   outside the navigation hub.
+4. The half-stick stop (`WalkSlow_Stop_LP`), possibly through damp nodes.
+
 User priority (2026-10-20): reconstruct predictive traversal scanning linked to
 dynamic root-motion target matching. Start from ACU-RE-0030, not the authored
 matcher weights. First bounded kernel: `acu_motion::traversal::landing_score`

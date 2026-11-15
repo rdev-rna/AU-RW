@@ -153,8 +153,9 @@ fn replay_live_parameters() {
             player.set(name, value);
         }
         if !started {
-            // The capture starts idle: hub walk machine (1), idle state (5).
-            player.start_in(&[1, 5]);
+            // The capture starts idle in `IdleLow_Footr` (hub walk machine 1, idle machine 5,
+            // state 1).
+            player.start_in(&acu_motion::graph_driver::IDLE_START);
             started = true;
         }
         let seen = player.diag.transitions.len();

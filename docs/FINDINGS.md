@@ -71,6 +71,9 @@ Graph evaluation: [ACU-RE-0069](findings/ACU-RE-0069-atomgraph-evaluation-sync-a
 maps the pose-node evaluators, event-condition modes, best-match selection, the sync-marker record
 (one-shot vs looping, group from the root) and skeleton mirroring. The arena now plays NewDemo
 through `acu_motion::graph_driver`, with root motion as the only body driver (649/1051 live replay).
+Locomotion parity: [ACU-RE-0072](findings/ACU-RE-0072-flat-ground-locomotion-parity.md) compares
+flat-ground idle, walk, sprint, stops and turns with the live captures (16 matches, 4 differences),
+and fixes a forced-start defect that played a sprint stop on reset (674/1051 live replay).
 
 Use `docs/templates/FINDING.md`; store durable findings under `docs/findings/`.
 Link bulky raw evidence in ignored `outputs/` with identity and reproduction steps.
