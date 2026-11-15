@@ -87,8 +87,10 @@ Exact commands and search boundary: the atlas command is in ACU-RE-0072. The ID 
    stumble, shove and tackle, reins, facial animation, incapacitated, berserk and smoked.
 6. **Sending looks the same for the avatar's messages as elsewhere.** `sub_1407187A0` (`AssassinateTarget`)
    runs the local body `sub_140709890` when the net handle at `+0x718` is null. Otherwise it sends through
-   `sub_1405D17F0`.
-7. **Resync function.** The large function containing `0x140728B1C` and `0x140729376` walks the intentions
+   `sub_1405D17F0` *(corrected in ACU-RE-0080: this is StartIntention on the network-aware manager, not
+   a raw send)*.
+7. **Resync function** *(corrected in ACU-RE-0080: this is the receive handler's main chunk, not a
+   resend loop; the fields below are slot values of the received message)*. The large function containing `0x140728B1C` and `0x140729376` walks the intentions
    one at a time with predicates such as `sub_1405F59C0` and `sub_1405F49D0`, and re-sends each active one
    with its current parameters. For example, `SetRiftWeaponAimingAngle` is re-sent with the floats at
    `+0x94`, `+0xBC` and `+0xE4`. `AssassinateTarget` is re-sent with `{u32 at +0xF0, bool (byte at +0x110
@@ -103,7 +105,7 @@ Exact commands and search boundary: the atlas command is in ACU-RE-0072. The ID 
 - **Authority rule from the names.** A replica asks the master through `RFCSetMaster*` and
   `SendFightDamageEventToMaster`. The master applies the change and replicates it through the snapshot.
   This matches Storm's master-role events (ACU-RE-0073 observation 3).
-- **The resync function is probably for join-in-progress or master migration.** It rebuilds a replica's
+- *(Superseded by ACU-RE-0080.)* **The resync function is probably for join-in-progress or master migration.** It rebuilds a replica's
   intention state from scratch. The alternative is periodic reliability resends.
 - The 8 quantized floats of `HumanAvatar` are probably locomotion or blend parameters (speed, direction,
   lean and similar). This is not established: no game-side writer of the source fields has been read.

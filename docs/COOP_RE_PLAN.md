@@ -203,8 +203,10 @@ pointless without them.
   slew toward the result with monotonic reads. The path is peer-to-peer only, with no backend crossing.
 - **Status 2026-11-15 (intentions):** [ACU-RE-0079](findings/ACU-RE-0079-intention-payloads.md). Slot layouts of
   all 94 `NetHumanIntention` messages come from the builder, using the new tool
-  `tools/net_intention_payloads.py` (output in `local/coop/`). Still open: field meanings, bit widths and
-  the receive path.
+  `tools/net_intention_payloads.py` (output in `local/coop/`). Still open: field meanings and bit widths.
+- **Status 2026-11-15 (intention receive):** [ACU-RE-0080](findings/ACU-RE-0080-intention-receive.md). Messages are
+  `NetNpc` protocol entries. One handler decodes all 94 and starts the same intention locally through
+  StartIntention (91 of 94; 3 call send primitives). This corrects ACU-RE-0075's "resync".
 
 ### Phase 5 - Backend boundary register (runs alongside every phase)
 - `docs/coop/BACKEND_BOUNDARY.md`, one row per call that crosses into Ubisoft
