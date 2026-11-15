@@ -39,3 +39,9 @@ Known pitfalls:
 ## Ownership census
 
 `rolecensus.py <out.json> <pid>...` lists every entity within 120 m of the player whose role bits (`entity+212`) are replica or whose kind is set, with its asset name. Run it before and after moving the players, then diff by `file_id` to see ownership migrate (ACU-RE-0092 observations 18–19).
+
+## Parkour leap watch
+
+`leapwatch.py <pid> <out.jsonl> [--rpid <other pid> --rent <entity>]` hooks four `NetBehaviorAI` leap message blocks
+on the master, free-runs the player with `navigate.Navigator`, and logs each leap's source object next to the
+master's position (and, with `--rpid/--rent`, the other game's replica of the player). ACU-RE-0094 has the field roles.

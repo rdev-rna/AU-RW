@@ -83,8 +83,8 @@ python tools/net_intention_payloads.py --image <capture> --atlas local/coop/net_
    `0x78 u16 ← +0x28`. That matches the 16-bit local life the master keeps (ACU-RE-0092 obs 11), and the values
    seen live (30, 22, 14, 6, −1, 0, 15, 60).
 5. **Examples that show what the payloads look like:**
-   - `NetBehaviorAI_ParkourLeap` and `ParkourClimbLeap` carry 15 `vec3_f32` fields (`+0x30`…`+0x110`), seven
-     bools, five u32 and four derived u64.
+   - `NetBehaviorAI_ParkourLeap` and `ParkourClimbLeap` carry 14 `vec3_f32` fields (`+0x30`…`+0x110`), seven
+     bools, five u32 and four derived u64. (An earlier version of this finding said 15; ACU-RE-0094 corrects it.)
    - `NetBehaviorAI_NetStartMovement` carries one `vec3_f32` and a bool.
    - `NetBehaviorAI_EnterRevive` carries a u64 (`+0x28`) and an f32 (`+0x30`).
    - `NetBehaviorAI_AssassinateNet` / `…FromHayStack` / `…FromHidespot` share one layout: three derived u64, a u32,
@@ -102,10 +102,9 @@ python tools/net_intention_payloads.py --image <capture> --atlas local/coop/net_
 
 ### Inferences and alternatives
 
-- **Parkour sends its trajectory.** The 15 position vectors in the parkour leap messages suggest that the master sends
-  the points of the jump (start, end and intermediate points). The replica can then replay the same jump instead
-  of solving it again. The alternative is that some vectors are hand or foot targets. Testing it: hook a parkour
-  leap live and compare the vectors with the master's positions.
+- **Parkour sends its trajectory.** The 14 vectors in the parkour leap messages suggested that the master sends the
+  points of the jump. ACU-RE-0094 tested it live: the message carries the position at send, the takeoff point and the
+  predicted landing point, with a direction for each. It is not a sampled path.
 - **Ownership migration has its own messages.** `FightDirector_RFC_RequestLoadBalanceMigration` and
   `CrowdHerderGroupMigration_TransferGroup` are candidates for the code behind the hand-over measured in
   ACU-RE-0092 obs 18–20. They decode empty, which may mean their payload is built differently. They are first in line
