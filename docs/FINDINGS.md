@@ -78,8 +78,11 @@ Transition entry: [ACU-RE-0074](findings/ACU-RE-0074-transition-sync-source-and-
 shows a state entered by a transition gets no sync source (SelectBestMatchingTags keeps port 2:
 `WalkStop_RC`, as native) and that graph conditions are latched at activation; damp law inferred.
 Lighting: [ACU-RE-0073](findings/ACU-RE-0073-baked-gi-and-world-ambiance.md) decodes the baked-GI
-containers (GILoader tree, GIDatablock / GIResult / GIData, exact end; GICP codec open) and part of
-WorldAmbiance (HDR camera, SSAO, shadow tail), and applies native exposure and shadow settings.
+containers (GILoader tree, GIDatablock / GIResult / GIData, exact end), the GICP octree-delta codec
+and the forward GI evaluation, and part of WorldAmbiance (HDR camera, SSAO, shadow tail); Bevy applies
+native exposure, shadows and Paris GI around Arno.
+Character materials: [ACU-RE-0084](findings/ACU-RE-0084-character-template-gbuffer.md) locates the
+outfit templates' DXBC (cloth, skin, hair) and the deferred G-buffer contract; RT order open.
 
 Use `docs/templates/FINDING.md`; store durable findings under `docs/findings/`.
 Link bulky raw evidence in ignored `outputs/` with identity and reproduction steps.
