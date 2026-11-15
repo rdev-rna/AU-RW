@@ -366,6 +366,47 @@ spec. C, informed by B, is the porting route.
   becomes a porting risk. Not yet established.
 - Target titles may lack the engine hooks co-op needs. Phase 6 decides this.
 
+## LAN join plan (2026-11-16, after ACU-RE-0090)
+
+Where things stand:
+- LAN mode works for Storm: the host has free-roam game and party sessions, and Private hosts a co-op lobby.
+- Nothing in the UI finds a LAN host. The hidden `LanSessionsPage` is empty, and Public fails on a UbiServices
+  check (`0x70000106`) before it starts LAN search.
+- Storm's LAN discovery is built in. The LAN matchmaker's slot 4 (`0x1425406D0`) turns it on, and a discovery
+  handler is installed at startup.
+
+Steps, in order. Each one is a small stride with its own finding update:
+1. **Find the UbiServices gate in front of Public.** Hook the error formatter `0x141C551C0` and the Public path
+   while the user presses Public, then follow the return chain to the check that raises `{7, 0x106}`.
+   - If the check is a flag or state read, a probe `REDIRECT` or a data write may let Public reach slot 4. No
+     code patches: code patches kill the game (ACU-RE-0090 run 4).
+2. **Probe call feature (only if step 1 has no data-level bypass).** Add `CALLAT <slot> <target> <rcx> <rdx> <r8>
+   <r9>` to `probe.cpp`:
+   - it runs once, on the game thread, at the next hit of an armed execute hook (for example Storm slot 12, which
+     runs every frame);
+   - it uses a trampoline that saves the registers, calls the target and resumes;
+   - it runs only with an explicit command, and the hook is removed afterwards.
+
+   First use: call LAN matchmaker slot 4 on `*(qword_145137930 + 1792)`, then confirm that `+692` = 1 and that
+   `0x141B35E10` fires.
+3. **Follow the discovery result.** Read the handler that `0x141B34FC0` installs. Find what a
+   DiscoverSession reply produces (a session list, or a join request) and what starts the join:
+   - `PRIVATE_MATCH_JOIN`, `JOIN_PARTY_INVITE` or `GHOST_JIP` in the matchmaking statechart;
+   - Storm `RequestAddPlayer` (interface slot 31).
+4. **Two games on one PC.** The second game needs its own ports, set as data (not code). Find the Storm config
+   object built by `0x141B46C90`, and the time between its construction and the socket bind. Then write `+8`,
+   `+412` and `+416` in that window.
+   - Open question: discovery may need a shared broadcast port. If so, the one-PC test may need only the main
+     port moved.
+5. **Friend test.** Two machines, both in LAN mode on the same local network or with direct reachability. ZeroTier
+   is excluded by the user. Attach to the user's game read-only, and use the friend's game only as they allow.
+
+Ruled out:
+- the hidden LAN page;
+- patching code bytes;
+- one-PC tests without moved ports;
+- ZeroTier.
+
 ## Immediate next steps
 
 1. Claim #85, or open a new slice "coop: protocol atlas", and reserve an ACU-RE

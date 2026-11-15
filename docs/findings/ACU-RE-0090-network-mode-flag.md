@@ -376,6 +376,42 @@ nor starts LAN discovery, which matches ACU-RE-0087's finding that it has no cod
 an in-game way to find a LAN lobby. Storm's LAN discovery has not run in any test, so a join needs it
 called directly, or the invite path driven.
 
+## Static follow-up and live run 6 — Storm's built-in LAN discovery (2026-11-16)
+
+Static observations (corpus files; vtables read from the hash-bound mapped image):
+34. Storm interface slot 12 (`0x141C626C0`) is a periodic update. When interface `+688 == 2`, byte `+692` is set,
+    and `+696` (interval) + `+704` (last time) has passed, it calls `0x141B35E10` (slot 16). That function builds a
+    `storm::echo::lan` DiscoverSession event (constructor `0x141B6E5E0`). The controller constructor `0x141C3AC50`
+    initialises the controller fields `+700` = 0 (interface `+692`) and `+704` = 5,000,000 (interface `+696`).
+    The time units are not established.
+35. Writers of the flag (controller `+700`):
+    - `0x141C41360`, a plain setter;
+    - a `StatechartState` pair: `0x141C52BA0` (slot 8, sets 1 and records a start time) and `0x141C52CF0`
+      (slot 9, sets 0). Absolute pointers at `0x14300E900` and `0x14300E908`.
+36. The setter's only caller is `0x1425406D0`, which is **slot 4 of the LAN matchmaker**: vtable `0x14360D7E0`, the
+    136-byte object that `0x142540630` installs at `qword_145137930 + 1792` in mode 1 (observation 13). The
+    online matchmaker (vtable `0x14360D590`) has `0x1425407B0` in the same slot. Slot 4 behaves like "start search":
+    in LAN mode it turns discovery on and stamps `+112`/`+128`.
+37. Startup (interface slot 15, `0x141C61EE0`) calls `0x141B34FC0`. That builds the SetDiscoveryHandler event
+    (`0x141BBBCB0`) in `defaultsessioncontrollerbase.cpp`, so a discovery handler is installed at startup.
+38. Correction to the earlier "no LAN code ran" readings (ACU-RE-0087, observations 9 and 23). Those hooks sat on
+    the event-type *getters*. Storm code also tests the cached type pointers inline (for example `0x141B8A680`
+    checks `off_1452059A0` itself), so a getter hook can miss real use. Zero getter hits do not prove that
+    no LAN event was built.
+
+Live (host PID 130944, LAN mode, free roam; read-only):
+39. Before the test, the host's interface showed `+688` = 2, `+692` = 0 (discovery off), `+696` = 5,000,000 and
+    `+704` = 0.
+40. Hooks on `0x1425406D0` (LAN start search), `0x141B35E10` (post DiscoverSession), `0x141C52BA0` (discovery state
+    enter) and `0x141B6E5E0` (DiscoverSession constructor) were armed with matching entry bytes
+    (`lan-search-20261116/lansearch.jsonl` `f0602b11…`). The user then chose **Play in Public** on a co-op mission.
+    The game showed "Connection failed … Ubisoft online service … [0x70000106]" (`public-error.png` `7b76fb80…`),
+    and all four hooks had 0 hits.
+
+Inference: `0x70000106` decodes as category 7 (UbiServices, ACU-RE-0088) with code `0x106`. Public checks the
+Ubisoft services before it ever reaches the LAN matchmaker's start search, so LAN discovery stays off. Where that
+check sits is not found yet.
+
 Unknowns / coverage:
 - Who sets the start-alone flag (statechart `+236`), and what the private-match host waits for before it
   launches (a joined peer, a host confirm, or both).
