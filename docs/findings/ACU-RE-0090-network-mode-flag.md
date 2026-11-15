@@ -139,8 +139,40 @@ Inferences:
 - To play co-op over LAN, the next pieces are (a) the menu or map filter that hides co-op markers in mode 1,
   and (b) a second game in mode 1 discovering or joining this session.
 
+## Static follow-up — LAN-aware callers (2026-11-15)
+
+Corpus files under `ACU - Decompiled/`, cross-checked with E8/E9 call scans of the hash-bound mapped image.
+Names come from the local symbol index (`method`/`name` tables).
+
+Observations:
+11. `0x14254BB10` returns `dword_144E52380 == 1` (an "is LAN" helper; the argument `qword_145137930` is unused).
+    It has six call sites in four functions:
+    - `0x1407A14B0`, `0x1407A6C20` and `0x1407BB790` (HUD code; classes not recovered) all test
+      `IsLAN() || *(qword_145137930 + 152) == 3`. So the menus treat LAN as equivalent to the "connected"
+      state of that online object. In `0x1407A6C20`, failing this test calls `sub_142519A40(7)` and shows the
+      not-connected popup (feature id 177).
+    - `0x140F5EF90` (`OnlineUniverseComponents::helper_140F5EF90`, reached from `vf24` `0x140F5F270`) calls
+      mission create `0x141C46B10(qword_145212EC8, IsLAN())`.
+12. Mission create has two further callers, and both pass `dword_144E52380 == 1` as the same argument:
+    `0x142569B50` (a tail `jmp`; it registers a callback first) and `0x142550900`, which creates the party
+    session when its selector is 0 and the mission session when it is 1. Inside `0x141C46B10` that argument is
+    written into the session descriptor before the Storm call at interface `+136` (slot 17, `Create`).
+    Create then sets `NetMissionManager + 196 = 1`. Live it read `3`, so the session moved two states further.
+13. `0x142540630` (called from `0x142552DD0`) builds a different object at `qword_145137930 + 1792` per mode:
+    136 bytes from `0x142530580` (vtable `off_14360D7E0`, registers with the game session) in LAN mode, else
+    328 bytes from `0x142530E50` (vtable `off_14360D590`, registers with the party session).
+
+Inference: LAN co-op is a supported code path: the session descriptor carries a LAN flag, and the menus
+accept LAN where they would require a connection. The user later corrected observation 10: after starting
+the co-op mission, **all** map missions were hidden, not only co-op ones. Whether that happened at load or
+only after the mission start is not yet known. If it was after, the most likely reading is that the co-op
+launch flow is waiting (in `0x140F5EF90`, the launch fires only once its flags `+106` and `+107` are set,
+and their writers are not found), and the map hides other missions while a launch is pending. This is
+not verified.
+
 Unknowns / coverage:
-- Which reader hides the co-op markers, and what the mission-start path does in mode 1 after `Create`.
+- What hides the map missions in mode 1, and what the launch path in `0x140F5EF90` waits for after `Create`
+  (writers of its `+106`/`+107` flags).
 - Whether a second mode-1 game finds the session (LAN discovery), and what a joiner needs.
 - What mode 1 does to the online services (selector 7, ACU-RE-0088). The custom loader has no online.
 - Stability over a longer session.
