@@ -2,6 +2,8 @@
 
 Status: plan, 2026-11-15. Area `area:coop`, epic #26, scope note #85.
 
+Coverage ledger: [coop/COVERAGE.md](coop/COVERAGE.md) (2026-11-16). It lists all 965 messages, 118 states and 33 object types by system and what is covered. Reverse-engineering every system comes before extending the library.
+
 ## Goal
 
 Work out how Assassin's Creed Unity runs co-op: sessions, peers, authority, what gets
