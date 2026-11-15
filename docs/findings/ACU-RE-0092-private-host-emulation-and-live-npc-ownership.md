@@ -93,7 +93,7 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
      with the same hooks armed and none ran either.
    - HUD after the fight: each game showed the *remote* player's health bar partly empty and its own full.
 
-7. **Correction: the hooked blocks were in registration code, and the first live send.**
+7. **Correction: the earlier hooks covered only the broadcast branch; the first live send.**
    - ACU-RE-0091's blocks `0x140722B60` / `0x140722643` / `0x14072275B` load only the *broadcast* wire ID. They sit
      after `test r12b, r12b / je`, so a unicast send skips them.
    - Each message block in the NetHumanIntention send builder `0x14071F090` (frame `0x1120` + 5 pushes) has the same
