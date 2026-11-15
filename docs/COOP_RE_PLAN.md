@@ -148,6 +148,10 @@ deliverable and acceptance criterion. Phases 1-5 are static. Phase 7 is dynamic.
 - Mark NAT punch (`storm::punch::*`), QOS probes, bans and voice chat as backend-adjacent:
   record them, don't port them. Voice is out of scope.
 - Deliverable: a session state diagram and a seam finding.
+- **Status 2026-11-15:** [ACU-RE-0073](findings/ACU-RE-0073-session-transport-seam.md).
+  The seam is Storm's event interface, and `NetSessionController` is a session-event relay. NAT traversal
+  takes its server URLs from ubiservices (backend row 1). The LAN-path test is still **unresolved**.
+  Backend register started: [coop/BACKEND_BOUNDARY.md](coop/BACKEND_BOUNDARY.md).
 
 ### Phase 3 - Replication model (static)
 - Echo objects: how a replica is created and deleted, what an "object shape" is

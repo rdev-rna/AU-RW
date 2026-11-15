@@ -1,7 +1,7 @@
 # #85 Co-op reverse engineering (area: coop)
 
 Branch `acu-85-coop-re-plan`. Plan: [../COOP_RE_PLAN.md](../COOP_RE_PLAN.md). Files: `docs/COOP_RE_PLAN.md`,
-`docs/areas/coop.md`, `tools/net_census.py`, `tools/net_protocol_atlas.py`,
+`docs/areas/coop.md`, `docs/coop/BACKEND_BOUNDARY.md`, `docs/findings/ACU-RE-0073-session-transport-seam.md`, `tools/net_census.py`, `tools/net_protocol_atlas.py`,
 `tools/test_net_protocol_atlas.py`, `docs/findings/ACU-RE-0072-net-protocol-registry.md`.
 
 ## Done (2026-11-15)
@@ -25,8 +25,16 @@ The full atlas, about 810 KB of identifiers, stays in ignored `local/` and is re
 The repo is public, so only the tool and the finding are committed. This overrides the plan's earlier
 `data/coop/` location.
 
+## Done (Phase 2, 2026-11-15)
+- [ACU-RE-0073](../findings/ACU-RE-0073-session-transport-seam.md) maps the net subsystem root and its 13
+  singletons (4 named). It shows `NetSessionController` is an event relay, lists the Storm/Echo
+  session/object/LAN/punch API from the type records, and finds that the NAT-traversal URLs come from
+  ubiservices.
+- Backend register started: [../coop/BACKEND_BOUNDARY.md](../coop/BACKEND_BOUNDARY.md) (8 rows).
+- LAN-path test: **unresolved**. No game code calling Storm's LAN product was found statically.
+
 ## Not done / next
 - Phase 1 remainder: confirm the decoder, encoder and body roles by tracing the receive path from Storm to
   the decoder. Recover the vf0 prefix strings so object-scoped IDs can be computed offline.
-- Phase 2: session seam and a static test of the LAN path.
-- No backend calls were met in Phase 1, so the boundary register is still empty.
+- Phase 2 remainder: who posts `lan::inEvent::*`, whether tickets are backend-signed, the mapping from
+  Storm callbacks to `NetSessionController` slots. A live capture (Phase 7) would name the heap singletons.
