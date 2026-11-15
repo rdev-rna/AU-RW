@@ -219,6 +219,11 @@ pointless without them.
   The second list deletes released intention instances at the tick; it is not a snapshot flush. When a peer
   is added, the master re-sends every active intention to it (join-in-progress). This corrects ACU-RE-0080's
   "context time". The snapshot send path is still untraced.
+- **Status 2026-11-15 (snapshot send):** [ACU-RE-0084](findings/ACU-RE-0084-snapshot-send-path.md). Mementos are
+  registered per Storm object type (11 entries; `HumanAvatar` is on `NetPlayer`). Each tick, after the
+  message flush, the game stamps every local memento with the session time, runs its writer, and posts
+  `SynchronizeMemento`. Storm handles serialization and pacing (not traced). This corrects ACU-RE-0075
+  (`+0x50` is a time stamp). Bit widths are still open.
 
 ### Phase 5 - Backend boundary register (runs alongside every phase)
 - `docs/coop/BACKEND_BOUNDARY.md`, one row per call that crosses into Ubisoft

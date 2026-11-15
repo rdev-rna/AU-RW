@@ -1,7 +1,7 @@
 # #85 Co-op reverse engineering (area: coop)
 
 Branch `acu-85-coop-re-plan`. Plan: [../COOP_RE_PLAN.md](../COOP_RE_PLAN.md). Files: `docs/COOP_RE_PLAN.md`,
-`docs/areas/coop.md`, `docs/coop/BACKEND_BOUNDARY.md`, `docs/coop/AVATAR_SPEC.md`, `docs/findings/ACU-RE-0075-avatar-replication.md`, `docs/findings/ACU-RE-0076-position-replication.md`, `docs/findings/ACU-RE-0077-proxy-receiver.md`, `docs/findings/ACU-RE-0078-session-clock.md`, `docs/findings/ACU-RE-0079-intention-payloads.md`, `docs/findings/ACU-RE-0080-intention-receive.md`, `docs/findings/ACU-RE-0081-intention-send.md`, `docs/findings/ACU-RE-0082-intention-flush.md`, `docs/findings/ACU-RE-0083-intention-cleanup-and-join-resync.md`, `tools/net_intention_payloads.py`, `tools/test_net_intention_payloads.py`, `docs/findings/ACU-RE-0073-session-transport-seam.md`, `tools/net_census.py`, `tools/net_protocol_atlas.py`,
+`docs/areas/coop.md`, `docs/coop/BACKEND_BOUNDARY.md`, `docs/coop/AVATAR_SPEC.md`, `docs/findings/ACU-RE-0075-avatar-replication.md`, `docs/findings/ACU-RE-0076-position-replication.md`, `docs/findings/ACU-RE-0077-proxy-receiver.md`, `docs/findings/ACU-RE-0078-session-clock.md`, `docs/findings/ACU-RE-0079-intention-payloads.md`, `docs/findings/ACU-RE-0080-intention-receive.md`, `docs/findings/ACU-RE-0081-intention-send.md`, `docs/findings/ACU-RE-0082-intention-flush.md`, `docs/findings/ACU-RE-0083-intention-cleanup-and-join-resync.md`, `docs/findings/ACU-RE-0084-snapshot-send-path.md`, `tools/net_intention_payloads.py`, `tools/test_net_intention_payloads.py`, `docs/findings/ACU-RE-0073-session-transport-seam.md`, `tools/net_census.py`, `tools/net_protocol_atlas.py`,
 `tools/test_net_protocol_atlas.py`, `tools/net_title_survey.py`, `tools/test_net_title_survey.py`,
 `docs/findings/ACU-RE-0072-net-protocol-registry.md`, `docs/findings/ACU-RE-0074-target-title-net-stacks.md`.
 
@@ -92,6 +92,13 @@ The repo is public, so only the tool and the finding are committed. This overrid
   deletion of released intention instances. The join-in-progress re-send (stored messages re-broadcast,
   active intentions unicast to the new peer) is observed, with the trigger inferred to be AddReplica.
   Corrects ACU-RE-0080 (virtual `+0xD8` is the local index) and ACU-RE-0082. Done offline with capstone.
+
+## Done (snapshot send, 2026-11-15)
+- [ACU-RE-0084](../findings/ACU-RE-0084-snapshot-send-path.md): all 11 memento registrations, decoded by
+  object type, memento type and wire ID. Also the per-tick push (stamp, write, `SynchronizeMemento`) and
+  the `SetMementoDirty` / `SetMementoAllDirty` virtuals. Corrects ACU-RE-0075 (owner `NetPlayer`; `+0x50`
+  is a time stamp). Not found: bit widths, Storm-side serialization, the read handler. Done offline with
+  capstone.
 
 ## Not done / next
 - Phase 1 remainder: confirm the decoder, encoder and body roles by tracing the receive path from Storm to

@@ -44,9 +44,20 @@ inferred (**I**).
 | 5 | `+0x2C` | u8 | raw | value differs |
 | 6 | `+0x30` | f32 | signed, range [-2, 2], `code = trunc(v·0.5·(2^bits−1))` | the value moves by at least 0.001 |
 | 7–13 | `+0x34` to `+0x4C` | f32 ×7 | signed, range [-1, 1], `code = trunc(v·(2^bits−1))` | the value moves by at least 0.001 |
-| — | `+0x50` | u32 | sequence number. An update applies only if its sequence ≥ the local one. | — |
+| — | `+0x50` | u32 | network-time stamp, set when the memento is written (ACU-RE-0084). An update applies only if its stamp ≥ the local one. | — |
 
-The per-field bit widths and the field meanings are still open (ACU-RE-0075 unknowns).
+The per-field bit widths and the field meanings are still open (ACU-RE-0075 unknowns). `HumanAvatar` is a
+memento of Storm object type `NetPlayer`, alongside `CSrvBlendingNetData`, `CharacterAI`,
+`ImmunityDataItem`, `ZenHealthReplication`, `AIComponent` and `CharacterBehavior` (ACU-RE-0084).
+
+**Snapshot cycle (ACU-RE-0084, O):**
+1. Each network tick, after the message flush, the game walks the objects filed under the local peer.
+2. For each memento of those objects, it sets the header bool to 1 and stamps `+0x50` with the session
+   time, without marking that stamp as changed.
+3. It runs the memento's write function, which sets changed flags on the fields that moved.
+4. It posts Storm's `SynchronizeMemento`.
+
+How Storm then serializes and paces them is not traced (I).
 
 ## 5. Position, velocity and heading (ACU-RE-0076)
 
@@ -65,7 +76,8 @@ The per-field bit widths and the field meanings are still open (ACU-RE-0075 unkn
 | P11 | Clock corrections are slewed (`max(1/30, err²·4e-8)` ms per ms, no overshoot), and reads are monotonic. When a session ends, the game latches `offset = net − local` so time stays continuous. That the game's clock getter is this session time is inferred. | O / I |
 
 ## 6. Open items for this spec
-- The owning entity class. Position is now covered in section 5 (ACU-RE-0076).
+- The owning entity class: Storm object type `NetPlayer` (ACU-RE-0084). The game class behind it is still
+  unnamed. Position is covered in section 5 (ACU-RE-0076).
 - Whether the player avatar holds a proxy slot, and whether animation smooths proxy corrections.
 - The meanings of intention fields. The layouts of all 94 are extracted (ACU-RE-0079,
   `tools/net_intention_payloads.py`): a 2-slot header {u32 id, u8}, then typed slots (u32, u64, u8, bool,

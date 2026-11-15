@@ -68,7 +68,8 @@ Exact commands and search boundary: the atlas command is in ACU-RE-0072. The ID 
      the value moves by at least 0.001. The [-2, 2] quantizer stores `trunc(v·0.5·mask)` and the [-1, 1]
      one stores `trunc(v·mask)`, where `mask = (1 << bits) − 1`; both saturate at the ends of their range.
    - **Read** (`sub_140172F20`, snapshot → source): runs only when the snapshot's sequence number
-     (`+0x50`) is at least the source's (`+0x50`). It copies the raw fields and decodes the quantized ones as
+     (`+0x50`) is at least the source's (`+0x50`). *(Corrected in ACU-RE-0084: `+0x50` is a
+     network-time stamp, set every time the memento is written.)* It copies the raw fields and decodes the quantized ones as
      `code·2/mask` and `code/mask`.
 4. **The avatar's neighbouring state types**, each with its own RFCs:
    - `AnimComponentNetData_NetProtocol` (`0x145139A10`, the same five-helper pattern);
@@ -113,7 +114,8 @@ Exact commands and search boundary: the atlas command is in ACU-RE-0072. The ID 
 ### Unknowns / incomplete coverage
 
 - The game class that owns a `HumanAvatar_NetProtocol` snapshot is not known. It is reached through the
-  type-keyed factory, so no direct caller exists. A live probe would settle it.
+  type-keyed factory, so no direct caller exists. A live probe would settle it. *(Resolved in
+  ACU-RE-0084: it is registered as a memento of Storm object type `NetPlayer`.)*
 - What the source fields mean, and the per-slot bit widths, which are set outside the codec. (The
   registry key is the wire ID `0xA92DBEA6`; see ACU-RE-0076.)
 - The fields of each intention payload. Resolved for layout in ACU-RE-0079 (all 94); meanings are open.
