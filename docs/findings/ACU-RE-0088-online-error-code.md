@@ -135,13 +135,59 @@ Inferences:
   recorded as a backend boundary and not decoded further.
 - Every flow the user tried stops at this OSDK error before any Storm session exists (ACU-RE-0087).
 
-Unknowns:
-- Which of the four callers finished the job, which OSDK request it was, and the facility selector at `+88`.
-- What the backend would hand Storm on success (peer addresses, session ID). That is still the target, so
-  our own lobby can supply it.
+## Live run 2 — job path (2026-11-15, same game)
 
-Next live step (read-only): hook `0x1425712A0`'s entry. Read the result record at `r8` and the job at `rdx`
-(selector at `+88`), and take the return address to see which caller ran. Then trace that caller's request.
+Provenance: same game as run 1 (PID 124224, same launch). Four execute hooks with expected entry bytes:
+- slot 0 `0x1425712A0` (`48895c240848896c2418565741554156`), 256 bytes at RSP;
+- slot 1 `0x142737E50` (`48895c2410574883ec20488bf9c70102`), 8 bytes at RDX (the result record);
+- slot 2 `0x14250C8A0` (`40564883ec20440fb7054c5dd402488b`), 128 bytes at RCX (the job);
+- slot 3 `0x141C551C0` (formatter, as a trigger).
+
+Log: `jobhook.jsonl` `627bdd1e…` (machine-local); hooks removed afterwards. No hits while the game idled. The
+user pressed Play in Public twice (21:48:28 and 21:48:35 local time). Each press gave the same sequence of 8 hits.
+
+Observations (identical for both presses):
+10. **Two OnlineInternal results come first.** `0x1425034C0` (called from `0x142736960`) completes an outer job
+    with `{8, 0}`, then `{8, 1}`. Category 8 is OnlineInternal; its mapper treats codes 0 and 1 as OK (key `0`).
+11. **An inner job fails with the OSDK error.** `0x1425712A0` finishes an inner job with
+    `{3 OSDK, 0x80040001}`. The captured stack reads `0x14272B310` → `0x1424FFFF0` → `0x142514CD0` →
+    `0x142514D60` → `0x1425712A0`. The same error is then stored into the outer job (`0x142737E50`, return
+    address in `0x1424C9B70`).
+12. **The outer job then fails with the same error.** `0x142514D60` finishes the outer job (stack through
+    `0x1424F0E10`). Its completion runs `0x1425045A0` and then the popup, as in run 1.
+13. **The handler that fails is a service's connect completion.** `0x1424FFFF0(service, job)` does this:
+    - on an OK result: sets the service's state at `+152` to `3`, finishes its pending job with `{8, 2}`, and
+      clears the stored error;
+    - otherwise: calls the service's vf12 (`+0x60`) with the error, then finishes the job with it
+      (`0x142514CD0`).
+
+    The UI callback's success test `v4[38] == 3` reads that same field (`+152` as a dword index). Other state
+    values seen in the service's virtuals: vf0 sets `1`, vf1 sets `0`, and `0x1424C92D0` sets `4` with a code
+    at `+160`.
+14. **The service is selector 7.** The job that reached `0x14250C8A0` holds state `2` (done) at `+0`, the
+    record `{3, 0x80040001}` at `+8`, and selector **`7`** at `+0x58` (`+88`). `0x1424E01A0(7)` returns the
+    singleton `qword_145196D18`.
+    - That singleton is a 312-byte object built by `0x1424A3F40`, vtable `0x1435FDC30`. Its base constructor
+      `0x14249F6F0` assigns `qword_145196D18` (base vtable `0x1435FDBC0`, root `0x1435FA560`).
+    - It is created in the online factory `0x1424C36F0`, next to the other service singletons.
+    - The menus test its `+152 == 3` (for example `0x1408F33F0`).
+    - No name string was found for this service.
+
+Inferences:
+- Play in Public starts (or needs) the selector-7 online service's connect. That connect's OSDK request comes
+  back `0x80040001`, so the service never reaches state 3 ("connected"), and the UI shows message `544321`.
+  Every co-op Public attempt stops at this one backend request.
+- For our own networking, the seam is the service state at `+152`, not the error popup. A replacement backend
+  would have to bring selector-7 to state 3 (or satisfy whatever the menus test) before Storm is involved.
+  This is the backend boundary to record (B1), not to emulate blindly.
+
+Unknowns:
+- Which OSDK request the selector-7 connect sends, and what it returns on success. Not decoded (B1). The
+  request is issued earlier than these hooks (the inner job's start), and the result is delivered by
+  `0x14272B310`.
+- The service's name and what selector 7 means in Ubisoft's terms.
+- What the backend would hand Storm on success (peer addresses, session ID). That is still the target, so our
+  own lobby can supply it.
 
 Reproduction steps:
 ```powershell

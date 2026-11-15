@@ -176,8 +176,12 @@ deliverable and acceptance criterion. Phases 1-5 are static. Phase 7 is dynamic.
     maps to message `544321`. The static guess of "category 11" was wrong.
   - Path: OSDK result → async job finished by `0x1425712A0` → completion callback `0x1425045A0` → message
     table → popup. No Storm session is involved.
-  - Next (live, read-only): hook `0x1425712A0`'s entry to see which of its four callers finished the job and
-    which OSDK request failed. That request is a backend boundary (B1): record it, don't decode it.
+  - Live run 2 (job path): the failing job is the connect of online service **selector 7** (`qword_145196D18`,
+    constructor `0x1424A3F40`). Its connect handler `0x1424FFFF0` gets the OSDK error and so never sets the
+    service's state `+152` to 3 ("connected"). The menus and the UI callback test that field.
+  - Seam for our own backend: bring selector-7 to state 3 (or satisfy the menus' checks) without OSDK, then
+    find what Storm needs next. Next (static): what the menus do after `+152 == 3` (`0x1408F33F0`), and the
+    selector-7 service's vf12 and state users.
 
 ### Phase 3 - Replication model (static)
 - Echo objects: how a replica is created and deleted, what an "object shape" is
