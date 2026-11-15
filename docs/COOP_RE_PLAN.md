@@ -208,6 +208,16 @@ deliverable and acceptance criterion. Phases 1-5 are static. Phase 7 is dynamic.
     functions. The controller stayed idle (state 1, empty ID, peer -1). The solo path never starts Storm, so
     offline play can't show session start. Next is static: how the matchmaking or invite result is turned
     into the joiner's descriptor or ticket, to find what our own lobby must provide.
+- **Status 2026-11-15 (network mode, static):** [ACU-RE-0090](findings/ACU-RE-0090-network-mode-flag.md).
+  This revises ACU-RE-0087.
+  - A global `dword_144E52380` selects the network mode: 0 = offline or local, 1 = LAN, 2 = online (the retail
+    value). It sets the session controller's network type (interface `+676`). In mode 1, Storm's `Create`
+    generates the session ID with LAN `GenerateSessionId` instead of refusing an empty one.
+  - So the LAN session path exists in code, selected by one global that no menu sets (no writer found yet).
+    Plan option A has a concrete entry.
+  - Next (live, reversible): launch suspended, set the flag to 1 before net start, check `+676 == 0`, and hook
+    LAN `GenerateSessionId` while starting a co-op mission. If that works: two local games in mode 1 (two
+    games at once already work, ACU-RE-0086).
 
 ### Phase 3 - Replication model (static)
 - Echo objects: how a replica is created and deleted, what an "object shape" is
