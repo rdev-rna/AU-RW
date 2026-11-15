@@ -306,6 +306,10 @@ pointless without them.
   ConflictLoopDirector ticket builder `0x140A89750` (request fields and wire IDs) is observed. Remote players use
   their own class, `HumanReplica`. Damage on a non-owned body is inferred to go to the owner through
   `SendFightDamageEventToMaster`. Next: a live hook on that message's builder block in the two-game testbed.
+- **Status 2026-11-16 (UI-free hosting, live NPC ownership):** [ACU-RE-0092](findings/ACU-RE-0092-private-host-emulation-and-live-npc-ownership.md).
+  Play in Private is emulated by `CALLAT 0x14250CD00` (`tools/coop_lan/privhost.py`); discovery alone then brings the
+  joiner in. In one live fight the joiner, not the host, ran the enemy's AI and broadcast its intentions;
+  `SendFightDamageEventToMaster` did not run, because the owner hit its own NPC.
 - **Status 2026-11-15 (solo live probe, Phase 7 start):** [ACU-RE-0085](findings/ACU-RE-0085-solo-live-probe.md).
   First live run (read-only, lock #30, saves put back). In solo, typed intention starts reach the replicate
   path (30/s), but the builder never runs. The memento push runs every frame and stops at "session active".

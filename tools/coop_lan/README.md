@@ -21,11 +21,14 @@ Rules (same as `tools/native_probe/README.md`):
 2. **Game B, the host, ports moved by 10.** Run `lanoffset2.py <out.json> --port-offset 10` in the background.
    It writes LAN mode, then rewrites the port offset byte `byte_145218C33` until Storm's config shows 3084.
    Start the game with `capture_run.py ... --direct --until world --fps-cap 30 --cpu-cores 4-5`.
-3. **Something to join.** In runs 10–13, the host stood on a co-op mission marker and chose Private
-   (`PRIVATE_MATCH_HOST`); only that lobby was seen answering discovery.
+3. **Something to join.** `privhost.py <pidB> <out.jsonl> [--mission <id>]` makes the map's own Play-in-Private call
+   (`0x14250CD00`) with the probe's `CALLAT`, without the UI. The default mission is `000000104ccb592a` (`COOP_RB050`,
+   DEFEND Danton). The host enters `PRIVATE_MATCH_HOST` (ACU-RE-0092). In runs 10–13 the host chose Private from the
+   map by hand instead; only that lobby was seen answering discovery.
 4. **Discovery in game A.** `lancall.py <pidA> <out.jsonl>` calls the LAN matchmaker's slot 4 once with the
    probe's `CALLAT`. `lanrec.py <pidA> <pidB>` then lists the stored records.
-5. **Join.** `lanjoin2.py <pidA> <pidB> <out.jsonl>` calls ACU's `JoinSession` with the stored record.
+5. **Join.** In ACU-RE-0092 discovery alone made the joiner follow the host into the mission about 45 s later.
+   Otherwise, `lanjoin2.py <pidA> <pidB> <out.jsonl>` calls ACU's `JoinSession` with the stored record.
 6. **Watch.** `coop_state.py <pid> [pid]` takes a read-only snapshot. `dropwatch.py ... --watch-only` hooks the
    leave, kick and disconnect slots and logs session changes.
 
