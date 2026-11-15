@@ -6,8 +6,10 @@ native probe profile, decode, close.
     python tools/native_probe/capture_run.py --close <pid>   # the only way to close ACU (see shutdown())
 
 Stages (each recorded with timings in capture.json):
- 1. launch   uplay://launch/720/0 (ACU.exe started directly exits); wait for the engine window
-             (class ScimitarEngineWindowClass) and check the executable SHA-256.
+ 1. launch   uplay://launch/720/0 (ACU.exe started directly exits); wait for an engine window
+             (class ScimitarEngineWindowClass) whose PID was not running before the launch, and
+             check the executable SHA-256. Other sessions' games are never touched: every later
+             step (shim, probe, watchdog, close) keys on that PID only.
  2. attach   focus shim (background running, user's mouse/keyboard kept out, in-process pad,
              --fps-cap) and the native probe.
  3. world    tap A every 5 s (title, Continue = the top menu item, any post-load prompt) until the
@@ -23,6 +25,11 @@ Stages (each recorded with timings in capture.json):
 
 A minimised game stops rendering; a watchdog restores it without activating it. Nothing here
 touches game files: run tools/intro_skip.py and tools/capture_preset.py beforehand if wanted.
+
+Several instances: launches are serialised (local/native-probe/launch.lock) so that two sessions
+cannot mistake each other's new game for their own, and shim installs are serialised
+(focus-install.lock) because focus.install writes the one shared acu_focus.ini that the shim
+reads while it loads. --save-pin uses the shared lease in tools/save_pin.py.
 """
 from __future__ import annotations
 
@@ -45,6 +52,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 import focus  # noqa: E402
 import player_state  # noqa: E402
 from client import checked, command  # noqa: E402
+import save_pin  # noqa: E402  (tools/; file_lock and the shared save-pin lease)
 
 GAME_SHA256 = focus.GAME_SHA256
 ENGINE_CLASS = "ScimitarEngineWindowClass"
@@ -55,6 +63,12 @@ kernel.OpenProcess.restype = W.HANDLE
 kernel.QueryFullProcessImageNameW.argtypes = [W.HANDLE, W.DWORD, W.LPWSTR, C.POINTER(W.DWORD)]
 
 
+def window_pid(hwnd: int) -> int:
+    pid = W.DWORD()
+    user.GetWindowThreadProcessId(hwnd, C.byref(pid))
+    return pid.value
+
+
 def engine_windows() -> list[tuple[int, int]]:
     found = []
 
@@ -62,9 +76,7 @@ def engine_windows() -> list[tuple[int, int]]:
         cls = C.create_unicode_buffer(64)
         user.GetClassNameW(hwnd, cls, 64)
         if cls.value == ENGINE_CLASS:
-            pid = W.DWORD()
-            user.GetWindowThreadProcessId(hwnd, C.byref(pid))
-            found.append((pid.value, hwnd))
+            found.append((window_pid(hwnd), hwnd))
         return True
     user.EnumWindows(EnumProc(cb), 0)
     return found
@@ -106,18 +118,46 @@ class Run:
         (self.output / "capture.json").write_text(json.dumps(self.record, indent=2) + "\n", encoding="utf-8")
 
 
+LAUNCH_LOCK = focus.OUT / "launch.lock"
+SHIM_LOCK = focus.OUT / "focus-install.lock"
+
+
+def new_engine_window(before: set[int]) -> tuple[int, int] | None:
+    """The engine window of an ACU that was not running before the launch; None while there is none.
+    Two new PIDs at once (a launch outside capture_run) cannot be told apart: refuse both."""
+    new = [(pid, hwnd) for pid, hwnd in engine_windows() if pid not in before]
+    pids = sorted({pid for pid, _ in new})
+    if len(pids) > 1:
+        raise RuntimeError(f"several new ACU instances appeared (PIDs {pids}); cannot tell which one this "
+                           "launch started, so none was touched")
+    return new[0] if new else None
+
+
 def launch(run: Run, timeout: float) -> tuple[int, int]:
-    if acu_running():
-        raise SystemExit(f"ACU is already running (PIDs {acu_running()}); close it or pass --attach PID")
-    subprocess.run(["cmd", "/c", "start", "", "uplay://launch/720/0"], check=True)
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        windows = engine_windows()
-        if windows:
-            run.stage("launch", pid=windows[0][0], window=f"{windows[0][1]:x}")
-            return windows[0]
-        time.sleep(.25)
+    """Start one more ACU and return (pid, hwnd) of exactly that instance; never another session's."""
+    with save_pin.file_lock(LAUNCH_LOCK, stale=timeout + 60, timeout=timeout + 120):
+        before = set(acu_running())
+        subprocess.run(["cmd", "/c", "start", "", "uplay://launch/720/0"], check=True)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            found = new_engine_window(before)
+            if found:
+                run.stage("launch", pid=found[0], window=f"{found[1]:x}", already_running=sorted(before))
+                return found
+            time.sleep(.25)
+    if before:
+        raise RuntimeError(f"Ubisoft Connect did not start a second instance within {timeout}s (ACU already "
+                           f"running: PIDs {sorted(before)}); no existing game was touched")
     raise RuntimeError(f"no ACU engine window within {timeout}s of the Ubisoft Connect launch")
+
+
+def return_focus_window() -> int:
+    """The window to hand the foreground back to: the user's current one, unless it is a game
+    (another session's ACU must never be given the foreground by this run)."""
+    hwnd = user.GetForegroundWindow()
+    if not hwnd:
+        return 0
+    return 0 if window_pid(hwnd) in acu_running() else hwnd
 
 
 def keep_restored(hwnd: int, stop: threading.Event, run: Run):
@@ -205,6 +245,10 @@ def shutdown(pid: int, grace: float = 15.0) -> dict:
     return {"closed": pid not in acu_running(), "forced": forced, "s": round(time.monotonic() - start, 1)}
 
 
+def release_command(holder: str) -> str:
+    return f'python tools/save_pin.py release "{holder}"'
+
+
 def close_game(pid: int, run: Run):
     run.stage("close", **shutdown(pid))
 
@@ -228,12 +272,13 @@ def main():
                     help="hash-bound mapped main image for action-type names (or ACU_MAPPED_IMAGE)")
     ap.add_argument("--screenshot-step", action="append", default=[],
                     help="moves step name to capture the game window after (default: the last step)")
-    ap.add_argument("--save-pin", help="start from this pinned save (tools/save_pin.py); the saves found "
-                    "before the run are put back after the game closes")
+    ap.add_argument("--save-pin", help="start from this pinned save through the shared lease (tools/save_pin.py); "
+                    "the saves found before are put back once the last holder releases and no ACU runs")
     ap.add_argument("--keep-run-save", action="store_true", help="with --save-pin: leave the run's autosave")
     ap.add_argument("--until", choices=("done", "world"), default="done",
                     help="world: stop once in the world and leave the game running with shim and probe "
-                         "attached (for live RE); the pinned-save put-back then has to be run by hand")
+                         "attached (for live RE); with --save-pin the lease stays held: after --close run "
+                         "the printed `save_pin.py release <run dir>`")
     a = ap.parse_args()
     if a.save_pin and a.attach:
         ap.error("--save-pin needs a launch (no --attach)")
@@ -254,22 +299,25 @@ def main():
     sys.path.insert(0, str(ROOT / "tools"))
     import capture_preset
     import intro_skip
-    import save_pin
     run.stage("preflight", capture_preset=capture_preset.status()["preset_applied"],
               intro_skip_placeholders=intro_skip.status()["placeholder"], fps_cap=a.fps_cap)
 
-    pid, hwnd, launched, used = None, None, a.attach is None, None
+    pid, hwnd, launched, leased = None, None, a.attach is None, False
+    holder = str(output)  # the save-pin lease holder: this run directory
     stop_watchdog = threading.Event()
     try:
         if a.save_pin:
-            if acu_running():
-                raise SystemExit(f"ACU is already running (PIDs {acu_running()}); close it first")
-            used = save_pin.use(a.save_pin)
-            run.stage("save_pin", pin=a.save_pin, snapshot=used["snapshot"],
-                      pin_sha256={k: v["sha256"] for k, v in used["pin_files"].items()})
-        user_window = user.GetForegroundWindow()  # handed back once the game grabs the foreground
+            lease = save_pin.acquire(a.save_pin, holder)
+            leased = True
+            run.stage("save_pin", pin=a.save_pin, action=lease["action"], snapshot=lease["snapshot"],
+                      live_matches_pin=lease["live_matches_pin"], holders=lease["holders"],
+                      pruned=lease["pruned"], recovered=lease["recovered"],
+                      pin_sha256={k: v["sha256"] for k, v in lease["pin_files"].items()})
+        user_window = return_focus_window()  # handed back once the game grabs the foreground
         if launched:
             pid, hwnd = launch(run, 120)
+            if leased:
+                save_pin.set_holder_pid(holder, pid)
         else:
             pid = a.attach
             hwnd = next((h for p, h in engine_windows() if p == pid), None)
@@ -283,8 +331,9 @@ def main():
         time.sleep(1)  # let the engine finish creating its window before the shim subclasses it
         # Block the user's mouse/keyboard from the start: right after launch ACU really holds the
         # foreground, so the "only while unfocused" rule would let the user's mouse drive it.
-        shim = focus.install(pid, fps_cap=a.fps_cap, block_user_input=not a.allow_user_input,
-                             return_focus=user_window or 0)
+        with save_pin.file_lock(SHIM_LOCK):  # acu_focus.ini is shared until the shim has read it
+            shim = focus.install(pid, fps_cap=a.fps_cap, block_user_input=not a.allow_user_input,
+                                 return_focus=user_window or 0)
         try:
             checked(pid, "STATUS")
         except Exception:
@@ -302,6 +351,9 @@ def main():
             reach_world(pid, run, a.load_timeout, hwnd)
         if a.until == "world":
             run.stage("until_world", pid=pid, note="game left running; shim and probe attached")
+            if leased:
+                print(f"save-pin lease kept for this game; after `capture_run.py --close {pid}` run:\n"
+                      f"  {release_command(holder)}", flush=True)
             return
 
         scenario = output / "scenario"
@@ -346,13 +398,16 @@ def main():
         stop_watchdog.set()
         if pid and not a.keep_game:
             close_game(pid, run)
-        if used and not a.keep_run_save:
-            if acu_running():
-                run.stage("save_putback", ok=False, note=f"ACU still running; put back later with "
-                          f"`python tools/save_pin.py putback {used['snapshot']}`")
+        if leased:
+            if a.until == "world" and pid and pid in acu_running():
+                run.stage("save_pin_held", pid=pid, release=release_command(holder),
+                          note="lease kept while this game runs; release after --close")
             else:
-                save_pin.putback(used["snapshot"])
-                run.stage("save_putback", ok=True, snapshot=used["snapshot"])
+                try:
+                    run.stage("save_release", **save_pin.release(holder, keep_saves=a.keep_run_save))
+                except SystemExit as refused:  # putback refused; the lease stays for `settle`
+                    run.stage("save_release", put_back=False, error=str(refused),
+                              note="run `python tools/save_pin.py settle` once the cause is fixed")
         run.record["finished_unix"] = time.time()
         run.save()
 
