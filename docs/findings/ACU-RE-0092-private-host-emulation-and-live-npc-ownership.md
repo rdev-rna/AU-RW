@@ -169,6 +169,29 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
       - `0x1405DA480` by `0x1406691E0`, `0x1406ADE30` and `0x1406D40D0`;
       - `0x1405E93C0` by six functions, including `0x14071B270`, `0x14071B410` and the receive handler.
 
+11. **Health: the master owns life, replicas display the replicated value** (static, then live):
+    - `CSrvHealth` reflects `Life` (field 6) with accessors: getter `0x140EBA2E0` → `sub_141206A80` and setter
+      `0x140B1F9E0` → `sub_14122E430(health, life)`. The setter checks the value against the max at `+236` (int16).
+    - The getter returns `sub_14066B710(*(health+240))` when byte `+260` is set, and otherwise the local int16 at
+      `+256`. A health component therefore either reads a replicated value or holds its own.
+    - `sub_140B25550` is the RFC receive handler for `ZenHealthReplication_RFCSetMasterLife`. It is reached from
+      the ZenHealthReplication RFC dispatch `0x140B237E0`, which matches the incoming ID against
+      `"<type>RFCSet…MSG_NetProtocol_ID"`.
+      - When the owner entity's role bits `(entity+212 & 0xC0000) == 0x80000`, it calls the life setter on its
+        `CSrvHealth` (`+72`) with the master's value.
+      - It caches the value at `+24` and notifies through its vtable `+112`.
+    - Role bits: the hit routine (observation 10) tests `(attacker+212 & 0xC0000) == 0x40000` for the locally
+      controlled case. `0x80000` is the replica case here. Kind bits `& 7`: 1 = AI NPC, 2 = human.
+    - Live (`damage7.jsonl`, life setter hooked in both games, about 100 s during the "STEAL the documents" phase):
+      - **Regeneration.** The setter ran about once per second for each player-health object in both games, called
+        by the health state machine (`0x140ED04A0` ← `0x1427605F0`, from rule updates `0x142102100` /
+        `0x142760410`).
+      - **Players.** Each game holds two such objects, its own player and the remote player's copy. The values
+        agreed across games: 46 and 35 on both sides, with no damage in that window.
+      - **Replicated NPC life.** Four calls in the joiner came through the RFC path instead
+        (`0x14022EC80` → `0x140B237E0` → `0x141B6BB70` → `0x14021D730` → `0x140B25550` → setter), each writing
+        life 60 to a different object: the host sending its NPCs' authoritative life to the joiner's replicas.
+
 ## Inferences
 
 - **NPC simulation sits with one machine at a time, and it was not the mission host.** The enemy's intentions flowed
@@ -186,6 +209,15 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
   victims use NetHumanIntention, NPC victims use NetBehaviorAI. The ownership-aware intention router then either
   runs it locally or sends it to the master. This one mechanism covers player→NPC, NPC→player and NPC→NPC hits, and
   the gameplay code needs no co-op branches.
+- **The full damage loop, as far as observed (observations 7–11):**
+  1. the attacker's hit routine starts `SendFightDamageEventToMaster` on the victim's net component;
+  2. the router delivers it to the victim's master;
+  3. the master rebuilds the event as an intention and applies it;
+  4. the master's health state machine owns `Life`;
+  5. replicas receive it through `ZenHealthReplication_RFCSetMasterLife`, and their getter reads the replicated
+     value.
+
+  Step 3's write was not caught live yet.
 - **The request lane exists and runs (observation 7).** In the spy fight, the joiner, which simulated the attacking
   spies, sent `SendFightDamageEventToMaster` while the host's player was being hurt. One hit, with no caller
   captured, so this is consistent with the prediction but does not prove it. The master rebuilds the event as an
@@ -194,7 +226,8 @@ Game PIDs: host 122956 (ports moved by 10), joiner 76404.
 - **For the AC4 mod:** a hit on a puppet does not have to be replayed on the puppet. The machine that owns the
   victim applies it and sends the result as an intention. F7's "the damage lane does not exist yet" matches
   `SendFightDamageEventToMaster`'s role. The outcome lane (`SetLastDamageEvent`, `EnterIncapacitated`) is separate,
-  and the mod needs both.
+  and the mod needs both. For health, ACU never lets a replica compute its own life. The puppet's health should be
+  a display of the owner's value (an `RFCSetMasterLife` equivalent), not a second health pool.
 
 ## Unknowns / incomplete coverage
 
