@@ -157,8 +157,17 @@ deliverable and acceptance criterion. Phases 1-5 are static. Phase 7 is dynamic.
     only by Storm's own registration functions, which have no direct callers.
   - `LanSessionsPage` ships and is listed in `MenuManagerGame` beside `PlayTogetherPage` and the two join
     pages. It borrows the `Menu_Online_Invite_Friends_New` layout and adds no code of its own.
-  - Next: count hits on the four getters in a running game (startup, menus, co-op lobby).
   - Two local games can now run at once (ACU-RE-0086, PR #142), so a live two-instance test is possible.
+- **Status 2026-11-15 (LAN path, live):** ACU-RE-0087 dynamic addendum.
+  - 0 hits on the four getters, the three type checks and the `LanSessionsPage` factory across 1,342 s,
+    covering menus, Go Online, and co-op mission markers (Private and Public).
+  - Go Online and Play in Public fail with `0xb0040001` (Ubisoft services unreachable). Play in Private runs
+    solo. No flow started a Storm session (`S+0x30` stayed `-1`).
+  - Matchmaking is down on every platform (user report). Until a direct friend join can be tested, work is
+    static analysis plus offline observation of the live game. The friend-join test is read-only on the
+    user's game: session fields and execute counters, no input blocking.
+  - Next (static): what the backend hands Storm when a join succeeds (peer addresses, session ID), so our own
+    lobby can supply it. Trace from the `0xb0040001` error back to the connect step.
 
 ### Phase 3 - Replication model (static)
 - Echo objects: how a replica is created and deleted, what an "object shape" is
