@@ -1,10 +1,13 @@
 # ACU-RE-0090 — ACU's network-mode flag selects a LAN session path
 
-Date / investigator / related task: 2026-11-15 / claude-session, static plus one live field read / #85, co-op plan
+Date / investigator / related task: 2026-11-15 / claude-session, static plus a live LAN-mode run / #85, co-op plan
 Phase 2 ([COOP_RE_PLAN.md](../COOP_RE_PLAN.md)); revises the conclusion of
 [ACU-RE-0087](ACU-RE-0087-lan-path-static.md), follows [ACU-RE-0089](ACU-RE-0089-storm-session-create.md)
-State: partially established. The flag, its three values, and the places where it switches the session
-code are observed. Its meaning per value is inferred. Who sets it is not found (see coverage).
+State: partially established.
+- Static: the flag, its three values, and where it switches the session code. No code writes it.
+- Live: writing `1` after unpacking holds. It switches the controller to network type 0, starts Storm game
+  and party sessions at boot, and creates a mission session when a co-op mission is started. The map then
+  hides the co-op mission markers. Two-player play is not tested.
 
 ## Provenance
 
@@ -68,8 +71,12 @@ Observations:
    The job step `0x142550900` picks party (type 0) or mission (type 1), creates if needed, and copies the
    session ID and handle into the job.
 6. **No writer found.** No `C7 05` immediate store, no `89` register store, and no absolute pointer to
-   `0x144E52380` exists in the scanned code range (`0x140000000`–`0x143000000`). A whole-corpus text search for
-   `dword_144E52380 =` was still running when this was written; its result will be added here.
+   `0x144E52380` exists in the scanned code range (`0x140000000`–`0x143000000`). A whole-corpus byte search
+   for `dword_144E52380 =` (217,041 files, 432 s) matched 13 files, and **every match is a comparison**
+   (`==`), none an assignment. So the value comes only from the image's data and nothing changes it at
+   runtime. The search also found eight readers that the RIP scan missed, because they compare against an
+   immediate: `0x141C56CC0`, `0x141C662B0`, `0x141C72980`, `0x1424E58D0`, `0x142540630`, `0x14254BB10`,
+   `0x1425568D0` and `0x142576CC0`.
 
 Inferences:
 - The values most likely mean 0 = offline or local (fixed name, no player lookup), 1 = LAN (Storm LAN
@@ -83,19 +90,60 @@ Inferences:
   one network that needs no server at all. Across the internet, our own lobby would still have to relay or
   bridge the discovery. This is not observed.
 
-Unknowns / coverage:
-- Who sets the flag: possibly a data initializer, startup configuration or a write the scans miss (for
-  example through a computed address).
-- Whether mode 1 needs anything else that is absent in retail (LAN discovery menus, `LanSessionsPage`).
-- What mode 1 does to the online services (selector 7, ACU-RE-0088) and to the menus.
-- Whether mode 1 is stable at all in this build.
+## Live run — LAN mode (2026-11-15)
 
-Independent comparison / falsification test (live, reversible):
-- Launch suspended (as `capture_run --direct` already does), write `1` to `0x144E52380` before resume, then
-  read interface `+676` after net start (expect `0`).
-- Then hook `0x141B76450` (LAN `GenerateSessionId`) and `0x141C72710`, and start a co-op mission.
-- `+676` staying `1` would show the value is overwritten after load.
-- Restore: none needed. The write is in process memory only.
+Provenance: installed `ACU.exe` SHA-256 `748abdc6…27e40` (checked at attach), base `0x140000000`. Custom uplay
+loader active (`tools/loader_swap.py use custom`; the original is restored afterwards).
+- Launched directly: `capture_run.py local/native-probe/runs/lan-mode-20261115/run --direct --until world
+  --fps-cap 60 --allow-user-input`, on the user's own save (PID 128320, `run/capture.json` `6173488d…`). The
+  focus shim was installed with input blocking off.
+- Flag write: a poller (`lanflag.json` `123d7a50…`) opened the new process and read `0x144E52380` every 1 ms.
+  It read `0` until 1.359 s after spawn, then `2` (unpacked). At that moment it wrote `1`
+  (`WriteProcessMemory`, ok), and the value stayed `1` for the rest of the 90 s watch. Process memory only;
+  no file changed.
+- Hooks after reaching the world: `0x141C72710`, `0x141B2CFF0`, `0x141B76450`, `0x141C46B10` (expected entry
+  bytes matched live), log `hooks.jsonl` `db51e3af…`.
+
+Observations:
+7. **The write holds, and the controller switches to LAN.** In the world, probe reads showed:
+   - flag `1`;
+   - controller interface `+676` (network type) `0`, against `1` in online games (ACU-RE-0089);
+   - interface `+688` `2` (start-up ran; it was `1` in the online game);
+   - the controller ID set to 8 bytes (`00f1c4de00145714`).
+8. **Storm sessions start at boot in LAN mode.** Before any mission:
+
+   | Session | ID | Local peer (`+48`) | Peer pointer `+0x90` | Network time `+0x98` |
+   |---|---|---|---|---|
+   | game (S) | `00000cb367b6c6f9` | `1` | non-null | running (65,244 ms) |
+   | party | `00000cb367bc01e4` | `2` | non-null | running |
+   | mission | empty | `-1` | — | — |
+
+   In every online-mode run these were all `-1` and empty (ACU-RE-0087, ACU-RE-0089).
+9. **Starting a co-op mission creates a Storm mission session.** When the user started a co-op mission
+   (22:41:04 local time), the hooks hit in this order, once each except the LAN getter:
+   1. `0x141C46B10` (mission create), called from `0x1427556F0`;
+   2. `0x141C72710` (session ID);
+   3. `0x141B76450` (LAN `GenerateSessionId` type) twice, from Storm's own registration functions `0x141B8D470`
+      and `0x141B8A600`;
+   4. `0x141B2CFF0` (Storm `Create`).
+
+   Afterwards the mission session had ID `00000cb3adf8a708`, local peer `3`, a peer pointer, and a network
+   time that had started. `NetMissionManager + 196` was `3`.
+10. **The UI does not follow.** The user reported that nothing visible happened, and that the co-op mission
+    markers disappeared from the map in this mode.
+
+Inferences:
+- Mode 1 is a working LAN mode for Storm: sessions are created with LAN-generated IDs and no backend. The
+  UI hides co-op missions in this mode, probably through one of the readers listed in observation 6, so
+  the game was not built to offer them in LAN.
+- To play co-op over LAN, the next pieces are (a) the menu or map filter that hides co-op markers in mode 1,
+  and (b) a second game in mode 1 discovering or joining this session.
+
+Unknowns / coverage:
+- Which reader hides the co-op markers, and what the mission-start path does in mode 1 after `Create`.
+- Whether a second mode-1 game finds the session (LAN discovery), and what a joiner needs.
+- What mode 1 does to the online services (selector 7, ACU-RE-0088). The custom loader has no online.
+- Stability over a longer session.
 
 Reproduction steps:
 ```text

@@ -218,6 +218,11 @@ deliverable and acceptance criterion. Phases 1-5 are static. Phase 7 is dynamic.
   - Next (live, reversible): launch suspended, set the flag to 1 before net start, check `+676 == 0`, and hook
     LAN `GenerateSessionId` while starting a co-op mission. If that works: two local games in mode 1 (two
     games at once already work, ACU-RE-0086).
+  - Live (LAN mode): writing `1` after unpacking holds. The controller switches to network type 0, the game
+    and party Storm sessions start at boot (peers 1 and 2), and starting a co-op mission creates a mission
+    session (LAN `GenerateSessionId`, peer 3). The map hides the co-op markers in this mode, and nothing shows
+    in the UI. Next: find the reader that hides co-op markers in mode 1, then run two mode-1 games and see
+    whether the second discovers the first.
 
 ### Phase 3 - Replication model (static)
 - Echo objects: how a replica is created and deleted, what an "object shape" is
