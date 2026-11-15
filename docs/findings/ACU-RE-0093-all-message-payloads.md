@@ -2,7 +2,7 @@
 
 Date / investigator / related task: 2026-11-16 / Claude (Opus 5.5), static, offline with capstone / #85, coverage
 ledger phase 1 ([../coop/COVERAGE.md](../coop/COVERAGE.md))
-State: partially established. Every message's field layout (slot, type, source offset) is decoded. What each field
+State: partially established. Superseded in part by ACU-RE-0097: all 11 empty messages are now decoded, and 242 messages whose builder keeps the source outside RBX gained owner offsets ("derived" fields fell from 1,435 to 345). Every message's field layout (slot, type, source offset) is decoded. What each field
 means is not.
 
 ## Provenance

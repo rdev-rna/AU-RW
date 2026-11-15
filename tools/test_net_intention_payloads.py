@@ -79,5 +79,22 @@ class AnchorTests(unittest.TestCase):
         self.assertEqual(nip.find_anchor(b"\x90\x90\x90\x90" + struct.pack("<I", 7), BASE, 7), [])
 
 
+@unittest.skipIf(nip.capstone is None, "capstone not installed")
+class SourceRegisterTests(unittest.TestCase):
+    def test_header_source_register_from_header_load(self):
+        # FightDirector builder: source object in RDI, message in RDX (ACU-RE-0097).
+        code = (b"\x8B\x47\x08"                      # mov eax, [rdi+8]
+                b"\x39\x42\x50"                      # cmp [rdx+0x50], eax
+                b"\x89\x42\x50"                      # mov [rdx+0x50], eax
+                b"\x48\x8B\x4F\x30"                  # mov rcx, [rdi+0x30]
+                b"\x48\x89\x8A\x90\x00\x00\x00"      # mov [rdx+0x90], rcx
+                b"\xEB\x00")
+        md, ins = nip.disasm(code, BASE)
+        reg = nip.header_source(md, ins, "rdx")
+        self.assertEqual(reg, "rdi")
+        got = [(f["slot"], f["type"], f["source"]) for f in nip.parse_fields(md, ins, "rdx", reg)]
+        self.assertEqual(got, [("0x38", "u32", "+0x8"), ("0x78", "u64", "+0x30")])
+
+
 if __name__ == "__main__":
     unittest.main()

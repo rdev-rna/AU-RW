@@ -88,9 +88,9 @@ INLINE_KIND = {("mov", 4): "u32", ("mov", 8): "u64", ("movzx", 1): "u8", ("movss
                ("mov", 1): "u8", ("mov", 2): "u16", ("movzx", 2): "u16"}
 
 
-def parse_fields(md, insns, dst: str | None) -> list[dict]:
+def parse_fields(md, insns, dst: str | None, source_reg: str = SOURCE_REG) -> list[dict]:
     """Decode slot copies until the first jmp. dst is the message object register (form A),
-    or None to take it from the first setter call (form B)."""
+    or None to take it from the first setter call (form B). source_reg holds the source object."""
     pending: dict[str, tuple[str, int, str]] = {}
     stack: dict[int, tuple[str, int, str]] = {}
     lea_rcx = lea_rdx = None
@@ -106,7 +106,7 @@ def parse_fields(md, insns, dst: str | None) -> list[dict]:
         elif src and src[2] == "bits":
             typ = typ
         source = None
-        if src and src[0] == SOURCE_REG:
+        if src and src[0] == source_reg:
             source = f"+{src[1]:#x}"
         elif src and src[0] != "?":
             source = "derived"
@@ -205,6 +205,16 @@ def find_anchor(text: bytes, lo: int, bid: int) -> list[tuple[int, str, str | No
             hits.append((lo + i - 3 - (1 if rex else 0), "A", reg))
 
 
+def header_source(md, body, dst: str | None) -> str:
+    """The register the block reads the header (+0x8) from: RBX in most builders, RDI in FightDirector's."""
+    for x in body[:4]:
+        if x.mnemonic == "mov" and len(x.operands) == 2 and x.operands[1].type == x86.X86_OP_MEM:
+            base, disp, _ = _mem(md, x.operands[1])
+            if disp == 8 and base and base != dst and base not in NOT_SOURCE:
+                return norm(base)
+    return SOURCE_REG
+
+
 def decode_message(img: atlas.Image, name: str) -> dict:
     lo, hi = img.sec(".text")
     text = img.b[lo - B:hi - B]
@@ -221,7 +231,13 @@ def decode_message(img: atlas.Image, name: str) -> dict:
                 body = ins
             else:
                 body = ins[1:]
-            good.append((va, form, parse_fields(md, body, dst)))
+            # ACU-RE-0097: several FightDirector blocks load the header, compare it, then jump into one shared tail.
+            k = next((j for j, x in enumerate(body[:6]) if x.mnemonic == "jmp"), None)
+            if k is not None and k > 0 and body[k].operands[0].type == x86.X86_OP_IMM:
+                tgt = body[k].operands[0].imm
+                _, tail = disasm(bytes(img.b[tgt - B:tgt - B + 0x1800]), tgt)
+                body = body[:k] + tail
+            good.append((va, form, parse_fields(md, body, dst, header_source(md, body, dst))))
         else:
             for k, x in enumerate(ins[:60]):
                 if x.mnemonic == "call" and x.operands[0].type == x86.X86_OP_IMM and x.operands[0].imm == OBJECT_ID_SETTER:

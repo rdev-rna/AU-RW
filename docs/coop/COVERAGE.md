@@ -48,8 +48,8 @@ Columns:
 
 Totals: 965 messages, 118 states and 33 object types.
 
-**Phase 1 done (ACU-RE-0093):** field layouts (slot, type, source) for 952 of the 963 `*MSG_NetProtocol` messages
-(4,617 fields), in `local/coop/message_payloads.json`; 11 decode empty. The "Fields decoded" column above predates it.
+**Phase 1 done (ACU-RE-0093, completed in ACU-RE-0097):** field layouts (slot, type, source) for all 963 `*MSG_NetProtocol` messages
+(4,657 fields, 4,310 traced to an owner offset), in `local/coop/message_payloads.json`. `TransferGroup` was decoded by hand. The "Fields decoded" column above predates it.
 No state type is decoded yet. Behaviour has been shown, at least in part, for parts of 6 of the 15 systems.
 
 **Phase 2 mostly done (ACU-RE-0095):** codec binding, field layout and newest-wins stamp for 112 of the 118 state
@@ -66,7 +66,7 @@ on the sent landing point.
 | Mechanism | Known | Gap |
 |---|---|---|
 | Session, LAN, hosting, joining | LAN path and network-mode flag (0087–0090), private hosting without UI and auto-join (0092 obs 1–5), backend boundary (BACKEND_BOUNDARY.md) | Leave and rejoin; disconnect handling; **host migration** (`HostMigrationStart/End`, `MissionHostMigratedEarly_ReturningToLobby`) |
-| Ownership and migration | Role bits, Storm role callbacks, the measured hysteresis (0092 obs 17–20) | The code that decides a migration and its constants; what state moves with ownership; per-type rules |
+| Ownership and migration | Role bits, Storm role callbacks, the measured hysteresis (0092 obs 17–20); the hand-over primitive `Give Master Role` and its callers: distance (release R − 40, claim R − 45, planar, R per entity), fight request, interaction, crowd-group transfer (0097) | The sender of the fight load-balance request; the per-class radius table; Storm's acceptance of a hand-over; what state moves with ownership |
 | Join in progress | Intention re-send (0083) | Fight JIP (`NetFightJIPManager`), Domino JIP snapshot, memento full-state sends |
 | Relevance and world streaming | An owner keeps an entity until it unloads (100–111 m), then hands it over (0092 obs 19) | Which objects replicate to which peer (interest management); `DeleteReplicaEvent`; what each peer loads when players are far apart |
 | Time | Session clock (0078) | Timestamps on intentions and states; lag compensation |
