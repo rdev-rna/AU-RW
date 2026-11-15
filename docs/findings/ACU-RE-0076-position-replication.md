@@ -86,15 +86,15 @@ Exact commands and search boundary: the VAs listed below. The constants were rea
   intention RFCs (ACU-RE-0075), this gives the full movement model. The alternative is that proxies serve
   only distant or low-detail entities and nearby players use another path. The precise/normal flag hints
   at such tiers.
-- **Coordinates are probably metres with z up.** The ±2000 clamp applies to z, and the ranges match a city
+- **Coordinates are probably metres with z up.** (ACU-RE-0077 later observed z-up for the heading.) The ±2000 clamp applies to z, and the ranges match a city
   map. This is not established; the project rules forbid guessing native axes, so a live check is needed.
 - **Static world entities (NPCs, props) are matched by entity ID,** not spawned. Both peers therefore need
   the same world data. This has to hold in any port.
 
 ### Unknowns / incomplete coverage
 
-- The receiver: how incoming proxies are applied (interpolation, snapping), and which code reads
-  `ProxiesProtocol`.
+- The receiver. Resolved in ACU-RE-0077: `sub_141C66C10` keeps the newest update, and consumers apply
+  the extrapolated position directly. Note that this finding's sub-entry offsets are relative to `+0x78`.
 - The bit widths of each axis and of yaw and speed. They are set outside the codecs.
 - The meaning of the precision flag and of the 5-bit context value. The context value may be a zone or
   teleport counter.

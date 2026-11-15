@@ -54,11 +54,13 @@ The per-field bit widths and the field meanings are still open (ACU-RE-0075 unkn
 | P5 | Velocity: unit direction (x, z, sign of y) plus speed clamped to 340. | O |
 | P6 | Heading: one scalar from matrix row 1, re-sent when it changes by more than 0.175 rad. Each entity also carries a timestamp and one flag. | O |
 | P7 | Placed world entities are bound by entity ID to each peer's local copy, not spawned over the network. | O |
-| P8 | Receiver interpolation and snapping: unknown. | — |
+| P8 | The receiver keeps only the newest update per entity (u32 timestamp, wrap-around comparison) and stores the dequantized position and velocity. Each position query returns `p + v·(now − ts)·0.001`, with the squared step capped at 16 or 48 and z clamped to ±2000. Consumers set the replica's transform straight from it; no blending was found in the proxy layer (ACU-RE-0077). | O |
+| P9 | Heading decode: `angle = code·4/(2^bits − 1)`. Facing = +y rotated about +z, so the proxy layer is z-up. | O |
+| P10 | Timestamps cross peers, so the transport must give all peers a shared millisecond clock. | I |
 
 ## 6. Open items for this spec
 - The owning entity class. Position is now covered in section 5 (ACU-RE-0076).
-- The receiver side of the proxy pool, and whether the player avatar holds a proxy slot.
+- Whether the player avatar holds a proxy slot, and whether animation smooths proxy corrections.
 - The payload of each intention (2 of 94 partly read).
 - The bit widths. (The registry key is the wire ID `0xA92DBEA6`; see ACU-RE-0076.)
 - A live check: a one-instance single-player probe to name the owner and the heap singletons. A

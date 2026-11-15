@@ -195,6 +195,9 @@ pointless without them.
 - **Status 2026-11-15 (position):** [ACU-RE-0076](findings/ACU-RE-0076-position-replication.md). Position,
   velocity and heading travel in a dead-reckoned proxy pool (`NetProxyManager`, 30×10 slots), and placed
   world entities bind by entity ID. Still open: the receiver side and the bit widths.
+- **Status 2026-11-15 (receiver):** [ACU-RE-0077](findings/ACU-RE-0077-proxy-receiver.md). The receiver keeps
+  the newest update, and game code reads an extrapolated position that it applies directly. The heading
+  decode shows z-up. A shared network clock is required.
 
 ### Phase 5 - Backend boundary register (runs alongside every phase)
 - `docs/coop/BACKEND_BOUNDARY.md`, one row per call that crosses into Ubisoft

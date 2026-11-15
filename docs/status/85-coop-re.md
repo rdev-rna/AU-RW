@@ -1,7 +1,7 @@
 # #85 Co-op reverse engineering (area: coop)
 
 Branch `acu-85-coop-re-plan`. Plan: [../COOP_RE_PLAN.md](../COOP_RE_PLAN.md). Files: `docs/COOP_RE_PLAN.md`,
-`docs/areas/coop.md`, `docs/coop/BACKEND_BOUNDARY.md`, `docs/coop/AVATAR_SPEC.md`, `docs/findings/ACU-RE-0075-avatar-replication.md`, `docs/findings/ACU-RE-0076-position-replication.md`, `docs/findings/ACU-RE-0073-session-transport-seam.md`, `tools/net_census.py`, `tools/net_protocol_atlas.py`,
+`docs/areas/coop.md`, `docs/coop/BACKEND_BOUNDARY.md`, `docs/coop/AVATAR_SPEC.md`, `docs/findings/ACU-RE-0075-avatar-replication.md`, `docs/findings/ACU-RE-0076-position-replication.md`, `docs/findings/ACU-RE-0077-proxy-receiver.md`, `docs/findings/ACU-RE-0073-session-transport-seam.md`, `tools/net_census.py`, `tools/net_protocol_atlas.py`,
 `tools/test_net_protocol_atlas.py`, `tools/net_title_survey.py`, `tools/test_net_title_survey.py`,
 `docs/findings/ACU-RE-0072-net-protocol-registry.md`, `docs/findings/ACU-RE-0074-target-title-net-stacks.md`.
 
@@ -55,6 +55,11 @@ The repo is public, so only the tool and the finding are committed. This overrid
   the dead-reckoned `NetProxyManager`/`ProxiesProtocol` pool (30×10). All thresholds and encodings are read
   from the sender. `NetPlayer` is a container object, and entity replicas bind by entity ID. This corrects
   the ACU-RE-0075 key (`0xA92DBEA6` = wire ID).
+
+## Done (proxy receiver, 2026-11-15)
+- [ACU-RE-0077](../findings/ACU-RE-0077-proxy-receiver.md): receiver `sub_141C66C10`, the per-entity
+  proxy state, the extrapolation query `sub_141C4F340` with its step caps, three consumers that apply the
+  prediction directly, the heading decode (z-up), and the shared-clock requirement.
 
 ## Not done / next
 - Phase 1 remainder: confirm the decoder, encoder and body roles by tracing the receive path from Storm to
