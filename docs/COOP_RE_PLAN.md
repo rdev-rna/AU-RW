@@ -188,6 +188,16 @@ deliverable and acceptance criterion. Phases 1-5 are static. Phase 7 is dynamic.
   - Next: find the co-op Public handler that first needs selector 7, then the step after the connect
     (matchmaking or join) that would hand Storm its peers. Live, read-only: hook the service's vf0, the
     connect start.
+- **Status 2026-11-15 (Storm session create, static):** [ACU-RE-0089](findings/ACU-RE-0089-storm-session-create.md).
+  - Game code creates a Storm session only through `NetSessionController` (`qword_145212ED0`): its Storm
+    interface slot 17 posts `session::inEvent::Create`. Storm has no `Join` input event.
+  - Three game callers: `0x141C46B10` (descriptor `"default"`, reached from `OnlineUniverseComponents` and an
+    online statechart), `0x141C46E30`, and `0x141C470A0` on S (`qword_145212F48 + 32`).
+  - `Create` takes a session handler and a descriptor, with no peer addresses. It refuses (`-1000000`)
+    unless the Storm product state is 3 and the descriptor's `+72` property is set.
+  - Our own lobby therefore has to supply three things: the descriptor contents (likely a session ID at
+    `+72`), Storm in state 3, and peer addresses for Storm's peer layer. Next: what fills `+72` on a client,
+    and how remote peers enter Storm (`punch::ConnectEndPoints` or the peer manager).
 
 ### Phase 3 - Replication model (static)
 - Echo objects: how a replica is created and deleted, what an "object shape" is
