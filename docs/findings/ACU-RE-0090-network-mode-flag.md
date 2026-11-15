@@ -600,6 +600,45 @@ state. Directly, that is `0x141C40A60(game session)`, which `CALLAT` can do. Ope
 - how a discovered record (observation 55) maps to that descriptor;
 - what normally writes `+56` and drives the state machine into the join state.
 
+## Live run 12 — first join attempt through `AcceptTicket` (2026-11-16)
+
+Setup: game 1 (PID 131964) is the joiner; game 2 (PID 114608) is the host in `PRIVATE_MATCH_HOST`. Script:
+`lanjoin.py` (scratchpad). Log: `lan-join-20261116/join.jsonl`.
+
+Static observations:
+62. A session descriptor is a plain byte buffer, copied by `sub_1426ADA30`: capacity `+0`, length `+8`, data
+    pointer `+16`. Live, every session's descriptor at `session + 8` is the **8-byte session id**:
+    - game 1: game `00000cc3a4f52d47`, party `00000cc3a4fc7419`;
+    - game 2: game `00000cc4e4398d9e`, party `00000cc4e4456c4a`, mission `00000cc5bad93d2d`.
+
+    `+56` was empty (`{0,0,0}`) in all of them.
+63. The request builder `0x141B2F960` looks the descriptor up in a second controller map at interface `+280`
+    (a ticket store) and fails if there is no entry. Slot 19 removes an entry from that map. No producer of
+    `+280` entries was identified in this pass.
+
+Live, in order:
+64. Game 1's controller session map (`+152`) was empty when re-read (header pointing to itself, count 0), although
+    it held one record during run 11. Discovered records do not stay.
+65. The script did the following:
+    1. allocated 8 bytes in game 1 holding game 2's game-session id;
+    2. pointed game 1's `game session + 56` at it (`{8, 8, ptr}`);
+    3. ran `CALLAT 0 141c40a60 <game session>` on Storm slot 12;
+    4. restored `+56` to `{0,0,0}` right after the call finished.
+
+    The join routine ran on thread 99952. It called slot 19 (return `0x141C40AF9`) with **R9 = `0xFFFFFFFF`**, the
+    request id from `0x141B7CAE0`. So the ticket lookup found nothing. Over the next 20 s neither game showed new
+    traffic, only discovery packets (73 and 103 bytes in game 1, 73 in game 2). No peer list changed: counts (0,0)
+    in every session of both games.
+66. As designed, the routine copied the target id into game 1's own `game session + 8`. It was put back
+    afterwards (`00000cc4e4398d9e` → `00000cc3a4f52d47`, written in place, same length).
+
+Inference: `AcceptTicket` joins only a session for which the joiner holds a ticket (interface `+280`). In
+matchmaking, that ticket presumably comes from the matchmaker or the host. A bare session id is not enough. The
+LAN routes still open:
+- find who fills `+280`; the discovery reply might, if kept;
+- use slot 21, `AcceptFollowHost`, which takes a `storm::PeerDescriptor` (the host's address) and so fits a
+  LAN join better. It has no caller found in ACU yet.
+
 Unknowns / coverage:
 - Who sets the start-alone flag (statechart `+236`), and what the private-match host waits for before it
   launches (a joined peer, a host confirm, or both).
