@@ -125,8 +125,11 @@ deliverable and acceptance criterion. Phases 1-5 are static. Phase 7 is dynamic.
   separate dispatch path.
 - Join the registry to the reflection classes: owner class → message list →
   handler VA.
-- Deliverable: `data/coop/net_protocol_atlas.json` (names, VAs, owner, direction
-  unicast/broadcast, handler) and a finding on the registry format.
+- Deliverable: `tools/net_protocol_atlas.py` → `local/coop/net_protocol_atlas.json`
+  (regenerated, not committed: public repo) and a finding on the registry format.
+- **Status 2026-11-15:** registry format, ID scheme and type records established in
+  [ACU-RE-0072](findings/ACU-RE-0072-net-protocol-registry.md). The three acceptance
+  owners resolve by two routes. Still open: the receive path and the vf0 prefix strings.
 - **Done when** at least 3 owners (`NetHumanIntention`, `NetFightJIPManager`,
   `MissionMatchmakingNetHelper`) resolve end to end, from string to handler, by two
   independent routes (xref and vtable/factory).
