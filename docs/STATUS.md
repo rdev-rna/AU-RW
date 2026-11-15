@@ -1,9 +1,11 @@
 # Project status
 
 Outfit (2026-11-15, [ACU-RE-0070](findings/ACU-RE-0070-arnos-tailored-visual-pieces.md)): the default
-Arno now wears Arno's Tailored. The seven pieces are hood, coat, flap, belts, strap, bracers and
-breeches, all `CN_P_FR_*_Arnaud_V3_LOD0` from BelleEpoque entries 425–429, 436 and 447. They come
-from avatar BuildTable row 3. The item `_03` → row 3 step is an inference. Colour sets are not applied.
+Arno now wears Arno's Tailored. The seven pieces are hood, coat, flap, scarf, belts, bracers and
+breeches, all `CN_P_FR_*_Arnaud_V2_LOD0` from BelleEpoque entries 364–370. The AGM tier code
+(Tailored = 3) puts Tailored at `ACU_AvatarGear_*_02`. `Arnaud_V3` is Arno's Master set; the first
+pass picked it by mistake, and ACU-RE-0048's `_03` was off by one. Item → row matches by name.
+Colour sets are not applied.
 
 Latest (2026-11-15, the arena walks and runs on the native NewDemo graph;
 [ACU-RE-0069](findings/ACU-RE-0069-atomgraph-evaluation-sync-and-mirroring.md)):
@@ -791,7 +793,7 @@ rows remain empty.
 The current source retains original four/eight-weight CPU skinning, authored fixed
 tick movement, a follow/orbit camera, synthetic daylight/shadows and original
 diffuse plus inferred packed-normal PBR shading. Default geometry is now Arno's Tailored:
-the seven `Arnaud_V3` pieces from avatar BuildTable row 3 ([ACU-RE-0070](findings/ACU-RE-0070-arnos-tailored-visual-pieces.md)).
+the seven `Arnaud_V2` pieces (item `_02`, tier code 3) ([ACU-RE-0070](findings/ACU-RE-0070-arnos-tailored-visual-pieces.md)).
 38 diagnostic candidate rigs supply 721 distinct name hashes; one active shoulder
 hash remains parentless/frozen and is explicitly reported. Bind error is below
 7.18e-7 in the selected set. See [finding0017](findings/ACU-RE-0017-composed-rig-skinning.md).

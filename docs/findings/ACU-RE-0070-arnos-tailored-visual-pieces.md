@@ -2,92 +2,116 @@
 
 Date: 2026-11-15 / Claude Code session / user request "swap the Fearless outfit for Arno's Tailored".
 Related: [ACU-RE-0016](ACU-RE-0016-build-table-rig-references.md) (avatar BuildTables),
-[ACU-RE-0048](ACU-RE-0048-outfit-equip.md) (Tailored item IDs), [ACU-RE-0011](ACU-RE-0011-clustered-vertex-decode.md).
-State: partially established. Table rows and mesh identities are observed. The step from item
-`_03` to table row 3 is an inference.
+[ACU-RE-0048](ACU-RE-0048-outfit-equip.md) (item IDs; corrected here), [ACU-RE-0011](ACU-RE-0011-clustered-vertex-decode.md).
+State: partially established. Tier codes, internal names, table rows and mesh identities are
+observed. The final step, from the item's internal name to a table row, matches names and is not
+decoded.
+
+**Correction (same day).** The first version of this finding chose `Arnaud_V3`. It assumed table
+row *i* = item `_0i` and took ACU-RE-0048's claim that Tailored is `_03`. The user identified the
+rendered V3 set as Arno's **Master** set. The tier codes below confirm that: `_03` is Master and
+`_02` is Tailored.
 
 ## Provenance
 
-- No native analysis in this pass. Installed `ACU.exe` SHA-256
-  `748abdc6456397fe7d8080f975f2a5ed3123bce548e7bf1c68b23f47e8b27e40` (re-hashed), recorded only to
-  identify the install.
-- Archive `DataPC_ACU_LGS_BelleEpoque.forge`, entry 334 (avatar package; stored identity in
-  ACU-RE-0016). Tables decoded to exact payload end with `tools/build_table_probe.py` over
-  `acu-mat --hex` output. Their payload SHA-256 values match ACU-RE-0016:
-  122 Hoods, 123 UpperBodies, 124 Belts, 125 Pants. Table 126 `CN_P_ArnoAvatar_ThrowBlade` is
-  rejected by the probe at payload offset 211 (nonempty PropertyPath), so it was not decoded.
-- Asset index v2026-10-22.1. Names come from the resource name field. Type labels: `51dc6b80`
-  LODSelector (`crc-name`), `415d9568` Mesh (`observed-decode`), `c69075ab`
-  InventoryItemSettings (`crc-name`).
-- Item record `ACU_AvatarGear_Head_03` (`00000011a8f258c7`, `DataPC.forge` entry 110 ordinal 1183)
-  has an 89-byte payload, SHA-256 `93e97e7a…96f4`. It holds no LODSelector, mesh or row-tag
-  reference.
+- No native analysis. Installed `ACU.exe` SHA-256
+  `748abdc6456397fe7d8080f975f2a5ed3123bce548e7bf1c68b23f47e8b27e40` (identifies the install only).
+- `AvatarGearManager_0X110741B51F` (`000000110741b51f`, `DataPC.forge` entry 110, ordinal 791;
+  identical copy in `DataPC_patch_01.forge` entry 0). Payload 346,949 bytes, read with
+  `acu-mat --hex`. The layout used is observed bytes only:
+  - every `ACU_AvatarGear_*` item ID appears once;
+  - the u32 at item-ID offset −5 is a small code;
+  - a UTF-16 internal name such as `Arno_Head_2` follows the item ID.
+- Avatar BuildTables: `DataPC_ACU_LGS_BelleEpoque.forge` entry 334, resources 122 Hoods,
+  123 UpperBodies, 124 Belts, 125 Pants. Each decodes to its exact payload end with
+  `tools/build_table_probe.py`; payload hashes are in ACU-RE-0016. Table 126 ThrowBlade is rejected
+  at payload offset 211 (nonempty PropertyPath), so it was not decoded.
+- Localized names: the gear-name table of the third-party mod "Gear Visual Customization 365"
+  1.2.5, as in ACU-RE-0048. Only its text files were read, into a scratch directory; no text is
+  reproduced. Asset index v2026-10-22.1 supplied names and type labels (`51dc6b80` LODSelector
+  `crc-name`, `415d9568` Mesh `observed-decode`, `c69075ab` InventoryItemSettings `crc-name`).
 
 ## Result
 
-**Observed (table rows).** Each of the four decoded tables has 43 rows. Row 0 has no components.
-Rows 1–4 reference the `Arnaud_V{row}` LODSelectors:
+**Observed: the AGM tier code.** The u32 code before each item ID agrees with the mod's tier word
+for all 170 checked items (slots Head, Chest, Forearms, Waist and Legs, items `_05`–`_40`):
+Handmade = 2, Tailored = 3, Improved = 4, Master = 5, Legendary = 6.
 
-| Row | Hoods (col 2 / 16) | UpperBodies (col 1, 2, 4) | Belts (col 2, 6) | Pants (col 1) | weight |
-|---|---|---|---|---|---|
-| 1 | Hood_Arnaud_V1 / Hood_Down_V1 | Upperbody, Flap, Scarf V1 | Belts V1 | Pants V1 | 0 |
-| 2 | Hood_Arnaud_V2 / Hood_Down_V2 | Upperbody, Flap, Scarf V2 | Belts V2 | Pants V2 | **1** |
-| 3 | Hood_Arnaud_V3 / Hood_Down_V3 | Upperbody, Flap V3 (no scarf) | Belts V3, Strap V3 | Pants V3 | 0 |
-| 4 | Hood_Arnaud_V4 / Hood_Down_V4, ShoulderCover V4 | Upperbody, Flap V4 | Belts V4, Strap V4 | Pants V4 | 0 |
+**Observed: Arno's family.**
 
-Row tags (u32): Hoods row 3 `fb07ec5e`, UpperBodies `6488e3a0`, Belts `b1c16126`, Pants `dbe8ba4b`.
+| Item | Internal name | Code | Localized (by code) |
+|---|---|---|---|
+| `_01` | `Arno_<Slot>_1` | 1 | Arno's Original |
+| `_02` | `Arno_<Slot>_2` | **3** | **Arno's Tailored** |
+| `_03` | `Arno_<Slot>_3` | 5 | Arno's Master |
+| `_04` | `Arno_<Slot>_4` | 6 | Arno's Master Assassin (the mod lists it last) |
 
-**Inference (row = item index).** Each table has 42 non-empty rows. ACU-RE-0048 found 42
-`ACU_AvatarGear_<Slot>_NN` items per slot. In every table, row 2 is the only row with weight 1, and
-item `_02` is the starting "Arno's Original" set (it is linked from the loadout preset manager).
-This fits row *i* ↔ item `_i`. Under it, Tailored (`_03`) → row 3 → `Arnaud_V3`.
-Not established: how the game maps an item to a row. No row tag was found in the item record or
-in the AvatarGearManager payload (346,949 bytes; no u32 match for any of the 172 row tags). The
-ThrowBlade (bracers) row order is undecoded. The table byte-links `CN_P_FR_ThrowBlade_Arnaud_V3`
-as a candidate, and V3 is assigned by name consistency.
+The mod's list starts with Original, Tailored and Master, and moves the Master Assassin item to the
+end. Its position *i* → `_{i+2}` rule therefore holds for every other family, but is off by one
+for Arno's three. That is ACU-RE-0048's error.
 
-**Mesh identities used** (`DataPC_ACU_LGS_BelleEpoque.forge`, resource ordinal 1 of each entry,
-payload SHA-256 from the scene log):
+Tailored item IDs (`_02`): Head `00000011a8f2593f`, Chest `00000011a8f25aae`, Forearms
+`00000011a8f25bf1`, Waist `00000011a8f25b51`, Legs `00000011a8f25c94`.
+
+**Observed: table rows.** Each table has 43 rows. Row 0 is empty. Rows 1–40 hold 10 families of
+4 variants, in this order: Arnaud, Rodeur, Revolutionnaire, Napoleonian, Phantom, Musketeers,
+Medieval, Military, Brigands, Noble. Rows 41–42 are the two SDN armor sets. Row 2 (`Arnaud_V2`) is
+the only row with weight 1. The item order is different: the AGM has Medieval at `_17`–`_20` and
+Phantom at `_21`–`_24`. So a row index is **not** an item index.
+
+**Inference: item → row.** `Arno_<Slot>_N` ↔ `Arnaud_VN` matches by name. It agrees with two
+independent checks: `_03`/V3 is the set the user recognises as Master, and `_02` carries the
+default weight. Tailored is therefore row 2 of each table, the Arnaud V2 pieces. The ThrowBlade
+(bracers) table is undecoded, and V2 is assigned there by the same naming.
+
+**Mesh identities used** (`DataPC_ACU_LGS_BelleEpoque.forge`, resource ordinal 1 of each entry).
+Each mesh has a single distinct payload across BelleEpoque and its patch_03:
 
 | Entry | LOD0 mesh | File ID | Payload SHA-256 |
 |---|---|---|---|
-| 426 | CN_P_FR_Upperbody_Arnaud_V3_LOD0 | `0000001bf62cc280` | `ed2e8a15f9b60d5aece4775d24b5f548b8b0293300b42cfe202e8bf952d2568c` |
-| 425 | CN_P_FR_Flap_Arnaud_V3_LOD0 | `0000001bf62cc289` | `ebc2c62668d1bf37a64ae97c2f5dd1b14f2e0ebb4cf5455f415fc0b06e31a52e` |
-| 427 | CN_P_FR_Hood_Arnaud_V3_LOD0 | `0000001bf62cc28e` | `aa96d5d59bee189e5c2adfe05d0b242aa2a9401cbe28dee42b5ad4dfcc38db90` |
-| 428 | CN_P_FR_Pants_Arnaud_V3_LOD0 | `0000001bf62cc26f` | `e521956b29292e2ecab5efb433986b9b0b18eefc7ba99763c1eae3e895c83393` |
-| 429 | CN_P_FR_Belts_Arnaud_V3_LOD0 | `0000001bf62cc265` | `aa4162353116abf15da93c93f59142b08d4e80491b2eae131ac0e5dd64389746` |
-| 447 | CN_P_FR_Strap_Arnaud_V3_LOD0 | `0000001e0ecc1b6a` | `7ed2e3c6ae51a29128c1f6b8c9c584cf5f56e58027e61bce88e8f9e14e10117d` |
-| 436 | CN_P_FR_ThrowBlade_Arnaud_V3_LOD0 | `0000001bf62cc434` | `ae8895fdd7f49fd2f48cd6979f6bf42b33a9d1cacc79b464bc2cadc34b6ab253` |
+| 370 | CN_P_FR_Upperbody_Arnaud_V2_LOD0 | `00000013c1e4eb5a` | `dda8f6815868d16eccb32582c05fc56726d4423979228a622bec7ecbb9c95145` |
+| 364 | CN_P_FR_Flap_Arnaud_V2_LOD0 | `00000013c1e4eb9a` | `fb917ea9bb28f714ba5cc0e91fb413d7c975314974aedf9ca328bd615f2adfd3` |
+| 368 | CN_P_FR_Scarf_Arnaud_V2_LOD0 | `00000013c1e4eba4` | `f3efc492f6a6c8b8c889c53b3317638ac2becf0fd5abda9ddee7769a4a549598` |
+| 367 | CN_P_FR_Hood_Arnaud_V2_LOD0 | `00000013c1e4eb79` | `5aa46fdbd5893204dc9f27447c42477010c975ae332c611df06c77c57a7d84fe` |
+| 366 | CN_P_FR_Pants_Arnaud_V2_LOD0 | `00000013c1e4eb65` | `6601c9834ce5e504707eb66fa940da26ce3decacf9610146b7090878c56e4866` |
+| 365 | CN_P_FR_Belts_Arnaud_V2_LOD0 | `00000013c1e4eb6f` | `0b60073e5b84dd365835e9cec446d08ce450061c7d311d1fb137ebf3ee74588c` |
+| 369 | CN_P_FR_ThrowBlade_Arnaud_V2_LOD0 | `00000013c1e4eb86` | `d7d15c38715102c83732b47375c8dd04416f6b4fa42d9828ca2b0752253740a9` |
 
-`DataPC_ACU_LGS_BelleEpoque_patch_03.forge` holds copies of all seven with the same file IDs and
-equal payload SHA-256. Issue #35 (which duplicate loads) therefore does not change these bytes.
-The LODSelector-to-LOD0 step follows the resource name, as for the earlier Fearless set.
+For reference, Master (`Arnaud_V3`) is BelleEpoque entries 425–429, 436 and 447. Those are Flap,
+Upperbody, Hood, Pants, Belts, ThrowBlade and Strap; V3 has no scarf.
 
-**Skinning check.** All seven pieces bind to the composed rig with 0 unresolved joints. The
-bind-identity error is at most 6.7e-7. The mesh bind differs from the composed skeleton bind by
-at most 0.08° and 0.0141 m (new report field `max_bind_vs_skeleton_*`). Idle, walk (120 ticks) and
-run (90 ticks) captures deform without visible tearing. These are captures of the synthetic arena;
-they make no claim about in-game appearance.
+**Skinning check.**
+- All seven V2 pieces bind with a bind-identity error of at most 6.7e-7.
+- The belts have one joint, `b62122f9`, that is unresolved and unweighted. It is kept parentless
+  and frozen under the existing policy.
+- Mesh bind versus composed skeleton bind is at most 0.09° and 0.0315 m (report field
+  `max_bind_vs_skeleton_*`).
+- Bind, walk (120 ticks) and run (90 ticks) captures deform without visible tearing.
+- These are captures of the synthetic arena, not an in-game appearance claim.
 
-**Not covered.** Colour sets (`CN_P_Avatars_ColorSets`, entry 334/127) are not applied; the
-default diffuse is rendered. Hood-down variants, the Hood_Position table and LOD1+ are not used.
+**Not covered.** Colour sets (`CN_P_Avatars_ColorSets`, 334/127) are not applied; the default
+diffuse is rendered. Hood-down, Hood_Position, the IconicWeapon V2 mesh and LOD1+ are not used.
 
 ## Reproduction
 
 ```powershell
-$a = Join-Path $env:ACU_GAME_DIR 'DataPC_ACU_LGS_BelleEpoque.forge'
+$d = $env:ACU_GAME_DIR
+& acu-rs/target/debug/acu-mat.exe (Join-Path $d 'DataPC.forge') 110 791 --hex --out=local/tailored/agm.json
 foreach ($r in 122,123,124,125) {
-  & acu-rs/target/debug/acu-mat.exe $a 334 $r --hex --out=local/tailored/t$r.json
+  & acu-rs/target/debug/acu-mat.exe (Join-Path $d 'DataPC_ACU_LGS_BelleEpoque.forge') 334 $r --hex --out=local/tailored/t$r.json
   python tools/build_table_probe.py local/tailored/t$r.json --output local/tailored/t$r-parsed.json
 }
-powershell -File tools/run_arno.ps1 -Capture local/captures/tailored/idle-35.png
+powershell -File tools/run_arno.ps1 -Capture local/captures/tailored/v2-idle.png
 ```
 
-Resolve row component file IDs against `resource.file_id` in the asset index.
+For each item, find its little-endian file ID in the AGM payload. Read the u32 at offset −5 and
+the UTF-16 name after the ID.
 
 ## Development handoff
-- **Confidence:** partial. Rows → meshes are observed. Item `_03` → row 3 is inferred.
-- **Interface:** `acu_bevy::options::ARNO_PIECES` now lists the seven V3 pieces plus head and the
-  hood-up hair plane. The Fearless set stays loadable with `--piece 679:<n>`.
-- **Follow-up:** decode the item → row mapping (native, or the gear entries in the AvatarGearManager).
-  Support PropertyPath tables (ThrowBlade, Hood_Position). Apply colour sets.
+- **Confidence:** partial. The tier code and the rows are observed. Item → row matches by name,
+  and the user and the default weight corroborate it.
+- **Interface:** `acu_bevy::options::ARNO_PIECES` lists the seven V2 pieces plus the head and the
+  hood-up hair plane. The Fearless set (`--piece 679:<n>`) and the Master V3 set (`--piece 425:1` …)
+  stay loadable.
+- **Follow-up:** decode the AvatarGear record and how it selects a row. Support PropertyPath tables
+  (ThrowBlade, Hood_Position). Apply colour sets.

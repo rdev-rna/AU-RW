@@ -7,7 +7,7 @@ asset directory. Configure the install through the caller or `ACU_GAME_DIR`.
 From the project root, `./tools/run_arno.ps1` builds and launches the controllable
 Arno test world (DX12). It reads original meshes, skeleton inputs and textures
 in memory, with synthetic daylight/shadows and authored procedural skinning.
-The default outfit is Arno's Tailored (`Arnaud_V3` pieces, ACU-RE-0070).
+The default outfit is Arno's Tailored (`Arnaud_V2` pieces, ACU-RE-0070).
 
 Controller: left stick moves; hold RT/R2 for high profile, add PlayStation X
 (South / Xbox A) for up, or Circle (East / Xbox B) for down. Right stick controls

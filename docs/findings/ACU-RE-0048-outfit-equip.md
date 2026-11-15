@@ -5,6 +5,12 @@ Date: 2026-11-14 / static subagent pass for the live outfit-swap slice. Related:
 State: partially established. Static only; nothing was run against the live game. The item IDs
 and the loadout write are established; the step that redraws the in-world model is not.
 
+> **Corrected by [ACU-RE-0070](ACU-RE-0070-arnos-tailored-visual-pieces.md):** Arno's Tailored is `_02`,
+> not `_03`. The AGM tier code puts Tailored at 3 and Master at 5. The mod's list moves the
+> Master Assassin item to the end, so the +2 offset is off by one for Arno's three items. `_03` is
+> Arno's Master, `_01` is Original and `_04` is Master Assassin. The table below is kept as first
+> written.
+
 ## Provenance
 
 - `ACU.exe` SHA-256 `748abdc6456397fe7d8080f975f2a5ed3123bce548e7bf1c68b23f47e8b27e40` (re-hashed this

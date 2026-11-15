@@ -17,17 +17,18 @@ pub const DEFAULT_ARCHIVE: &str = "DataPC_ACU_LGS_BelleEpoque.forge";
 pub const DEFAULT_TEXTURE_ARCHIVES: &[&str] = &["DataPC_SharedGroup_00.forge", "DataPC.forge"];
 
 /// Arno pieces: (entry, resource, label). Default outfit is "Arno's Tailored"
-/// (`ACU_AvatarGear_*_03`), which the avatar BuildTables resolve to the
-/// `Arnaud_V3` pieces; see ACU-RE-0070. Head/hair identities are in ACU-RE-0011.
-/// The previous FearlessAssassin set (entry 679) remains loadable via --piece.
+/// (`ACU_AvatarGear_*_02`, internal `Arno_*_2`, tier code 3), whose avatar
+/// BuildTable rows are the `Arnaud_V2` pieces; see ACU-RE-0070. (`Arnaud_V3` is
+/// Arno's Master set.) Head/hair identities are in ACU-RE-0011. The previous
+/// FearlessAssassin set (entry 679) remains loadable via --piece.
 pub const ARNO_PIECES: &[(usize, usize, &str)] = &[
-    (426, 1, "CN_P_FR_Upperbody_Arnaud_V3_LOD0"),
-    (425, 1, "CN_P_FR_Flap_Arnaud_V3_LOD0"),
-    (427, 1, "CN_P_FR_Hood_Arnaud_V3_LOD0"),
-    (428, 1, "CN_P_FR_Pants_Arnaud_V3_LOD0"),
-    (429, 1, "CN_P_FR_Belts_Arnaud_V3_LOD0"),
-    (447, 1, "CN_P_FR_Strap_Arnaud_V3_LOD0"),
-    (436, 1, "CN_P_FR_ThrowBlade_Arnaud_V3_LOD0"),
+    (370, 1, "CN_P_FR_Upperbody_Arnaud_V2_LOD0"),
+    (364, 1, "CN_P_FR_Flap_Arnaud_V2_LOD0"),
+    (368, 1, "CN_P_FR_Scarf_Arnaud_V2_LOD0"),
+    (367, 1, "CN_P_FR_Hood_Arnaud_V2_LOD0"),
+    (366, 1, "CN_P_FR_Pants_Arnaud_V2_LOD0"),
+    (365, 1, "CN_P_FR_Belts_Arnaud_V2_LOD0"),
+    (369, 1, "CN_P_FR_ThrowBlade_Arnaud_V2_LOD0"),
     (351, 1, "CN_U_FR_Arno_Head_LOD0"),
     (655, 1, "CN_U_Arno_HairPlane_HoodUp_LOD0"),
 ];
