@@ -301,6 +301,11 @@ pointless without them.
   message flush, the game stamps every local memento with the session time, runs its writer, and posts
   `SynchronizeMemento`. Storm handles serialization and pacing (not traced). This corrects ACU-RE-0075
   (`+0x50` is a time stamp). Bit widths are still open.
+- **Status 2026-11-16 (AI authority for the AC4 mod, static):** [ACU-RE-0091](findings/ACU-RE-0091-coop-ai-authority-for-ac4.md).
+  The 1,175 message names are grouped by family and mapped onto the AC4 co-op mod's open problems. The
+  ConflictLoopDirector ticket builder `0x140A89750` (request fields and wire IDs) is observed. Remote players use
+  their own class, `HumanReplica`. Damage on a non-owned body is inferred to go to the owner through
+  `SendFightDamageEventToMaster`. Next: a live hook on that message's builder block in the two-game testbed.
 - **Status 2026-11-15 (solo live probe, Phase 7 start):** [ACU-RE-0085](findings/ACU-RE-0085-solo-live-probe.md).
   First live run (read-only, lock #30, saves put back). In solo, typed intention starts reach the replicate
   path (30/s), but the builder never runs. The memento push runs every frame and stops at "session active".
