@@ -148,6 +148,25 @@ materials' own `template` reference (`acu-mat`, `material::Material::template`).
   512 x 256; alpha 28..74 of 255, median 49) and Mask1 `00000015ef9230a9` (BC1; R median 197,
   B median 173). Channel statistics: `local/lighting/tex/*.bin` with Pillow's BC decoder.
   No static reference to `4ddb34ee` exists in the decompiled corpus (searched hex and decimal).
+- The `4ddb34ee` slots are resolved by TextureSelector objects (class `7d08460d`) embedded in each
+  template; each slot's record references (by its trailing 16-byte reference) a node whose
+  selector names the texture. Layout as `acu_assets::material` parses selectors: specification,
+  map type, frame, texture-set reference, texture-map reference. Observed:
+
+  | Template slot | Specification / map type | Texture | Location |
+  | --- | --- | --- | --- |
+  | skin t34 | 2 / 11 | `000000032ebbcded` `LIB_PoreN_NormalMap` | DataPC.forge entry 127 |
+  | skin t35 | 2 / 7 | `0000000d3b0de63d` `LIB_Head_ForUnique_SpecularMap_Mask1Map` | DataPC_ACU_Paris.forge entry 6412 |
+  | skin t36 / t37 | 1 / 8 | `00000010a718e5a8` `LIB_Grey_Mask2Map` (set `LIB_Grey_Set`) | BelleEpoque_assets entry 5439 |
+  | skin t38 | 2 / 11 | `0000000857a6e29d` `LIB_HairScalp_HairA_DiffuseMap` (Arno's material overrides it) | DataPC.forge entry 149 |
+  | skin t39, hair t35 | 2 / 11 | `000000073d3a41e5` `GFX_Animus_Alpha_01_DiffuseMap` | DataPC.forge entry 249 |
+  | skin t40 | 2 / 11 | `00000023ca3bdf7b` `LIB_Head_WaterDrop_NormalMap` | DataPC_ACU_Paris.forge entry 6412 |
+  | hair t33 / t34 | 0 / 1, 0 / 7 (no map) | the texture set's Normal / Mask1 | |
+  | hair t36 | 2 / 0 | `000000149a7bc2d4` `LIB_Hair_Cutting_DiffuseMap` | DataPC.forge entry 971 |
+
+  Names and locations from the asset index (`observed-decode`). The skin template's t34 UV
+  transform default (cb3[12], `UvTransform` object) is scale (30, 30), no translation or rotation;
+  the hair's two UV transforms are (1, 1).
 - Deferred lighting PS `0x143211F50`, the BRDF of the non-special path: GGX distribution with
   `alpha^2 = 1 / (0.5 * 2^(19 g) + 1)` (the same quantity listed above), Schlick Fresnel from
   `t_SpecularReflectance` using the view-half angle, a height-correlated-style Smith GGX visibility,
@@ -165,10 +184,13 @@ materials' own `template` reference (`acu-mat`, `material::Material::template`).
   second-normal and second-gloss reads); the RTV binding itself was not observed.
 - Gloss g -> GGX `alpha^2 = 2 / (2^(19 g) + 2)` is ACU's own (deferred PS); Bevy's perceptual
   roughness is `sqrt(alpha)`.
-- The `4ddb34ee` slots are bound by the engine. For hair, the texture set's Normal and Mask1 fit
-  t33 (xy normal, w gloss) and t34 (x, z intensities) by their content; this binding is inferred,
-  not observed. The skin's t34 / t35 / t40 (detail normal, dry / wet gloss, rain normal by their
-  use) have no counterpart in the head's texture set (diffuse, normal, Mask1 only).
+- Specification semantics: 2 = explicit texture map, 1 = a referenced texture set's map,
+  0 with no map = the material's own texture set by map type. Read from the field values and
+  how materials use them; the engine's selector resolution code was not traced. That the game
+  binds these defaults when the material leaves a slot unset is likewise inferred from the
+  structure (no live capture of bound resources).
+- Mapping the skin `UvTransform` to the two `cb3[12..13]` rows as `uv * scale` (the other
+  fields are zero, so only the scale direction is assumed).
 
 ## Bevy implementation (implementation choices)
 
@@ -186,11 +208,14 @@ materials' own `template` reference (`acu-mat`, `material::Material::template`).
   BC7 detail maps (`LIB_cloth_Flecks` or `LIB_Cloth_Metal`, `LIB_cloth_cotton`, `LIB_Cloth_Leather`);
   fabric weave and folds, brighter metal fittings, no invalid pixels. Not compared with the game.
 - Skin (`acu_assets::character_template::Skin`, flags 2): saturation matrix, tint lerp by mask
-  B, F0 0.04, specular occlusion `pow(mask B, 2.2)`; base gloss SYNTHETIC 0.35 (stands in for the
-  engine-bound t35.y) times the material's gloss scale. Wrinkle normals are off (they need the
-  facial-animation vertex weight); the skin diffuse LUT and velvet blend are not ported.
+  B, F0 0.04; the template's default pore normal (t34, UV x30, the template's reoriented blend on
+  the raw normal texel) and specular map (t35); gloss = `skin_gloss` (t35 dry / wet gloss with the
+  pore gloss, times `sat(wet + cb3[2])`); specular occlusion `pow(mask B * pow(t35.z, 2.2), 2.2)`.
+  A synthetic gloss remains only as the fallback when t35 cannot be loaded. Wrinkle normals are
+  off (they need the facial-animation vertex weight), rain is off (dry); the skin diffuse LUT and
+  velvet blend are not ported.
 - Hair (`Hair`, flags 3): tint then saturation matrix; gloss = normal-map alpha and
-  F0 = `pow(0.8 * Mask1 R, 2.2)` (inferred texture-set binding); Bevy anisotropy (SYNTHETIC
+  F0 = `pow(0.8 * Mask1 R, 2.2)` (the texture set's Normal / Mask1 by the template's selectors); Bevy anisotropy (SYNTHETIC
   strength 0.8) across the strand tangent stands in for ACU's two-lobe hair path; the second lobe,
   strand-tangent noise shift and coverage noise are not ported.
 - Not ported: the velvet lobe blend, the back-light translucency, the dissolve, global wetness
@@ -199,8 +224,8 @@ materials' own `template` reference (`acu-mat`, `material::Material::template`).
 ## Unknowns
 
 - Render-target formats and blend state of the G-buffer pass.
-- Which textures the engine binds to the `4ddb34ee` slots (skin t34 / t35 / t40, hair t33..t36);
-  a live capture of the bound shader resources would settle it.
+- Whether the graphics-quality setting selects shader permutations that drop these maps (the
+  user's game runs at Low); a live capture of bound resources at each setting would show it.
 - Runtime constants: sun and lighting scale captured live (see ACU-RE-0073); `g_SkySHConstants`
   not yet.
 

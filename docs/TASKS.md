@@ -517,8 +517,8 @@ Lighting slice 3 (ACU-RE-0073 / 0084, done): forward GI evaluation read; live su
 lighting-scale constants applied; cloth template surface (detail normals, gloss, specular) ported.
 Next, in order:
 - the sky SH (`g_SkySHConstants`) live, and the velvet lobe in a custom Bevy lighting path;
-- the engine-bound texture slots (`4ddb34ee`: skin t34/t35/t40, hair t33..t36) from a live
-  capture of bound shader resources, which would replace the synthetic skin gloss;
+- a live capture of bound shader resources to confirm the template-default bindings and how the
+  graphics-quality setting changes the shader permutations (the user's game runs at Low);
 - other outfits' templates (an outfit selector and the templates they use);
 - a live in-game comparison of the GI at the anchor spot;
 - the time-of-day sun / LayeredSky;

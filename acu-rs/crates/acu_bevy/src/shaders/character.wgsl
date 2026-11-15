@@ -14,8 +14,11 @@
 // translucency, the dissolve, global wetness. ACU's own deferred BRDF is
 // replaced by Bevy's.
 // CN_Skin_Wrinkle (flags.z = 2): saturation matrix, tint lerp by mask B,
-// F0 0.04, specular occlusion pow(mask B, 2.2); base gloss SYNTHETIC
-// (engine-bound t35). Wrinkle normals need a facial-animation weight: off.
+// F0 0.04; the template's default maps: pore normal (t34, UV x30, blended by
+// the template's RNM on the raw normal texel) and specular map (t35: dry /
+// wet gloss, occlusion); gloss = t35 gloss combined with the pore gloss,
+// times sat(wet + cb3[2]); occlusion pow(mask B * pow(t35.z, 2.2), 2.2).
+// Wrinkle normals need a facial-animation weight and rain needs wetness: off.
 // CN_Hair (flags.z = 3): tint then saturation matrix; gloss = normal alpha
 // and F0 = pow(0.8 * mask1 R, 2.2) (texture-set maps, inferred binding);
 // Bevy anisotropy across the strand stands in for ACU's two-lobe hair path.
@@ -82,13 +85,14 @@ fn fragment(in: VertexOutput, @builtin(front_facing) front: bool) -> FragmentOut
     var surface = pbr_input_from_standard_material(in, front);
     surface.material.base_color = alpha_discard(surface.material, surface.material.base_color);
     let surface_kind = settings.flags.z;
+    var skin_mask_b = 1.0;
 #ifdef VERTEX_UVS_A
     if surface_kind > 1.5 && surface_kind < 2.5 {
         // skin
-        var mask_b = 1.0;
         if settings.flags.w > 0.5 {
-            mask_b = textureSample(mask_map, mask_sampler, in.uv).b;
+            skin_mask_b = textureSample(mask_map, mask_sampler, in.uv).b;
         }
+        let mask_b = skin_mask_b;
         let w = saturate(mask_b + settings.tint.w);
         let albedo = saturation(surface.material.base_color.rgb);
         surface.material.base_color = vec4<f32>(mix(settings.tint.rgb, albedo, w), surface.material.base_color.a);
@@ -158,6 +162,36 @@ fn fragment(in: VertexOutput, @builtin(front_facing) front: bool) -> FragmentOut
             let f0 = ((hue_rgb - 1.0) * sat + 1.0) * intensity * occlusion;
             surface.material.metallic = 0.0;
             surface.material.reflectance = sqrt(f0 / 0.16);
+            surface.specular_occlusion = occlusion;
+        }
+        if surface_kind > 1.5 && surface_kind < 2.5 {
+            // skin: template default pore normal (t34) and specular map (t35)
+            let bits = u32(settings.detail_uv.z + 0.5);
+            let wet = settings.specular.z;
+            var g = settings.specular.x;
+            var spec_occlusion = 1.0;
+            var pore_gloss = 4.0;
+            if (bits & 1u) != 0u {
+                let p = textureSample(detail_metal, detail_metal_sampler, in.uv * settings.detail_uv.xy);
+                let pxy = p.xy * 2.0 - 1.0;
+                let d = vec3<f32>(pxy, sqrt(max(0.0, 1.0 - dot(pxy, pxy))));
+                let t = packed.xyz + vec3<f32>(0.0, 0.0, 1.0);
+                let u = d * vec3<f32>(-1.0, -1.0, 1.0);
+                let r = t * dot(t, u) / t.z - u;
+                let nxy = r.xy * 2.0 - 1.0;
+                normal = vec3<f32>(nxy, sqrt(max(0.0, 1.0 - dot(nxy, nxy))));
+                pore_gloss = p.w;
+            }
+            if (bits & 2u) != 0u {
+                let s = textureSample(detail_cloth, detail_cloth_sampler, in.uv);
+                let base_gloss = mix(s.y, s.x, wet);
+                let inv = exp2(-19.0 * base_gloss) + exp2(-19.0 * pore_gloss);
+                g = saturate(log2(1.0 / inv) / 19.0) * settings.specular.y;
+                spec_occlusion = pow(saturate(s.z), 2.2);
+            }
+            surface.material.perceptual_roughness = gloss_to_perceptual_roughness(g);
+            let occlusion = pow(saturate(skin_mask_b * spec_occlusion), 2.2);
+            surface.material.reflectance = vec3<f32>(sqrt(0.04 * occlusion / 0.16));
             surface.specular_occlusion = occlusion;
         }
         if surface_kind > 2.5 {

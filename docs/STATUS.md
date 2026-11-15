@@ -62,8 +62,10 @@ arena now uses the native Paris `WorldAmbiance` settings. Default `--lighting pa
   - specular reflectance from albedo hue and band intensities, and specular occlusion from mask B.
   Skin (`CN_Skin_Wrinkle`) and hair (`CN_Hair`) templates: records and G-buffer shaders read; Bevy
   applies their saturation matrix, tint, F0 (skin 0.04; hair from the texture set's Mask1), hair
-  gloss from the normal alpha and an anisotropic hair highlight. The skin's base gloss is
-  SYNTHETIC: it comes from an engine-bound texture not yet identified.
+  gloss from the normal alpha and an anisotropic hair highlight. The slots the material leaves
+  unset resolve to default TextureSelectors embedded in the templates; the skin uses its defaults
+  `LIB_PoreN_NormalMap` (pore detail, UV x30) and `LIB_Head_ForUnique_SpecularMap_Mask1Map`
+  (dry / wet gloss, occlusion), so no skin value is synthetic any more.
   Not ported: the velvet lobe, back-light translucency, skin diffuse LUT, wrinkle normals, ACU's
   two-lobe hair BRDF, other outfits.
 - Captures: `outputs/lighting/arno-paris-noon-skin-hair.png` and `arno-head-skin-closeup.png`

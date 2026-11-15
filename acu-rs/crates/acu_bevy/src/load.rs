@@ -96,13 +96,16 @@ pub struct LoadedMaterial {
 /// Inputs of the skin and hair templates' per-pixel surface (ACU-RE-0084).
 #[derive(Debug, Clone)]
 pub enum TemplateSurface {
-    /// `mask`: the material's t38 mask (B = tint weight, specular occlusion).
+    /// `mask`: the material's t38 mask (B = tint weight, specular occlusion);
+    /// `pore` / `specular`: the template's default t34 / t35 maps.
     Skin {
         params: character_template::Skin,
         mask: Option<usize>,
+        pore: Option<usize>,
+        specular: Option<usize>,
     },
-    /// `mask1`: the texture set's Mask1 map, which the hair shader is inferred
-    /// to read as t34 (engine-bound slot).
+    /// `mask1`: the texture set's Mask1 map, which the hair template's t34
+    /// selector names by role (specification 0, map type 7).
     Hair {
         params: character_template::Hair,
         mask1: Option<usize>,
@@ -773,10 +776,31 @@ impl Loader {
                     Some(params) => {
                         let id = selector_map(&parsed, character_template::SKIN_MASK);
                         let mask = self.linear_map(id.as_deref(), package, entry, &mut notes);
+                        let pore = self.linear_map(
+                            Some(character_template::SKIN_PORE_NORMAL),
+                            package,
+                            entry,
+                            &mut notes,
+                        );
+                        let specular = self.linear_map(
+                            Some(character_template::SKIN_SPECULAR),
+                            package,
+                            entry,
+                            &mut notes,
+                        );
                         template_surface = Some(serde_json::json!({
                             "template": character_template::TEMPLATE_SKIN_WRINKLE,
-                            "params": params, "mask": id, "mask_loaded": mask.is_some()}));
-                        template = Some(TemplateSurface::Skin { params, mask });
+                            "params": params, "mask": id, "mask_loaded": mask.is_some(),
+                            "pore_normal": character_template::SKIN_PORE_NORMAL,
+                            "pore_loaded": pore.is_some(),
+                            "specular": character_template::SKIN_SPECULAR,
+                            "specular_loaded": specular.is_some()}));
+                        template = Some(TemplateSurface::Skin {
+                            params,
+                            mask,
+                            pore,
+                            specular,
+                        });
                     }
                     None => notes.push("skin template parameters missing; not applied".into()),
                 }

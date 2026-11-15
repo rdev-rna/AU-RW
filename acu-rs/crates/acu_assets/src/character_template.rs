@@ -3,8 +3,13 @@
 //! of class `92d220dd` (ACU-RE-0084). Register numbers are `cb3` constants.
 //!
 //! Both templates also sample textures the material does not name (records
-//! with the shared hash `4ddb34ee`): skin t34 / t35 / t40 and hair t33..t36.
-//! Those are bound at run time and are not modelled here.
+//! with the shared hash `4ddb34ee`). Those slots hold TextureSelector objects
+//! embedded in the template: either an explicit default texture map
+//! (specification 2) or a texture-set role (specification 0, no map):
+//! skin t34 `LIB_PoreN_NormalMap`, t35 `LIB_Head_ForUnique_SpecularMap_Mask1Map`,
+//! t39 `GFX_Animus_Alpha_01_DiffuseMap`, t40 `LIB_Head_WaterDrop_NormalMap`;
+//! hair t33 / t34 the texture set's Normal / Mask1, t35 the Animus map,
+//! t36 `LIB_Hair_Cutting_DiffuseMap`.
 
 use serde::Serialize;
 
@@ -27,6 +32,13 @@ pub const SKIN_SCATTER: u32 = 0x5a74_9bb1; // cb3[5], written to t_SpecularRefle
 pub const SKIN_WRINKLE_LOW: u32 = 0xfb0f_4871; // cb3[8]
 pub const SKIN_WRINKLE_HIGH: u32 = 0xcb9d_1dbf; // cb3[9]
 pub const SKIN_TINT: u32 = 0xa4ed_3f29; // cb3[11]: rgb tint, w weight bias
+
+/// Default texture maps embedded in the skin template `00000006dc67dd6d`.
+pub const SKIN_PORE_NORMAL: &str = "000000032ebbcded"; // t34, xy normal, w detail gloss
+pub const SKIN_SPECULAR: &str = "0000000d3b0de63d"; // t35: x wet gloss, y dry gloss, z occlusion
+pub const SKIN_WATER_DROP_NORMAL: &str = "00000023ca3bdf7b"; // t40, weighted by wetness
+/// Default of the skin template's t34 UV transform (cb3[12], `49ce4b2e`).
+pub const SKIN_PORE_UV_SCALE: f32 = 30.0;
 
 pub const HAIR_DIFFUSE: u32 = 0x94d1_e376; // t32
 pub const HAIR_UV_SCALE_U: u32 = 0x2af4_8215; // cb3[2]
@@ -117,6 +129,16 @@ impl Hair {
     }
 }
 
+/// Skin gloss from the t35 specular map (dry y, wet x) and the pore map's
+/// detail gloss (t34 w): powers `2^(19 g)` added as reciprocals, then scaled
+/// by `sat(wetness + gloss_scale)`.
+pub fn skin_gloss(dry: f32, wet_gloss: f32, pore: f32, wetness: f32, gloss_scale: f32) -> f32 {
+    let base = dry + (wet_gloss - dry) * wetness;
+    let inv = (-19.0 * base).exp2() + (-19.0 * pore).exp2();
+    let g = ((1.0 / inv).log2() / 19.0).clamp(0.0, 1.0);
+    g * (wetness + gloss_scale).clamp(0.0, 1.0)
+}
+
 /// Primary specular reflectance of the hair path: the template writes
 /// `0.8 * t34.x` to the albedo target's w, which the deferred hair path reads
 /// as `pow(w, 2.2)`.
@@ -199,6 +221,19 @@ mod tests {
             (a[0] - 0.6).abs() < 0.005 && (a[2] - 0.3).abs() < 0.005,
             "{a:?}"
         );
+    }
+
+    #[test]
+    fn skin_gloss_combines_and_scales() {
+        // a pore gloss of 1 barely changes a lower base gloss
+        let g = skin_gloss(0.4, 0.9, 1.0, 0.0, 1.0);
+        assert!((g - 0.4).abs() < 1e-3, "{g}");
+        // equal glosses drop by 1/19; the scale multiplies
+        let g = skin_gloss(0.5, 0.0, 0.5, 0.0, 0.75);
+        assert!((g - 0.75 * (0.5 - 1.0 / 19.0)).abs() < 1e-5, "{g}");
+        // full wetness uses the wet gloss and a scale of 1
+        let g = skin_gloss(0.2, 0.6, 1.0, 1.0, 0.75);
+        assert!((g - 0.6).abs() < 2e-3, "{g}");
     }
 
     #[test]

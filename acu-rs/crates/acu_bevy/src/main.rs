@@ -330,10 +330,18 @@ fn setup_world(
             let has_normal = extension.packed_normal.is_some();
             let mut anisotropy = 0.0;
             match &material.template {
-                Some(load::TemplateSurface::Skin { params, mask }) => {
+                Some(load::TemplateSurface::Skin {
+                    params,
+                    mask,
+                    pore,
+                    specular,
+                }) => {
+                    let bits = u32::from(pore.is_some()) | u32::from(specular.is_some()) << 1;
                     extension.params =
-                        character_material::CharacterParams::skin(params, mask.is_some());
+                        character_material::CharacterParams::skin(params, mask.is_some(), bits);
                     extension.mask = handle(*mask);
+                    extension.detail_metal = handle(*pore);
+                    extension.detail_cloth = handle(*specular);
                 }
                 Some(load::TemplateSurface::Hair { params, mask1 }) => {
                     extension.params =

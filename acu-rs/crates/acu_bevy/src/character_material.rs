@@ -38,9 +38,8 @@ pub struct CharacterParams {
     pub tint: Vec4,
 }
 
-/// SYNTHETIC: the skin template's base gloss comes from an engine-bound
-/// texture (t35.y) that was not identified; this stands in for it before the
-/// material's own gloss scale (cb3[2]).
+/// SYNTHETIC fallback, used only when the skin template's default t35 map
+/// (`character_template::SKIN_SPECULAR`) cannot be loaded.
 pub const SKIN_BASE_GLOSS_SYNTHETIC: f32 = 0.35;
 /// SYNTHETIC: Bevy anisotropy strength standing in for ACU's two-lobe
 /// strand-tangent hair highlight.
@@ -84,7 +83,8 @@ impl CharacterParams {
         }
     }
 
-    pub fn skin(s: &acu_assets::character_template::Skin, has_mask: bool) -> Self {
+    /// `maps`: 1 = pore normal (t34) bound, 2 = specular map (t35) bound.
+    pub fn skin(s: &acu_assets::character_template::Skin, has_mask: bool, maps: u32) -> Self {
         let [matrix_r, matrix_g, matrix_b] = rows(
             acu_assets::character_template::saturation_matrix(s.desaturate),
         );
@@ -93,8 +93,14 @@ impl CharacterParams {
             flags: Vec4::new(1.0, 1.0, 2.0, if has_mask { 1.0 } else { 0.0 }),
             specular: Vec4::new(
                 SKIN_BASE_GLOSS_SYNTHETIC * (wet + s.gloss_scale).clamp(0.0, 1.0),
+                (wet + s.gloss_scale).clamp(0.0, 1.0),
+                wet,
                 0.0,
-                0.0,
+            ),
+            detail_uv: Vec4::new(
+                acu_assets::character_template::SKIN_PORE_UV_SCALE,
+                acu_assets::character_template::SKIN_PORE_UV_SCALE,
+                maps as f32,
                 0.0,
             ),
             matrix_r,
