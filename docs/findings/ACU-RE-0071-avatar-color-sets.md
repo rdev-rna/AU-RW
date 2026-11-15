@@ -97,7 +97,9 @@ The hue value is therefore a **rotation of the authored diffuse**, not an absolu
 - Row 1: slate-blue coat and hood, red sash/cravat accents, grey breeches, leather unchanged.
 - Row 3: pale coat, khaki breeches, blue cravat. Distinct from row 1, which confirms the row
   drives the colour.
-- Not compared against an in-game capture.
+- Not compared against an in-game capture. On 2026-11-15 the user, who knows the game, looked at
+  the row 1 renders and confirmed they match the in-game default colours. That is a visual
+  judgement, not a pixel comparison.
 
 **Unknowns.**
 - Solver match semantics (mode 1, mask intersection assumed).

@@ -11,8 +11,8 @@ Colours (2026-11-15, [ACU-RE-0071](findings/ACU-RE-0071-avatar-color-sets.md)): 
 come from the `CN_P_Avatars_ColorSets` BuildTable, whose 28 rows write HSB vectors into
 colour-masked cloth materials. `acu_bevy` now decodes it, applies `--color-set` (default row 1,
 the default assassin blue) and bakes the template's recoloured albedo. That albedo comes from the
-mask zones and the YIQ hue rotation, re-derived from the template's ps_5_0 code. Not compared
-against an in-game capture.
+mask zones and the YIQ hue rotation, re-derived from the template's ps_5_0 code. The user
+visually confirmed that row 1 matches the in-game default; there is no pixel comparison.
 
 Latest (2026-11-15, the arena walks and runs on the native NewDemo graph;
 [ACU-RE-0069](findings/ACU-RE-0069-atomgraph-evaluation-sync-and-mirroring.md)):
