@@ -326,6 +326,7 @@ fn build(
         "finding":"ACU-RE-0081",
         "particles":n,"render_vertices":x.len(),"bones":lod.bones.len(),
         "schedule":driver.solver.schedule,
+        "disabled_ops":driver.solver.disabled_ops,
         "gravity":driver.solver.integration.gravity.truncate().to_array(),
         "max_speed":driver.solver.integration.max_speed,
         "drag":[driver.solver.drag.1,driver.solver.drag.2],

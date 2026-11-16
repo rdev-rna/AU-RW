@@ -40,10 +40,24 @@ Tailored flap's motion comes from the `Cloth` soft-body resource, not from bones
   `SoftBodySettings`). Six fields match the live body exactly. The viewer and the replay build
   the solver from it. The viewer also steps with the observed dt = 1/30 per 60 Hz tick. The
   replay result is unchanged (0.69 / 0.81 mm), and fresh idle/walk/run captures look right.
+- Toward parity (2026-11-16, second live run PID 129560): two native rules were missing.
+  - Per-set distance stiffness: settings fields 10–18; the flap's bend set uses 1.5.
+  - The interpreter's per-opcode gate (`0x14240bf70`, S-block bytes). Under external settings,
+    blend and drag are off: the drag kernel never ran for the flap, and S+64 = 0 on all six
+    external-settings bodies.
+  With both, one replayed step is within 0.035 mm (mean) of the game standing, jogging and
+  turning, against 17–23 mm of motion per step. A 450-step free-run drifts 0.1–2 mm (mean)
+  and settles back onto the game's rest pose. The carry is translation only, even while
+  turning. A few-millimetre contact residual on capsule surfaces is still open.
 
 Lighting (2026-11-15, [ACU-RE-0073](findings/ACU-RE-0073-baked-gi-and-world-ambiance.md)): the
-arena now uses the native Paris `WorldAmbiance` settings. Default `--lighting paris-noon`;
-`synthetic` restores the old rig.
+arena now uses the native `WorldAmbiance` settings. All 15 sets in the install are ported:
+- the sets: Paris and Versailles at four times of day, Saint-Denis and its moon, Prologue,
+  Rebirth, and the three time rifts;
+- the default is `--lighting paris-day` ("Day, Paris"; `paris-noon` is an alias);
+- `L` / `Shift+L` cycle the sets at runtime; `synthetic` restores the old rig;
+- each set applies its own exposure and shadows. GI is native for Paris only. One live Paris sun
+  sample is reused for every set: the per-set sun is not decoded (it is not in `WorldAmbiance`).
 - `acu_assets::gi` decodes the baked-GI containers to their exact end, using the native loaders:
   - the four Paris `GILoader` trees (61–65k nodes, one per time-of-day Season);
   - `GIDatablock` (`_gi.forge`) → `GIResult` (16 m cells) → `GIData` (four GICP blobs each).

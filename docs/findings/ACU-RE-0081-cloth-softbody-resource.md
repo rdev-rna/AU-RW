@@ -11,8 +11,9 @@ State: **partially established.**
 - Ported: the solver program and every kernel the flap schedule uses, particle skinning, the
   render-vertex mapping, and swept collision against the flap's leg capsules. The viewer drives
   the Tailored flap with them (sections "Viewer" and "Collision").
-- Compared live (2026-11-16, section "Live comparison"): with the live body's settings, one
-  replayed step lands within 0.7–0.8 mm (mean) of the game's. The live settings come from the
+- Compared live (2026-11-16, sections "Live comparison" and "Toward parity"): one replayed
+  step lands within 0.035 mm (mean) of the game's, idle, walking, jogging and turning; a 450-step
+  free-run drifts 0.1–2 mm (mean) and returns to the game's rest state. The live settings come from the
   external `SoftBodySettings` resource, now decoded and used by the viewer (section "External
   `SoftBodySettings`").
 
@@ -543,12 +544,89 @@ live-body result (idle 0.69 mm, moving 0.81 mm mean).
   (`local/cloth/`, ignored): `idle-settings-160.png`, `walk-settings-160.png`,
   `run-settings-160.png`. The coat hangs at idle and trails the legs in the run.
 
+### Toward parity: stiffness, the opcode gate and free-running (2026-11-16)
+
+**Per-set distance stiffness (observed).** The distance dispatcher `0x1423e5180` passes
+`*(solver+496) + 152 + 4·set` as the set's stiffness. On the live flap those bytes (body
++152/+156/+160) hold 1.0, 1.0 and **1.5**; the blob has 1.0 for all three. External settings
+fields 10–18 are three (stiffness, k_min, k_max) triples, (1, −2, 2), (1, 0, 2) and (1.5, −2, 0):
+the clamps equal the blob's and the stiffnesses equal the live body's
+(`SoftBodySettings::distance`). With them, the idle per-step error fell from 0.69 mm to 0.04 mm
+mean.
+
+**The opcode gate (observed).** The interpreter `0x1423d47e0` runs an opcode only if
+`0x14240bf70(ctx, op)` is true, where ctx = (body, S = body+132):
+
+| Opcode | Enable |
+|---|---|
+| 0–4 | S[0]–S[4] |
+| 13 (tether) | S[5] |
+| 5 (blend) | S[6] |
+| 7 (collision), 14 | S[7] ∨ S[8] ∨ S[9]; S[7] |
+| 8 (normals) | S[10] |
+| 9 (drag) | S[64] |
+| 15, 19, 20 | S[194], S[128], S[11] |
+| 18 | S[193] and LOD distance test |
+| 6, 10, 11, 12 | always |
+
+The blob loader `0x1423ce370` writes S[0]–S[6] from record `1107`, S[7]/S[10] from `1105`
+bytes 0/1, S[8]/S[9] from bytes 48/49, and S[64] from the first byte of `112d` (loader
+`0x1423ce820`).
+
+**Live (PID 129560).** Hardware hooks on the drag kernel `0x1423d72b0` recorded 140 calls in
+0.5 s for four bodies (45, 213, 213 and 15 particles; dt = 1/30), and none for the flap.
+Solver vtable slot 8 is `0x1423d72b0` for every body, the flap included, and the flap's
+runtime program contains opcode 9. Reading the S bytes of all 19 stepping bodies
+(`bodies-129560.json`; some addresses were stale and are ignored):
+
+| Bodies | Settings source (by their values) | S[6] | S[64] |
+|---|---|---|---|
+| 4 dragged bodies | blob (gravity −10 or −8 after halving; drag (1, 0.4), (1, 1), (50, 5)) | 0 | 1 |
+| flap + 5 others | external `SoftBodySettings` (gravity −9.8 or −20, friction 0.2, drag (1, 10) or (30, 15)) | 0 | **0** |
+
+The flap's blob has S[6] = 1 and S[64] = 1. **Port:** under external settings, blend (op 5)
+and drag (op 9) are gated off, as observed; the external fields that carry them are not
+identified. Blend is 0 on the flap, so only the drag change is visible. Disabling drag took the
+moving per-step error from 0.25 mm to 0.035 mm mean.
+
+**Carry (observed).** Each step's entry positions and previous equal the last exit moved by
+the rigid transform that maps the collider records' current frames to the next step's
+previous frames (zero error at every checked step). The transform has **no rotation, even
+while turning** (largest 0.000° per step over a 450-step turning capture): the simulation
+frame follows the character's position, not its heading. The viewer already carries this way.
+
+**Each body is stepped by per-thread solver objects** (`0x4244630 + n·0x100000`, six seen),
+so solver-keyed filters do not work; filter on the body (step argument 1 or `solver+8`).
+
+**Results** (`acu_tap_bridge` `cloth_gate`, decoded settings, gate, no overrides):
+
+| Capture | Per step, mean / max | Game motion per step | 450-step free-run, mean / max |
+|---|---|---|---|
+| idle (131236) | 0.031 / 0.81 mm | 0.11 mm | 0.08 / 4.6 mm |
+| walk and jog (131236) | 0.035 / 7.2 mm | 17.4 mm | 0.89 / 43 mm |
+| jog with turns (129560, `cloth-turn-129560.bin`) | 0.035 / 9.1 mm | 22.9 mm | 2.0 / 88 mm |
+
+The free-run (`--free-run`) steps our own state from the first entry through every captured
+step, carried by the collider-derived transform. Its drift grows while colliders sweep the
+cloth and decays back to 0.08 mm once Arno stops: the coat reaches the game's rest state again.
+Particle normals agree (mean 0.0003); one normal at a fold (step 248, particle 27) has the
+opposite sign.
+
+**Remaining residual.** The worst per-step particles sit on a capsule's surface in both
+results, a few millimetres apart along it. The native capsule kernel `0x14240fb60` matches our
+arithmetic (push, friction `min(L, μ·pen)` against the previous sample, radius
+`factor·thickness + r`, spacing r/2, query box), and thickness and friction are at a sharp
+error minimum. Open candidates: the axis-angle conversion (`glam`'s `Quat::from_mat3` against
+`0x1424382b0`), and the candidate set of the particle BVH.
+
 ## Unknowns
 
 - `SoftBodySettings`: the meaning of the 37 fields not matched live, the order of fields 0–2,
   and which of fields 24/33/36 is friction (all 0.2 in the flap's settings).
-- Where S+60 scales the tether lengths; the remaining 0.7 mm per-step gap; the reversed normals.
+- Where S+60 scales the tether lengths; which external fields carry the blend and drag
+  enables (S+6, S+64); the few-millimetre contact residual (section "Toward parity").
 - The four unnamed leg bone hashes.
+- Whether the per-step error budget meets visual parity (no side-by-side frame comparison).
 - Why the engine steps with dt = 1/30 every frame at 60 fps (engine `0x141d96fb0`, mode c+92,
   rate c+108, default 30).
 - The per-frame writer of the pinned targets (sim+504); when the LOD rule reduces the repeats.

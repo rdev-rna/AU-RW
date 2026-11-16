@@ -159,6 +159,20 @@ fn installed_tailored_flap_cloth_decodes() -> Result<()> {
         (0.0, 0.05, 1.1)
     );
     assert_eq!((s.friction(), s.drag()), (0.2, (30.0, 15.0)));
+    // Opcode enables (gate 0x14240bf70) as the blob writes them: all on, drag (S+64) on. The
+    // live flap had blend (S+6) and drag off because external settings apply (ACU-RE-0081).
+    let g = b.op_gate()?;
+    assert_eq!(g.s0_6, Some([true; 7]));
+    assert_eq!(
+        (g.s7, g.s8, g.s9, g.s10, g.s64),
+        (true, true, false, true, true)
+    );
+    // Per-set (stiffness, k_min, k_max): the blob's clamps, live stiffness 1, 1, 1.5.
+    for (k, set) in sets.iter().enumerate() {
+        let (stiffness, k_min, k_max) = s.distance(k);
+        assert_eq!((k_min, k_max), (set.k_min, set.k_max));
+        assert_eq!(stiffness, [1.0, 1.0, 1.5][k]);
+    }
     assert_eq!(
         b.schedule()?,
         [

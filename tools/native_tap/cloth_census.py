@@ -27,7 +27,7 @@ try:
     time.sleep(seconds)
 finally:
     c("DRUNHOOK 0")
-out = Path(__file__).resolve().parents[2] / f"local/native-probe/cloth-census-{pid}.bin"
+out = Path(__file__).resolve().parents[2] / f"local/native-probe/cloth-census-{pid}-{time.time_ns()}.bin"
 assert c(f"DUMP {out.as_posix()}")["ok"]
 rows = defaultdict(lambda: {"hits": 0, "dt": set()})
 for e in E.parse(str(out)):

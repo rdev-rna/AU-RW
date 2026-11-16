@@ -1,7 +1,13 @@
 //! Per-step cloth replay against the game, ACU-RE-0081.
 //!
 //!     cloth_gate <capture.bin> [--blob-settings | --live-body] [--repeat N] [--no-collision]
-//!                [--skip OPS] [--trace K] [--tether-check]
+//!                [--skip OPS] [--trace K] [--tether-check] [--free-run]
+//!
+//! Diagnostics (not native modes): `--skip OPS` drops opcodes, `--trace K` prints step K op by
+//! op, `--worst K` lists step K's worst particles, `--normals` lists reversed normals,
+//! `--stiffness live|a,b,c`, `--drag-scale X`, `--coll friction=..,thickness=..`, `--dump-maps`.
+//! `--free-run` steps our own state through the whole capture, carried between steps by the
+//! collider-derived transform, instead of reloading each captured entry.
 //!
 //! Needs ACU_GAME_DIR (the flap's `Cloth` resource: BelleEpoque_assets entry 5882). Each
 //! captured step's inputs (positions, previous, normals, targets, target normals, dt, wind,
@@ -101,6 +107,10 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             .collect::<Result<_, _>>()?;
         base.schedule.retain(|s| !skip.contains(&s.0));
     }
+    if let Some(i) = args.iter().position(|a| a == "--drag-scale") {
+        // Diagnostic: scale the drag numerator.
+        base.drag.1 *= args[i + 1].parse::<f32>()?;
+    }
     if let Some(k) = repeat {
         for s in base.schedule.iter_mut().filter(|s| s.0 == 10) {
             s.1 = k;
@@ -108,6 +118,16 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     }
 
     let tether_check = args.iter().any(|a| a == "--tether-check");
+    if args.iter().any(|a| a == "--dump-maps") {
+        // Diagnostic: the collision params the solver uses (thickness factor per particle).
+        let p = resource_params.as_ref().ok_or("no collision params")?;
+        println!(
+            "{}",
+            json!({"thickness": p.thickness, "friction": p.friction,
+            "thickness_factor": p.thickness_factor})
+        );
+        return Ok(());
+    }
     let events = parse_events(&std::fs::read(&args[1])?)?;
     let pairs = pair_entry_exit(&events)?;
     let steps: Vec<Step> = pairs
@@ -184,6 +204,19 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         Err3::default(),
         Err3::default(),
     );
+    if args.iter().any(|a| a == "--free-run") {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&free_run(
+                &base,
+                &resource_params,
+                &steps,
+                n,
+                no_collision
+            ))?
+        );
+        return Ok(());
+    }
     let mut per_block = Vec::new();
     let mut block = Err3::default();
     let mut block_moved = Err3::default();
@@ -195,6 +228,17 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         cl.state.target = s.target.clone();
         cl.normals = s.normals.clone();
         cl.drag.0 = s.wind.extend(0.0);
+        if let Some(i) = args.iter().position(|a| a == "--stiffness") {
+            // Diagnostic: per-set stiffness from body +152/+156/+160 (`live`) or a list.
+            let v: Vec<f32> = if args[i + 1] == "live" {
+                (0..3).map(|k| f32_at(&s.body, 152 + 4 * k)).collect()
+            } else {
+                args[i + 1].split(',').map(|x| x.parse().unwrap()).collect()
+            };
+            for (d, k) in cl.distance.iter_mut().zip(v) {
+                d.stiffness = k;
+            }
+        }
         if live_body {
             // Live settings block S = body+132 (gravity S+32, damping S+44, max speed S+52,
             // blend S+56) and the drag constants the kernel 0x1423d72b0 reads (+252, +256).
@@ -219,10 +263,71 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 p
             });
         }
+        if let (Some(i), Some(p)) = (
+            args.iter().position(|a| a == "--coll"),
+            cl.collision.as_mut(),
+        ) {
+            // Diagnostic: override collision params, e.g. `friction=0,thickness=0`.
+            for kv in args[i + 1].split(',') {
+                let (key, v) = kv.split_once('=').unwrap();
+                let v: f32 = v.parse().unwrap();
+                match key {
+                    "friction" => p.friction = v,
+                    "thickness" => p.thickness = v,
+                    _ => panic!("unknown --coll key {key}"),
+                }
+            }
+        }
         if trace == Some(k) {
             trace_step(&cl, s, n);
         }
         cl.step(s.dt, &s.target_normals);
+        if let Some(i) = args.iter().position(|a| a == "--worst") {
+            // Diagnostic: the 8 worst free particles at step K, with the game's exit distance to
+            // the nearest capsule surface (negative = inside) and our result's.
+            if args[i + 1].parse::<usize>().ok() == Some(k) {
+                let surf = |p: Vec4| {
+                    s.shapes
+                        .iter()
+                        .map(|sh| {
+                            let l = sh.current.local(p.truncate());
+                            match sh.kind {
+                                acu_sim::cloth::collision::ShapeKind::Capsule {
+                                    radius,
+                                    half_length,
+                                } => {
+                                    let y = l.y.clamp(-half_length, half_length);
+                                    (l - glam::Vec3::new(0.0, y, 0.0)).length() - radius
+                                }
+                                _ => f32::INFINITY,
+                            }
+                        })
+                        .fold(f32::INFINITY, f32::min)
+                };
+                let mut v: Vec<(f32, usize)> = (0..n)
+                    .filter(|&i| s.pos[i].w >= 0.0)
+                    .map(|i| (dist(cl.state.pos[i], s.out_pos[i]), i))
+                    .collect();
+                v.sort_by(|a, b| b.0.total_cmp(&a.0));
+                for &(d, i) in v.iter().take(8) {
+                    let r = cl
+                        .collision
+                        .as_ref()
+                        .and_then(|p| p.thickness_factor.as_ref())
+                        .map_or(0.0, |t| t[i])
+                        * 0.05;
+                    eprintln!(
+                        "p{i:3} err {:.2} mm  game_surf {:+.4}  ours_surf {:+.4}  in_surf {:+.4}  r_extra {:.4}  delta {:?}",
+                        d * 1000.0,
+                        surf(s.out_pos[i]),
+                        surf(cl.state.pos[i]),
+                        surf(s.pos[i]),
+                        r,
+                        (cl.state.pos[i] - s.out_pos[i]).truncate() * 1000.0
+                    );
+                }
+            }
+        }
         for i in 0..n {
             let d = dist(cl.state.pos[i], s.out_pos[i]);
             let m = dist(s.pos[i], s.out_pos[i]);
@@ -238,7 +343,16 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                 }
             }
             prev_e.add(dist(cl.state.prev[i], s.out_prev[i]));
-            norm_e.add(dist(cl.normals[i], s.out_normals[i]));
+            let nd = dist(cl.normals[i], s.out_normals[i]);
+            norm_e.add(nd);
+            if nd > 0.5 && args.iter().any(|a| a == "--normals") {
+                eprintln!(
+                    "normal step {k} p{i} ours {:?} game {:?} pinned {}",
+                    cl.normals[i],
+                    s.out_normals[i],
+                    s.pos[i].w < 0.0
+                );
+            }
         }
         if (k + 1) % 30 == 0 || k + 1 == steps.len() {
             per_block.push(json!({"steps_to": k + 1, "free_max": block.max,
@@ -315,4 +429,72 @@ fn trace_step(base: &sim::Cloth, s: &Step, n: usize) {
             .fold(0.0f32, f32::max);
         eprintln!("op {op:2}: moved max {moved:.6}  gap {:?}", gap(&c));
     }
+}
+
+/// The rigid carry between two steps: step `k`'s current collider frame becomes step `k+1`'s
+/// previous frame (observed: entry positions and previous equal the last exit carried by it).
+fn carry_between(
+    a: &acu_sim::cloth::collision::Frame,
+    b: &acu_sim::cloth::collision::Frame,
+) -> (glam::Mat3, glam::Vec3) {
+    let ra = glam::Mat3::from_cols(a.x, a.y, a.z).transpose();
+    let rb_t = glam::Mat3::from_cols(b.x, b.y, b.z);
+    let rc = rb_t * ra;
+    (rc, b.t - rc * a.t)
+}
+
+/// `--free-run`: start from the first captured entry and step our own state through every
+/// captured step (the game's targets, target normals, colliders, dt, wind), carried between
+/// steps by the collider-derived transform. Compares with the game's exit positions.
+fn free_run(
+    base: &sim::Cloth,
+    params: &Option<acu_sim::cloth::collision::Params>,
+    steps: &[Step],
+    n: usize,
+    no_collision: bool,
+) -> serde_json::Value {
+    let mut cl = base.clone();
+    let s0 = &steps[0];
+    cl.state.pos = s0.pos.clone();
+    cl.state.prev = s0.prev.clone();
+    cl.normals = s0.normals.clone();
+    let mut blocks = Vec::new();
+    let mut block = Err3::default();
+    let mut all = Err3::default();
+    let mut last = 0.0f32;
+    for (k, s) in steps.iter().enumerate() {
+        if k > 0 {
+            let (rc, tc) = carry_between(&steps[k - 1].shapes[0].current, &s.shapes[0].previous);
+            let mv = |v: Vec4| (rc * v.truncate() + tc).extend(v.w);
+            cl.state.pos.iter_mut().for_each(|p| *p = mv(*p));
+            cl.state.prev.iter_mut().for_each(|p| *p = mv(*p));
+            cl.normals
+                .iter_mut()
+                .for_each(|q| *q = (rc * q.truncate()).extend(q.w));
+        }
+        cl.state.target = s.target.clone();
+        cl.drag.0 = s.wind.extend(0.0);
+        if !no_collision {
+            cl.shapes = s.shapes.clone();
+            cl.collision = params.clone();
+        }
+        cl.step(s.dt, &s.target_normals);
+        let mut m = 0.0f32;
+        for i in 0..n {
+            if s.pos[i].w >= 0.0 {
+                let d = dist(cl.state.pos[i], s.out_pos[i]);
+                block.add(d);
+                all.add(d);
+                m = m.max(d);
+            }
+        }
+        last = m;
+        if (k + 1) % 30 == 0 || k + 1 == steps.len() {
+            blocks.push(json!({"steps_to": k + 1, "free_max": block.max,
+                "free_mean": block.sum / block.n.max(1) as f64}));
+            block = Err3::default();
+        }
+    }
+    json!({"mode": "free-run", "steps": steps.len(), "error_m": all.json(),
+           "last_step_max": last, "per_30_steps": blocks})
 }

@@ -359,6 +359,9 @@ pub struct Cloth {
     pub collision: Option<collision::Params>,
     /// Number of opcode-7 executions skipped (no collision configured).
     pub skipped_collision: u64,
+    /// Opcodes the native gate `0x14240bf70` turns off for this body (settings block bytes);
+    /// the interpreter skips them. Repeat markers (10, 11) are never gated.
+    pub disabled_ops: Vec<u32>,
 }
 
 impl Default for Integration {
@@ -434,6 +437,10 @@ impl Cloth {
     /// Native interpreter `0x1423d47e0`; returns the index it finished on.
     fn exec(&mut self, i: usize, dt: f32, tn: &[Vec4]) -> usize {
         let n = self.state.pos.len();
+        let op = self.schedule[i].0;
+        if op != 10 && op != 11 && self.disabled_ops.contains(&op) {
+            return i;
+        }
         match self.schedule[i].0 {
             s @ 0..=2 => solve_distance(&mut self.state.pos, &self.distance[s as usize]),
             3 => solve_backstop(&mut self.state.pos, &self.state.target, tn, &self.backstop),
@@ -931,6 +938,12 @@ mod tests {
         c.step(0.1, &[Vec4::Z]);
         // three integrations from rest: z = 1 - (1+2+3)*0.1
         assert!((c.state.pos[0].z - 0.4).abs() < 1e-5);
+        // A gated-off opcode is skipped, also inside a repeat block (0x14240bf70).
+        let z = c.state.pos[0].z;
+        c.disabled_ops = vec![6];
+        c.step(0.1, &[Vec4::Z]);
+        assert_eq!(c.state.pos[0].z, z);
+        c.disabled_ops.clear();
         c.schedule = vec![(12, 1)];
         assert!(c.validate().is_err());
         c.schedule = vec![(10, 1), (6, 1)];

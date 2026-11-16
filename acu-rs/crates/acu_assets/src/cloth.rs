@@ -328,6 +328,37 @@ impl<'a> Blob<'a> {
     /// Body flags: record `11.04` mapped onto body `+96` (loader
     /// `0x1423cdc40`) and `11.b1` onto `+124..129` (`0x1423cdeb0`).
     /// Returned indexed by body offset − 96 (length 34).
+    /// The opcode enable bytes of the settings block S (body +132) that the interpreter's gate
+    /// `0x14240bf70` reads, as the blob's loader `0x1423ce370` writes them: S+0..S+6 from record
+    /// `1107` (absent: `None`), S+7/S+10 from `1105` bytes 0/1, S+8/S+9 from bytes 48/49, and
+    /// S+64 (drag) from the first byte of `112d` (loader `0x1423ce820`).
+    pub fn op_gate(&self) -> Result<OpGate> {
+        let s = self.find(0x1105).ok_or("cloth blob: 1105 absent")?;
+        if s.len() < 50 {
+            return invalid("cloth blob: 1105 short");
+        }
+        let ops = match self.find(0x1107) {
+            Some(d) if d.len() >= 7 => {
+                let mut v = [false; 7];
+                for (i, b) in v.iter_mut().enumerate() {
+                    *b = d[i] != 0;
+                }
+                Some(v)
+            }
+            Some(_) => return invalid("cloth blob: 1107 short"),
+            None => None,
+        };
+        let drag = self.find(0x112d).ok_or("cloth blob: 112d absent")?;
+        Ok(OpGate {
+            s0_6: ops,
+            s7: s[0] != 0,
+            s8: s[48] != 0,
+            s9: s[49] != 0,
+            s10: s[1] != 0,
+            s64: drag.first().is_some_and(|&b| b != 0),
+        })
+    }
+
     pub fn flags(&self) -> Result<[u8; 34]> {
         let mut f = [0u8; 34];
         let d = self.find(0x1104).ok_or("cloth blob: 1104 absent")?;
@@ -562,6 +593,21 @@ pub struct CollisionSettings {
     pub mesh: bool,
     pub cloth: bool,
     pub priority: u8,
+}
+
+/// Opcode enables from the blob (see [`Blob::op_gate`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OpGate {
+    /// S+0..S+6: distance sets 0-2, backstop, max distance, tether (op 13), blend (op 5).
+    pub s0_6: Option<[bool; 7]>,
+    /// S+7 rigid colliders, S+8 mesh colliders, S+9 cloth colliders (op 7 runs if any is set).
+    pub s7: bool,
+    pub s8: bool,
+    pub s9: bool,
+    /// S+10: normals (op 8).
+    pub s10: bool,
+    /// S+64: drag (op 9).
+    pub s64: bool,
 }
 
 /// Serialized pointer with a kind byte (fields with reflection flag `0x08`).
@@ -1130,6 +1176,14 @@ impl SoftBodySettings {
     pub fn friction(&self) -> f32 {
         self.f(24)
     }
+    /// Fields `10 + 3·set` .. `12 + 3·set`: distance set `set` (0–2) stiffness, `k_min`, `k_max`.
+    /// The flap's triples (1, −2, 2), (1, 0, 2), (1.5, −2, 0) carry the blob's clamps, and the
+    /// stiffnesses equal the live body's +152/+156/+160, which the distance dispatcher
+    /// `0x1423e5180` reads (`*(solver+496) + 152 + 4·set`) (ACU-RE-0081).
+    pub fn distance(&self, set: usize) -> (f32, f32, f32) {
+        let i = 10 + 3 * set.min(2);
+        (self.f(i), self.f(i + 1), self.f(i + 2))
+    }
     /// Fields 40 and 41: the drag constants the kernel `0x1423d72b0` reads (body +252, +256).
     pub fn drag(&self) -> (f32, f32) {
         (self.f(40), self.f(41))
@@ -1290,6 +1344,10 @@ mod tests {
             (37.0, 34.0, 20.0)
         );
         assert_eq!((s.friction(), s.drag()), (24.0, (40.0, 41.0)));
+        assert_eq!(
+            (s.distance(0), s.distance(2)),
+            ((10.0, 11.0, 12.0), (16.0, 17.0, 18.0))
+        );
         assert_eq!(s.fields[2], (0x275b_8856, SettingValue::U8(2)));
         assert_eq!(s.fields[5].1, SettingValue::I32(-1));
         assert!(soft_body_settings(&p, "00000016c61d53a2").is_err());

@@ -90,7 +90,30 @@ pub fn solver(blob: &Blob, external: Option<&SoftBodySettings>) -> Result<Cloth,
         shapes: Vec::new(),
         collision: None,
         skipped_collision: 0,
+        disabled_ops: Vec::new(),
     };
+    // The interpreter's per-op gate (`0x14240bf70`) over the settings block bytes.
+    let g = blob.op_gate().map_err(err)?;
+    let s = g
+        .s0_6
+        .ok_or("cloth: record 1107 (op enables) absent; its default is not known")?;
+    let mut off = |op: u32, on: bool| {
+        if !on {
+            cloth.disabled_ops.push(op);
+        }
+    };
+    for (op, on) in s[..5].iter().enumerate() {
+        off(op as u32, *on);
+    }
+    off(13, s[5]);
+    // Blend (S+6) and drag (S+64): observed live (ACU-RE-0081, 2026-11-16), both bytes are 0 on
+    // every body whose settings came from an external SoftBodySettings (6 bodies), whatever the
+    // blob says; drag is 1 on the 4 bodies using blob settings. Which external fields carry
+    // them is not identified.
+    off(5, s[6] && external.is_none());
+    off(7, g.s7 || g.s8 || g.s9);
+    off(8, g.s10);
+    off(9, g.s64 && external.is_none());
     if let Some(e) = external {
         cloth.integration.gravity = Vec3::from_array(e.gravity()).extend(0.0);
         cloth.integration.damping = e.damping();
@@ -100,6 +123,9 @@ pub fn solver(blob: &Blob, external: Option<&SoftBodySettings>) -> Result<Cloth,
         }
         cloth.drag.1 = a;
         cloth.drag.2 = b;
+        for (k, d) in cloth.distance.iter_mut().enumerate() {
+            (d.stiffness, d.k_min, d.k_max) = e.distance(k);
+        }
         // Inference: S+60 scales the tether lengths (the live anchor distances stop at it).
         let k = e.tether_scale();
         cloth.tether.value.iter_mut().for_each(|v| *v *= k);
