@@ -266,6 +266,90 @@ static int runSpawnBox(const float* in, uint64_t* entityOut, uint64_t* component
         return -3;
     }
 }
+// mode 9 (move a world entity, ACU-RE-0103): 0x1420F7510(entity, matrix), the call 0x141FAFE80
+// makes after a spawn. Without a parent (+0x18) it is Entity vtbl+128, 0x141CE1FF0: it stores the
+// matrix at +0x20 and calls every component's vtbl+560 with it (InertComponent: 0x14262CBF0 ->
+// 0x1425DE420, which updates the RigidBody's registered body). entity = the entity, matrix = the
+// new 4x4 world matrix (rotation rows, position row, w = 1). The entity must point back to the
+// current World (+0x60) and must not be the player (use mode 0 for Arno).
+// status: 1 moved, -1 not an entity of the current World, -2 the player, -3 exception.
+static int runMoveEntity(uintptr_t entity, const float* matrix, uint32_t* exception) {
+    __try {
+        uintptr_t holder = *(uintptr_t*)(imageLow + kWorldHolderRva);
+        if (!readable(holder + 0x98, 8)) return -1;
+        uintptr_t world = *(uintptr_t*)(holder + 0x98);
+        if (!world || !readable(entity + kEntityWorld, 8) || *(uintptr_t*)(entity + kEntityWorld) != world ||
+            !readable(entity + kEntityMatrix, 64) || !readable(world + 0xD8, 8)) return -1;
+        if (*(uintptr_t*)(world + 0xD8) == entity) return -2;
+        alignas(16) float m[16];
+        memcpy(m, matrix, sizeof m);
+        ((char(__fastcall*)(uintptr_t, float*))(imageLow + kSetMatrixRva))(entity, m);
+        return 1;
+    } __except (*exception = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
+        return -3;
+    }
+}
+
+// mode 10 (clone a world entity, ACU-RE-0103): EntityBuilder's instantiation 0x141CD0470 copies its
+// Template entity with the object clone, vtbl+24 (Entity::vf3 0x141CC65D0: allocates and inits a new
+// Entity, then 0x1426ECC50 clones every component through its own vtbl+24), then sets flags +136
+// |= 0x800014, calls 0x141CE94F0(clone, 0) and sets +212 bit 0x40000 (clears 0x80000; the other
+// branch of its build-context byte +28). The clone is then placed like mode 8's entity: matrix
+// written at +0x20, World add 0x141D40250, activate vtbl+248, set matrix 0x1420F7510.
+// entity = the source (an entity of the current World, not the player), matrix = the clone's world
+// matrix, human bit 0 = skip the builder flags. Returns the clone in t->entity.
+// status: 1 cloned, -1 source not an entity of the current World, -2 the player, -7 clone null or
+// not an entity (same vtable as the source), -3 exception.
+constexpr uintptr_t kEntityFlagsInitRva = 0x1CE94F0;
+// Fault diagnostics for mode 10: the filter runs on the faulting stack before unwinding, so it can
+// record the faulting address, the accessed address (access violations) and the in-image return
+// addresses above it. Values are RVAs when inside ACU.exe, else absolute.
+static uint64_t cloneFault[8];
+static uint64_t imageRelative(uint64_t a) { return a >= imageLow && a < imageHigh ? a - imageLow : a; }
+static int recordFault(EXCEPTION_POINTERS* p, uint32_t* code) {
+    *code = p->ExceptionRecord->ExceptionCode;
+    memset(cloneFault, 0, sizeof cloneFault);
+    cloneFault[0] = imageRelative((uint64_t)p->ExceptionRecord->ExceptionAddress);
+    if (p->ExceptionRecord->NumberParameters >= 2) cloneFault[1] = p->ExceptionRecord->ExceptionInformation[1];
+    void* frames[48] = {};
+    USHORT n = RtlCaptureStackBackTrace(0, 48, frames, nullptr);
+    int k = 2;
+    for (USHORT i = 0; i < n && k < 8; i++) {
+        uint64_t a = (uint64_t)frames[i];
+        if (a >= imageLow && a < imageHigh) cloneFault[k++] = a - imageLow;
+    }
+    return EXCEPTION_EXECUTE_HANDLER;
+}
+static int runCloneEntity(uintptr_t source, const float* matrix, uint64_t options, uint64_t* cloneOut, uint32_t* exception) {
+    __try {
+        uintptr_t holder = *(uintptr_t*)(imageLow + kWorldHolderRva);
+        if (!readable(holder + 0x98, 8)) return -1;
+        uintptr_t world = *(uintptr_t*)(holder + 0x98);
+        if (!world || !readable(source + kEntityWorld, 8) || *(uintptr_t*)(source + kEntityWorld) != world ||
+            !readable(source, 8) || !readable(world + 0xD8, 8)) return -1;
+        if (*(uintptr_t*)(world + 0xD8) == source) return -2;
+        uintptr_t vtable = *(uintptr_t*)source;
+        uintptr_t clone = (*(uintptr_t(__fastcall**)(uintptr_t, uintptr_t, uint32_t))(vtable + 24))(source, 0, 0);
+        if (!clone || !readable(clone, 0x170) || *(uintptr_t*)clone != vtable) return -7;
+        if (!(options & 1)) {
+            *(uint64_t*)(clone + 136) |= 0x800014ull;
+            ((void(__fastcall*)(uintptr_t, uintptr_t))(imageLow + kEntityFlagsInitRva))(clone, 0);
+            *(uint32_t*)(clone + 212) = (*(uint32_t*)(clone + 212) & ~0x80000u) | 0x40000u;
+        }
+        alignas(16) float m[16];
+        memcpy(m, matrix, sizeof m);
+        memcpy((void*)(clone + kEntityMatrix), m, 64);
+        ((uintptr_t(__fastcall*)(uintptr_t, uintptr_t))(imageLow + kWorldAddRva))(world, clone);
+        (*(void(__fastcall**)(uintptr_t, uintptr_t))(*(uintptr_t*)clone + 248))(clone, 0);
+        ((char(__fastcall*)(uintptr_t, float*))(imageLow + kSetMatrixRva))(clone, m);
+        uintptr_t own = *(uintptr_t*)(clone + 304);  // keep the clone alive, as mode 8 does
+        if (readable(own + 12, 4)) InterlockedIncrement((volatile LONG*)(own + 12));
+        *cloneOut = clone;
+        return 1;
+    } __except (recordFault(GetExceptionInformation(), exception)) {
+        return -3;
+    }
+}
 
 // modes 6/7 (outfit, ACU-RE-0048/0070; lead: the ACUFixes plugin "Gear Visual Customization 365"
 // 1.2.5, read statically, no code reused): the matrix bytes carry up to 8 u64 item file IDs, human =
@@ -387,6 +471,19 @@ static void serviceTeleport() {
         t->done = t->request;
         return;
     }
+    if (t->mode == 10) {
+        uint64_t clone = 0;
+        int guard = worldGuard();
+        int status = guard ? guard : runCloneEntity((uintptr_t)t->entity, matrix, t->human, &clone, &exception);
+        t->entity = clone;
+        if (status == -3) memcpy((void*)&t->matrix[0], cloneFault, sizeof cloneFault);
+        t->exception = exception;
+        t->status = status;
+        InterlockedIncrement(&teleports);
+        MemoryBarrier();
+        t->done = t->request;
+        return;
+    }
     if (t->mode == 8) {
         uint64_t entity = 0, component = 0, bodies[2] = {};
         int guard = worldGuard();
@@ -401,12 +498,13 @@ static void serviceTeleport() {
         t->done = t->request;
         return;
     }
-    int guard = t->mode <= 2 ? playerGuard((uintptr_t)t->entity) : (t->mode == 3 || t->mode == 4) ? worldGuard() : 0;
+    int guard = t->mode <= 2 ? playerGuard((uintptr_t)t->entity) : (t->mode == 3 || t->mode == 4 || t->mode == 9) ? worldGuard() : 0;
     int status = guard ? guard
                : t->mode == 0 ? runTeleport((uintptr_t)t->human, (uintptr_t)t->entity, matrix, &exception)
                : t->mode == 3 ? runTravel((uintptr_t)t->human, t->entity, &exception)
                : t->mode == 4 ? runLoadWorld(t->entity, t->human, &exception)
                : t->mode == 5 ? runStartWorld((uintptr_t)t->entity, &exception)
+               : t->mode == 9 ? runMoveEntity((uintptr_t)t->entity, matrix, &exception)
                : t->mode <= 2 ? runFlag(t->mode, (uintptr_t)t->human, (uintptr_t)t->entity, matrix[0] > 0.5f, &readback, &exception)
                : -4;
     t->matrix[1] = readback;

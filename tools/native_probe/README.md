@@ -308,6 +308,17 @@ python tools/native_probe/focus.py activate <pid>   # posts activation messages 
   - Several boxes per launch work. Arno braces against them and a tall one starts a wall entry,
     but boxes give no vault, climb or ledge (ACU-RE-0103 obs. 10–11). They serve as floors and
     blockers, not parkour props.
+- Move and clone world entities (test build `acu_focus_floor.dll`, SHA-256 `47dfb688…b9749318`, loaded with
+  `capture_run.py --focus-dll local/native-probe/acu_focus_floor.dll`; ACU-RE-0103 obs. 12–15):
+  - `teleport.py <pid> move-entity 0xENTITY X Y Z [--yaw DEG]` (mode 9) moves an entity's
+    collision through `Entity::set_world_matrix`. Parkour follows it: a moved crate or beam can be
+    jumped on 60 m up. Its rendered mesh stays where it was. Find entities with
+    `world_entities.py`.
+  - `teleport.py <pid> clone-entity 0xENTITY X Y Z` (mode 10) currently faults on the window
+    thread (engine memory context; the fault is caught and its RVA and stack returned). It needs
+    a main-thread hook before it can work.
+  - The stick moves Arno relative to the camera, and the camera keeps its last heading across a
+    teleport. Read it with `camera_state.py` and place the target along it.
 - `teleport.py <pid> keep-safe`: re-arms Invisible + God Mode whenever a new player entity appears
   (each world arrival, death or reload makes a new one; ACU-RE-0049 obs. 15).
 - Keyboard (shim build t7+): `focus.InProcessKeys(pid)` writes `Localcu-keys-<pid>`

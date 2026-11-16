@@ -1,4 +1,4 @@
-# ACU-RE-0103 — Spawning a static collision box at runtime
+# ACU-RE-0103 — Spawning collision boxes and moving parkour props at runtime
 
 Date: 2026-11-16. Related: [ACU-RE-0046](ACU-RE-0046-player-teleport-and-vault-scan.md) (teleport
 shim), [ACU-RE-0074](ACU-RE-0074-transition-sync-source-and-graph-conditions.md) obs. 12 (the flat
@@ -8,7 +8,10 @@ State: **observed** for the spawn sequence, and live for collision with the play
 - **Observed:**
   - a box built this way holds Arno up, and outside it he falls;
   - several boxes spawn per launch, and Arno braces against them;
-  - none gives a vault, climb or ledge (obs. 9–11).
+  - none gives a vault, climb or ledge (obs. 9–11);
+  - world props moved into the sky keep their parkour (obs. 12–13), but not their rendering
+    (obs. 14);
+  - the entity clone faults on the window thread (obs. 15).
 - **Not established:**
   - what the RigidBody motion field values mean;
   - the collision filter layer;
@@ -111,6 +114,47 @@ State: **observed** for the spawn sequence, and live for collision with the play
 11. **No vault, climb or mantle on any box.** Arno never stood on the 1 m wall or the 2 m block,
     and never got higher than 1.7 m up the 5 m wall.
 
+### Observations (live, moving and cloning world props, 2026-11-16)
+
+Runs `clone-course-1` (PID 64800) and `clone-course-2` (PID 67828). Both used the test shim
+`acu_focus_floor.dll` (modes 9 and 10, SHA-256 of the final build in the README), the same pin
+and fps cap 60, and were closed with `--close`. Props were picked by `world_entities.py` within
+150 m of the start. Names are `crc-name` labels from the asset index.
+
+12. **Moving an entity (mode 9).** `0x1420F7510(entity, matrix)` reaches `Entity::set_world_matrix`
+    `0x141CE1FF0`. That stores the matrix at +0x20 and calls each component's vtbl+560;
+    InertComponent's is `0x14262CBF0` → `0x1425DE420`, which acts only when RigidBody +168 is not
+    0x7FFFFFFF (a registered body). Every move returned status 1, and the entity matrix read back
+    as requested.
+13. **Parkour follows a moved prop.** Each prop was moved onto the sky floor 8 m in front of Arno,
+    then he free-ran with parkour up into it:
+
+    | Prop (moved from) | Result |
+    | --- | --- |
+    | `GEN_ALL_CratesWine_01_002` (601.0, −35.5, 0.0) | `xx_Parkour_Run_JumpOn100cm_tr_Sprint_WithHands` onto the crate (z 61.65), `Leaping_Fd650cm-Dn200cm` off it, `LandingFwd_LandMid` |
+    | `GEN_ALL_Beam_2m_01_232` (618.5, 1.1, 4.7), 1.0 m above the floor | `xx_Parkour_Run_JumpOn100cm_tr_Sprint`, `StepLevel_300cm` (z 61.50), `SprintingStepDown_Fd150cm-Dn100cm`, `LeapLevel_tr_Sprint` |
+    | `GEN_ALL_PlankStack_01_031` | run over as a low slope (`Run_SlopeDn30Deg`, z ≤ 60.68) |
+    | `GEN_ALL_WindowLedge_2m_01_100`, 1.8 m up on the face of a spawned 2 × 1 × 5 m wall, facing Arno or facing the wall | `SprintFwd_tr_WallBrace_NoHand` at the wall; no grab |
+    | `GEN_ALL_AnchorClimbing_01_147`, 1.5 m up on a spawned 5 m wall | the wall entry fails, as on a bare box (obs. 10) |
+
+    The stick moves Arno relative to the camera, and the camera keeps its last heading across
+    teleports. Lanes whose approach did not match the camera's heading were discarded:
+    `clone-course-2` lanes A, B, D, E and F.
+14. **Rendering does not follow a move.** A screenshot (`clone-course-1/shot-crate`) taken 5 m
+    behind the moved crate shows Arno on the invisible floor with no crate in front of him,
+    although he had just jumped onto it.
+15. **Cloning (mode 10) faults.** `Entity::vf3` (`0x141CC65D0`, the object clone EntityBuilder uses
+    in `0x141CD0470`) was called on a live crate, a plank stack, an anchor and a barrel, with and
+    without the builder flags. Every call raised `0xC0000005`, caught by the shim. Fault record:
+    - at RVA `0x26F4AED`, in `sub_1426F4A80`;
+    - accessed address `0x16865D23C08`;
+    - in-image stack `0x1CC663B` (`Entity::vf3` + 0x6B), then `0x1CDC150`, `0x1CE6A42`,
+      `0x1C49F1A`, `0x276AE60` (the game's window-message dispatch).
+
+    `sub_1426F4A80` reads the thread's engine memory context: TLS slot + 104, frames of 360 B
+    indexed by +2880, and a stack at +2896 with its count at +2906. The game stayed responsive
+    after each fault.
+
 ### Inferences
 
 - The engine has a reusable runtime collision primitive: an InertComponent RigidBody with any
@@ -132,12 +176,29 @@ State: **observed** for the spawn sequence, and live for collision with the play
   - Alternative 1: the parkour layer reads only MeshShape triangles at run time.
   - Alternative 2: a GameplaySurfaceNavType flag (InertComponent +0x120, a 1-byte bitfield with 5
     unnamed reflected bits) gates it. It was left at its default.
+- **Parkour is analysed per object, at its current transform** (obs. 13). A crate and a beam moved
+  60 m up into empty sky gave the same jump-on, step and leap actions as in the street. So the
+  parkour layer does not rely on data baked for the original location. It reads the object's own
+  collision wherever that is.
+- A ledge alone does not make a wall climbable. Wall climbing probably needs the wall's own
+  climbable collision, for example the invisible `FRV_Parkour_Row_*` / `FRV_Parkour_Corner_*`
+  groups (ACU-RE-0047), and not just a hold on a box.
+- The world's static meshes are drawn from a render structure that a move does not update
+  (obs. 14). A copy made by a real clone or a fresh instantiation would carry its own visual
+  component; not verified.
+- The clone fault (obs. 15) is a thread-context problem, not a bad clone call. The shim runs on the
+  window-message thread, where the engine memory context is not set up for object construction.
+  Mode 8 never touches it, because it allocates from an explicit heap. The fix is to run the
+  clone inside a game update (a hook on a main-thread update routine) or to push a context frame
+  first. Neither was tried.
 - **For a custom parkour course mod:**
-  - Floors, walls and blockers already work. They stop Arno, he walks and sprints on them, and he
-    braces against them.
-  - Parkour (vault, climb, ledges) needs geometry the parkour layer accepts.
-  - The likely route is to place copies of existing world entities that already carry parkour data
-    (ledges, crates, beams, building pieces), rather than primitive boxes. Not tried.
+  - Floors, walls and blockers work today (spawned boxes). They stop Arno, he walks and sprints on
+    them, and he braces against them.
+  - Top-surface parkour props (crates, beams) work at any position once moved.
+  - Next steps:
+    - copying props instead of moving them (the clone fix above);
+    - making them render where they are placed;
+    - finding what makes a wall climbable.
 
 ### Unknowns
 
@@ -147,7 +208,10 @@ State: **observed** for the spawn sequence, and live for collision with the play
   removed and is expected to go when the World unloads; this was not checked.
 - Whether a runtime MeshShape, or a set GameplaySurfaceNavType bit, gives parkour candidates.
   The parkour selection trace (`parkour_selection.profile.json`) was not run on the boxes.
-- Cloning an existing entity, together with its parkour data, at a new transform.
+- Cloning on a thread with a valid engine memory context, and whether the clone renders.
+- What makes a surface climbable (wall entry succeeds): the invisible parkour groups, a
+  MeshShape, or a GameplaySurfaceNavType bit.
+- Whether the moved prop's collision also stays at its old place. Only the new place was tested.
 
 ### Reproduction
 

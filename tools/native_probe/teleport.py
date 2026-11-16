@@ -7,6 +7,10 @@ r"""Teleport Arno: write the player entity's matrix, then reset the Human's beha
     python tools/native_probe/teleport.py <pid> keep-safe [--seconds N]  # re-arm both after every arrival
     python tools/native_probe/teleport.py <pid> spawn-box X Y Z [--half 100 100 0.5] [--yaw DEG]
                                           # static collision box, centre X Y Z (shim mode 8, ACU-RE-0103)
+    python tools/native_probe/teleport.py <pid> move-entity 0xENTITY X Y Z [--yaw DEG]
+                                          # move a world entity (shim mode 9, ACU-RE-0103)
+    python tools/native_probe/teleport.py <pid> clone-entity 0xENTITY X Y Z [--yaw DEG] [--no-builder-flags]
+                                          # copy a world entity to X Y Z (shim mode 10, ACU-RE-0103)
 
 Route (binary SHA-256 748abdc6...7e40, image base 0x140000000):
   - The debug menu's "Teleport Character" (0x140EF73D0 -> 0x140EE11B0) asks the Human for
@@ -53,12 +57,14 @@ LAYOUT = struct.Struct("<IIIiQQ16fII")  # magic request done status human entity
 MAGIC = 0x54554341  # "ACUT"
 HUMAN_OFFSET, HUMAN_VTABLE = 0xC58, 0x142FB2010  # in the AtomAnimComponent; ACU-RE-0046
 BEHAVIOUR_VTABLE, INVISIBLE_BYTE = 0x142F08230, 208  # debug "Invisible :" flag (ACU-RE-0046)
-MODE_INVISIBLE, MODE_GOD, MODE_SPAWN_BOX = 1, 2, 8
+MODE_INVISIBLE, MODE_GOD, MODE_SPAWN_BOX, MODE_MOVE_ENTITY, MODE_CLONE_ENTITY = 1, 2, 8, 9, 10
 FALL_M = 1.5  # metres below the target after settling = fell through unstreamed ground
 STATUS = {1: "done", -1: "not the Human (vtable check)", -2: "not an entity", -3: "exception",
           -4: "unknown mode", -5: "world travel in progress (shim t8+)",
           -6: "not the current World's player (stale pointer; shim t8+)",
           -7: "spawn-box: vtable check failed after construction (nothing added)"}
+MOVE_STATUS = {-1: "not an entity of the current World", -2: "that is the player (use `to`)",
+               -7: "clone returned null or a different vtable (nothing added)"}
 
 
 class NotReady(RuntimeError):
@@ -232,6 +238,61 @@ def spawn_box(pid: int, centre: list[float], half: list[float], yaw_deg: float =
         mem.close()
 
 
+def move_entity(pid: int, entity: int, position: list[float], yaw_deg: float | None = None) -> dict:
+    """Shim mode 9: Entity set_world_matrix with component update. Keeps the entity's rotation unless yaw is given."""
+    mem, shared = live_state.Memory(pid), Shared(pid)
+    try:
+        ready(mem)
+        m = struct.unpack("<16f", mem.read(entity + live_state.ENTITY_MATRIX, 64))
+        rows = [list(m[i:i + 4]) for i in range(0, 16, 4)]
+        r = shared.call(0, entity, target_matrix(rows, position, yaw_deg), mode=MODE_MOVE_ENTITY)
+        r["meaning"] = MOVE_STATUS.get(r.get("status"), r.get("meaning"))
+        after = struct.unpack("<16f", mem.read(entity + live_state.ENTITY_MATRIX, 64))
+        return {"entity": f"0x{entity:X}", "before": [round(v, 3) for v in m[12:15]],
+                "after": [round(v, 3) for v in after[12:15]], **r}
+    finally:
+        shared.close()
+        mem.close()
+
+
+def clone_entity(pid: int, entity: int, position: list[float], yaw_deg: float | None = None,
+                 builder_flags: bool = True) -> dict:
+    """Shim mode 10: clone a world entity (object clone, as EntityBuilder does), place and activate the copy."""
+    mem, shared = live_state.Memory(pid), Shared(pid)
+    try:
+        ready(mem)
+        m = struct.unpack("<16f", mem.read(entity + live_state.ENTITY_MATRIX, 64))
+        rows = [list(m[i:i + 4]) for i in range(0, 16, 4)]
+        _, request, done, *_ = shared.read()
+        request = done + 1
+        body = LAYOUT.pack(MAGIC, done, done, 0, 0 if builder_flags else 1, entity,
+                           *target_matrix(rows, position, yaw_deg), 0, MODE_CLONE_ENTITY)
+        C.memmove(shared.view, body, LAYOUT.size)
+        C.memmove(shared.view + 4, struct.pack("<I", request), 4)
+        end = time.monotonic() + 5
+        while time.monotonic() < end:
+            row = shared.read()
+            if row[2] == request:
+                status, clone = row[3], row[5]
+                out = {"source": f"0x{entity:X}", "status": status,
+                       "meaning": "cloned" if status == 1 else MOVE_STATUS.get(status, STATUS.get(status, "?")),
+                       "clone": f"0x{clone:X}", "builder_flags": builder_flags,
+                       "exception": f"0x{row[22]:08X}" if row[22] else None}
+                if status == 1:
+                    after = struct.unpack("<16f", mem.read(clone + live_state.ENTITY_MATRIX, 64))
+                    out["clone_position"] = [round(v, 3) for v in after[12:15]]
+                elif status == -3:  # shim's fault record: fault RVA, accessed address, in-image stack RVAs
+                    fault = struct.unpack("<8Q", C.string_at(shared.view + 32, 64))
+                    out["fault"] = {"at": f"0x{fault[0]:X}", "accessed": f"0x{fault[1]:X}",
+                                    "stack": [f"0x{v:X}" for v in fault[2:] if v]}
+                return out
+            time.sleep(0.02)
+        return {"status": None, "meaning": "not serviced (window thread busy or shim without mode 10)"}
+    finally:
+        shared.close()
+        mem.close()
+
+
 def target_matrix(rows: list[list[float]], position: list[float], yaw_deg: float | None) -> list[float]:
     if yaw_deg is None:
         r0, r1, r2 = rows[0], rows[1], rows[2]
@@ -300,7 +361,26 @@ def main() -> None:
     b.add_argument("z", type=float)
     b.add_argument("--half", type=float, nargs=3, default=[100.0, 100.0, 0.5])
     b.add_argument("--yaw", type=float, default=0.0)
+    mv = sub.add_parser("move-entity")
+    mv.add_argument("entity", type=lambda v: int(v, 0))
+    mv.add_argument("x", type=float)
+    mv.add_argument("y", type=float)
+    mv.add_argument("z", type=float)
+    mv.add_argument("--yaw", type=float)
+    cl = sub.add_parser("clone-entity")
+    cl.add_argument("entity", type=lambda v: int(v, 0))
+    cl.add_argument("x", type=float)
+    cl.add_argument("y", type=float)
+    cl.add_argument("z", type=float)
+    cl.add_argument("--yaw", type=float)
+    cl.add_argument("--no-builder-flags", action="store_true")
     a = ap.parse_args()
+    if a.mode == "clone-entity":
+        print(json.dumps(clone_entity(a.pid, a.entity, [a.x, a.y, a.z], a.yaw, not a.no_builder_flags)))
+        return
+    if a.mode == "move-entity":
+        print(json.dumps(move_entity(a.pid, a.entity, [a.x, a.y, a.z], a.yaw)))
+        return
     if a.mode == "spawn-box":
         print(json.dumps(spawn_box(a.pid, [a.x, a.y, a.z], a.half, a.yaw)))
         return

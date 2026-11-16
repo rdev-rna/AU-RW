@@ -84,7 +84,9 @@ native exposure, shadows and Paris GI around Arno.
 Runtime collision: [ACU-RE-0103](findings/ACU-RE-0103-runtime-collision-box-spawn.md) spawns a
 static InertComponent box (BoxShape, World add) from the shim (`teleport.py spawn-box`); Arno
 stands and sprints on it, which gave the first native flat-ground sprint (6.33–6.38 m/s).
-Arno braces against spawned boxes but gets no vault, climb or ledge from them.
+Arno braces against spawned boxes but gets no vault, climb or ledge from them. World props
+moved into the sky keep their parkour (a crate and a beam were jumped on 60 m up); cloning is
+blocked by the window thread's engine memory context.
 Character materials: [ACU-RE-0084](findings/ACU-RE-0084-character-template-gbuffer.md) locates the
 outfit templates' DXBC (cloth, skin, hair) and the deferred G-buffer contract; RT order open.
 
