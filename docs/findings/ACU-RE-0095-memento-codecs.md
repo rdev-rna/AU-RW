@@ -3,6 +3,7 @@
 Date / investigator / related task: 2026-11-16 / Claude (Opus 5.5), static, offline with capstone / #85, coverage
 ledger phase 2 ([../coop/COVERAGE.md](../coop/COVERAGE.md))
 State: partially established. The codec binding, field layout and newest-wins stamp are decoded for 112 of the
+Superseded in part by ACU-RE-0099: five of the six undecoded types are now bound and decoded or laid out; only `AIComponent_NetProtocol` has no codec bind.
 118 memento types. What each field means is not; 6 types have no binding found.
 
 ## Provenance

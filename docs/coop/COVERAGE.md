@@ -52,10 +52,13 @@ Totals: 965 messages, 118 states and 33 object types.
 (4,657 fields, 4,310 traced to an owner offset), in `local/coop/message_payloads.json`. `TransferGroup` was decoded by hand. The "Fields decoded" column above predates it.
 No state type is decoded yet. Behaviour has been shown, at least in part, for parts of 6 of the 15 systems.
 
-**Phase 2 mostly done (ACU-RE-0095):** codec binding, field layout and newest-wins stamp for 112 of the 118 state
-types (1,293 fields, 299 of them in sub-memento arrays), in `local/coop/memento_codecs.json`. Not decoded:
-`NetBehaviorAI_NetProtocol`, `AIComponent`, `LivingBreathingManager`, `VillaTrophyManager`,
-`GcLCrowdLifeProtocolContainer` and `ProxiesProtocol`. The "State" counts above are type counts, not decoded ones.
+**Phase 2 done except one type (ACU-RE-0095, ACU-RE-0099):** codec binding, field layout and newest-wins stamp
+for 115 of the 118 state types (1,424 fields), in `local/coop/memento_codecs.json`.
+- `GcLCrowdLifeProtocolContainer` and `ProxiesProtocol` are bound once per slot, under keys hashed at run time
+  (40 × 30 crowd entries; 30 × 10 proxies per peer).
+- `AIComponent_NetProtocol` is registered but has no codec bind.
+
+The "State" counts above are type counts, not decoded ones.
 
 **Receive side mapped (ACU-RE-0098):** the execute handler of all 963 messages, in
 `local/coop/message_handlers.json`, with each handler's dispatch style and role test:

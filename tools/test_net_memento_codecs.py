@@ -128,5 +128,31 @@ class ReadDelegateTests(unittest.TestCase):
         self.assertEqual(c["inline_not_read_inline"], 1)
 
 
+LEA_RAX_RIP = bytes([0x48, 0x8D, 0x05])
+CALL_REL32 = bytes([0xE8])
+RET = bytes([0xC3])
+
+
+@unittest.skipIf(nm.capstone is None, "capstone not installed")
+class BindShapeTests(unittest.TestCase):
+    def test_delegate_init_pairs_in_order(self):
+        # NetBehaviorAI's bind (0x140738E53): lea rax,[rip+read]; call 0x1405F61E0; lea rax,[rip+write]; call ...
+        f1, f2 = BASE + 0x100, BASE + 0x140
+        code, at = b"", BASE
+        for fn in (f1, f2):
+            code += rel32(at, fn, LEA_RAX_RIP)              # lea rax, [rip+fn]
+            at += 7
+            code += rel32(at, nm.DELEGATE_INIT, CALL_REL32)  # call 0x1405F61E0
+            at += 5
+        code += RET
+        dec = nm.Decoder(FakeImage(code))
+        self.assertEqual(dec.delegate_inits(dec.code(BASE, len(code))), [f1, f2])
+
+    def test_lea_without_delegate_call_is_ignored(self):
+        code = rel32(BASE, BASE + 0x100, LEA_RAX_RIP) + RET
+        dec = nm.Decoder(FakeImage(code))
+        self.assertEqual(dec.delegate_inits(dec.code(BASE, len(code))), [])
+
+
 if __name__ == "__main__":
     unittest.main()

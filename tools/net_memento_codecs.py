@@ -8,7 +8,10 @@ write function fills: slot offset, value offset inside the slot, type, and the o
 Method (ACU-RE-0095):
 - Binding: every memento's broadcast wire ID is stored as an immediate in a bind function that also loads the
   read delegate (`lea rdx, [rip+read]`, before the ID) and the write delegate (`lea r8, [rip+write]`, after it,
-  before the registry's virtual call). ACU-RE-0084 described this for HumanAvatar.
+  before the registry's virtual call). ACU-RE-0084 described this for HumanAvatar. Additions (ACU-RE-0099):
+  `NetBehaviorAI` builds both delegates through `0x1405F61E0` (read first, then write); two manager mementos
+  bind under wire IDs that are not the zenitar CRC (`BIND_WIRE`); `GcLCrowdLifeProtocolContainer` and
+  `ProxiesProtocol` bind once per slot under a key hashed at run time (`SLOT_MEMENTOS`).
 - Write delegate (owner in RCX, memento in RDX): each slot is marked changed with the triple
   `mov rax, [m+K]; mov byte [m+K+8], 1; mov byte [rax], 1`, so K is the slot. The value store `[m+V]` next to it
   gives the value offset V-K and its type; the register stored gives the owner field. Other slots are filled by
@@ -55,6 +58,18 @@ THUNKS = {0x1401B78D0}
 # Mementos registered under a wire ID that is not CRC-32("zenitar_" + type + "_ID") (ACU-RE-0084 observation 1).
 ALT_WIRE = {"BhvGenericNPC_NetProtocol": 0xA837A90F, "CharacterAI_NetProtocol": 0x9862798E,
             "AIComponent_NetProtocol": 0x57218EFC, "CharacterBehavior_NetProtocol": 0x02FECC66}
+# Wire IDs found only at their bind sites (ACU-RE-0099): neither equals the zenitar CRC of the type name.
+BIND_WIRE = {"LivingBreathingManager_NetProtocol": 0x20D5A915, "VillaTrophyManager_NetProtocol": 0xCF871231}
+DELEGATE_INIT = 0x1405F61E0      # builds {owner, fn, invoker} from a function pointer (NetBehaviorAI's bind)
+# Mementos bound once per slot under a key hashed at run time (ACU-RE-0099). key = CRC-32 of the formatted name.
+SLOT_MEMENTOS = {
+    "GcLCrowdLifeProtocolContainer": {"key": "CrowdLife_NetProtocol_ID_%d", "slots": "40 on the owner; "
+                                      "ceil(members / 30) elsewhere", "entries_per_slot": 30,
+                                      "bind": 0x140E59D10, "read": 0x140E81620, "write": 0x140E99FE0},
+    "ProxiesProtocol": {"key": "0x%08X_%d with CRC-32(\"Proxy_NetProtocol_ID\") = 0xAC1B997A", "slots": "30 per peer",
+                        "entries_per_slot": 10, "bind": 0x141C42920, "read": 0x141C66E20, "write": 0x141C78190,
+                        "see": "ACU-RE-0076 (writer), ACU-RE-0077 (reader)"},
+}
 MAX_INSNS = 6000
 VOLATILE = {"rax", "rcx", "rdx", "r8", "r9", "r10", "r11"}
 
@@ -119,7 +134,22 @@ class Decoder:
                     break
             if read and write and write not in THUNKS:
                 return {"bind": f[0], "read": read, "write": write}
+            dels = self.delegate_inits(ins[:k])
+            if len(dels) >= 2:                       # NetBehaviorAI: r8 = first delegate (read), r9 = second (write)
+                return {"bind": f[0], "read": dels[-2], "write": dels[-1], "shape": "delegate-init"}
         return None
+
+    def delegate_inits(self, ins: list) -> list[int]:
+        """Function pointers passed to DELEGATE_INIT: `lea rax,[rip+fn]` ... `call 0x1405F61E0`."""
+        out, last = [], None
+        for i in ins:
+            if i.mnemonic == "lea" and self.r(i.operands[0].reg) == "rax" and i.operands[1].mem.base == x86.X86_REG_RIP:
+                last = self.rip(i, i.operands[1])
+            elif i.mnemonic == "call" and i.operands[0].type == x86.X86_OP_IMM and i.operands[0].imm == DELEGATE_INIT:
+                if last:
+                    out.append(last)
+                last = None
+        return out
 
     # -- write delegate ------------------------------------------------------------------------------------
     def decode_write(self, va: int, src0: tuple[str, int] = ("", 0), dst0: int = 0, depth: int = 0) -> dict:
@@ -431,10 +461,22 @@ def decode_all(img: atlas.Image, atlas_json: dict) -> dict:
         if not w:
             row["status"] = "no wire id"
             out.append(row); continue
-        wire = ALT_WIRE.get(r["name"], int(w["broadcast"], 16))
+        if r["name"] in SLOT_MEMENTOS:
+            sm = SLOT_MEMENTOS[r["name"]]
+            d = dec.decode_write(sm["write"])
+            for f in d["fields"]:
+                if isinstance(f["slot"], int):
+                    f["slot"] = atlas.hx(f["slot"])
+            row.update({"status": "slot memento", "wire_id": "per slot, hashed at run time",
+                        **{k: (atlas.hx(v) if isinstance(v, int) and k in ("bind", "read", "write") else v)
+                           for k, v in sm.items()}, **d})
+            out.append(row); continue
+        wire = BIND_WIRE.get(r["name"], ALT_WIRE.get(r["name"], int(w["broadcast"], 16)))
         row["wire_id"] = f"{wire:08X}"
         if r["name"] in ALT_WIRE:
             row["wire_id_source"] = "ACU-RE-0084 registration (not the zenitar CRC)"
+        if r["name"] in BIND_WIRE:
+            row["wire_id_source"] = "bind site (ACU-RE-0099; not the zenitar CRC)"
         needle = struct.pack("<I", wire)
         sites, i = [], img.b.find(needle, text_lo - B)
         while i != -1 and i < text_hi - B:
@@ -452,6 +494,8 @@ def decode_all(img: atlas.Image, atlas_json: dict) -> dict:
             if isinstance(f["slot"], int):
                 f["slot"] = atlas.hx(f["slot"])
         check = d.pop("read")
+        if b.get("shape"):
+            row["bind_shape"] = b["shape"]
         row.update({"status": "decoded" if d["fields"] else "bind only", "bind": atlas.hx(b["bind"]),
                     "read": atlas.hx(b["read"]), "write": atlas.hx(b["write"]), **d, "read_check": check})
         out.append(row)
@@ -479,7 +523,7 @@ def main(argv: list[str] | None = None) -> int:
         ap.error("image SHA-256 mismatch")
     img = atlas.Image(a.image.read_bytes())
     res = decode_all(img, json.loads(a.atlas.read_text(encoding="utf-8")))
-    res = {"schema": "acu-memento-codecs/1", "finding": "ACU-RE-0095", "image_sha256": atlas.sha256(a.image),
+    res = {"schema": "acu-memento-codecs/1", "finding": "ACU-RE-0095, ACU-RE-0099", "image_sha256": atlas.sha256(a.image),
            "tool_sha256": atlas.sha256(Path(__file__)),
            "constants": {"setters": {atlas.hx(k): v for k, v in SETTERS.items()}}, **res}
     a.output.parent.mkdir(parents=True, exist_ok=True)
