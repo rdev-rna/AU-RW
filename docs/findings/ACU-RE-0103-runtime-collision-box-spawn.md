@@ -180,6 +180,36 @@ and fps cap 60, and were closed with `--close`. Props were picked by `world_enti
 
       Both used the builder flags (+136 |= 0x800014, `0x141CE94F0`, +212 bit 0x40000). The
       originals stayed in place.
+17. **A sky course of cloned prop types (`prop-course-1`, PID 130616, default shim `af54d7f0…`).**
+    - First pass, floor at 60.5 m: clone sources found at the start returned −1 once Arno was
+      lanes away. Streaming had unloaded them: the entity no longer pointed at the current World.
+      Lanes near Notre-Dame also ran inside its towers.
+    - Second pass:
+      - floor at 120.5 m;
+      - Arno back at the ground start (4 s for streaming), then a fresh scan;
+      - all 15 clones made at once, laid out along the start camera heading; each lane then
+        started 8 m before its first prop along the live camera heading.
+      - All 15 clones returned status 1.
+    - Results:
+
+      | Lane | Source (nearest of its stem) | Parkour |
+      | --- | --- | --- |
+      | three-beam chain, 3.5 m apart, 1.0 m up | `GEN_ALL_Beam_2m_01_232` ×3 | `JumpOn100cm`, `StepLevel_300cm`, `Leaping_Fd400cm-Level`, `StepLevel`, `Leaping_Fd400cm-Level`, `StepLevel`, `SprintingStepDown`: a chain of bound jumps across all three |
+      | same, beams turned 90° | same | `SprintFwd_tr_WallBraceLowObject` (the beam's length faced him) |
+      | gameplay tree | `GEN_ALL_GamePlayPlataneTree_01_016` | `PreWallEntryFront`, `WallEntryFwd30Deg_tr_Climb_Rt100cm-Up275cm`, `ClimbCycle_tr_VsLeapFeet_Balanced20Deg` (perched at z 124.5), `Vshape_VsLeapFeet_Balanced_tr_Leaping`, `Leaping_Fd900cm-Dn400cm` |
+      | corner awning, 1.5 m up | `GEN_ALL_AwningCorner_90_01_019` | `JumpOn200cmBlock`, `LeapFeetLand_tr_Sprint_FastRampUp` (ran up the awning), `Leaping_Fd650cm-Dn200cm` |
+      | roof piece | `GEN_ALL_Roof_CH_03_027` | `WallEntryFwd_tr_Climb_Up325cm`, `ClimbCycle_tr_MantleLeapFeet_AnticipateWall`, `LandOnBeamFwdLow_tr_Leaping` (ridge at z 125.2), `Leaping_Fd900cm-Dn400cm` |
+      | stairs | `GEN_ALL_Stairs_Row_A_3x3_01_030` | `StepLevel_100cm_RP`, `Run_JumpOn50cm` |
+      | pole, 3.6 m up (two rotations) | `GEN_ALL_Pole_2m_01_105` | no contact: renders as a horizontal bar above him (screenshot) |
+      | "rope" (two rotations) | `GEN_ALL_Rope_01_120` | no contact: the asset is a coiled rope prop, not a tightrope |
+      | façade bay (two rotations) | `MDA_House_B_2F_WD_04A_Open_041` | no contact: renders as one tall window bay well off the lane; its origin is not at its centre |
+      | balcony | `GEN_ALL_B_Balcony_3m_02_020` | no samples recorded |
+
+    - Every clone checked by screenshot rendered: crate, beams, pole, rope coil, façade bay.
+    - In the first pass, a pole at 2.3 m was used as a block (`Run_JumpOn250cmBlock`, z 62.81).
+    - The game's window clips are `xx_WindowEntry_*`, `xx_WindowExit_*` and
+      `xx_WindowGratingEntry/Exit_*` (asset index), entered from climbing. An open window needs a
+      climbable façade around it.
 
 ### Inferences
 
@@ -221,9 +251,14 @@ and fps cap 60, and were closed with `--close`. Props were picked by `world_enti
     them, and he braces against them.
   - Parkour props can be copied anywhere, and they render and work there: `clone-entity` on any
     nearby crate or beam (obs. 16).
+  - Working prop types so far (obs. 17): crates, beam chains (bound jumps), gameplay trees
+    (climb, perch, leap), corner awnings (ramp run), roof pieces (climb, ridge) and stairs.
   - Next steps:
-    - find what makes a wall climbable;
-    - clone props that are not loaded nearby (by file ID, through the loader);
+    - spawn by file ID through the loader, so any asset can be placed without the original loaded
+      nearby; streaming unloads originals by distance (obs. 17);
+    - a container world for courses, for example a small rift World (`ACU_LGS_Medieval`,
+      `ACU_LGS_WorldWar2`) or `ACU_RebirthRitual`, loaded with the existing world-load mode;
+    - open windows on climbable façades, swing poles placed for a swing, real tightropes;
     - save and load a course layout.
 
 ### Unknowns
