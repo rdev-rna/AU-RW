@@ -98,6 +98,9 @@ pub struct NativeGi {
     pub voxels: Vec<[[f32; 4]; 3]>,
     /// Region voxels outside every gathered cell.
     pub uncovered: usize,
+    /// Cells left out because `gicp::decode_cell` rejected them (GIResult id, error): e.g. Paris
+    /// Dawn's zero-length blob. Coarser containing cells cover their voxels (implementation choice).
+    pub skipped: Vec<(String, String)>,
     /// Median L0 luminance over region voxels with positive L0 (native GI units).
     pub median_luminance: f32,
 }
@@ -154,6 +157,7 @@ pub fn load(game_dir: &Path, preset: &str) -> acu_assets::Result<Option<NativeGi
         Limits::default(),
     )?;
     let mut cells = Vec::new();
+    let mut skipped = Vec::new();
     for (block, nodes) in by_block {
         let fid = gi::hex16(block);
         let entry = gi_forge
@@ -174,13 +178,20 @@ pub fn load(game_dir: &Path, preset: &str) -> acu_assets::Result<Option<NativeGi
                     format!("GIResult {} Center != tree min", gi::hex16(r.object_id)).into(),
                 );
             }
+            let texels = match gicp::decode_cell(&r.data, GRID) {
+                Ok(t) => t,
+                Err(e) => {
+                    skipped.push((gi::hex16(n.result.id), e.to_string()));
+                    continue;
+                }
+            };
             cells.push(Cell {
                 min: n.min,
                 size: n.size[0],
                 level: n.level,
                 datablock: block,
                 result: n.result.id,
-                texels: gicp::decode_cell(&r.data, GRID)?,
+                texels,
             });
         }
     }
@@ -216,6 +227,7 @@ pub fn load(game_dir: &Path, preset: &str) -> acu_assets::Result<Option<NativeGi
         cells,
         voxels,
         uncovered,
+        skipped,
         median_luminance,
     }))
 }
@@ -328,6 +340,7 @@ pub fn report(gi: Option<&NativeGi>, intensity: f32) -> serde_json::Value {
                 "datablock": gi::hex16(c.datablock), "result": gi::hex16(c.result)}))
                 .collect::<Vec<_>>(),
             "uncovered_voxels": g.uncovered,
+            "skipped_cells": &g.skipped,
             "median_l0_luminance": g.median_luminance,
             "intensity_synthetic": intensity,
             "observed": ["bounce irradiance dot(L1,n)+L0 per colour, world axes (0x143211F50)"],

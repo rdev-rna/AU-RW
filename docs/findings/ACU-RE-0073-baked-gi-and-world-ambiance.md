@@ -279,6 +279,46 @@ No FH parser module was imported.
     (1, 1, 0, 0).
   - Not found: `g_SkySHConstants` (no signature yet).
 
+### Live sun per Paris Season (2026-11-16)
+
+- Method: `acu_tod.dll` (`tools/native_probe/tod_probe.cpp`, build SHA-256 `16c6b6f7…7cf4`), injected
+  with `capture_run.py --extra-dll`. It calls `TimeOfDayManager::SetCurrentSeason` `0x141E2F660` on
+  the game window's thread (WH_GETMESSAGE hook, SEH).
+  - The manager is the current World (`[[0x145217368]+0x98]`) + `0x980`.
+  - The current Season ID is read through the manager's shared pointer at `+0x60`, then
+    Season `+0x1C`.
+  - Lead: ACUFixes by NameTaken3125 (commit `e20228a0`: `TimeOfDayManager__SetCurrentSeason_mb`,
+    `World::timeOfDayManager`, `SeasonID`). Re-derived: corpus `0x141E2F660` compares its
+    argument with exactly the current Season's `+0x1C`, read through `+0x60`.
+- Capture: `tools/native_probe/tod_capture.py`.
+  - Game: ACU pid 64912, ACU.exe `748abdc6…7e40`, pinned save `capture-start-1`.
+  - Procedure: 20 s settle after each switch, then `g_Frame` copies found by `Fog.SunColor`
+    followed by SunColor / pi.
+  - Each switch shows in the next request's `season_before`. Nine copies agree per Season; one
+    stray match per scan, with a shadow-size field other than 2048, is ignored.
+  - Copies: `local/native-probe/tod-sun-20261116b/tod-sun*.json`.
+
+| Season (ID) | `m_SunLight.m_Direction` (towards the sun, native Z up) | `Fog.SunColor` |
+| --- | --- | --- |
+| `PAR_TOD_Paris_Dawn` (4) | (0.700562, 0.509130, 0.5) | (44.62, 20.22, 3.64) |
+| `PAR_TOD_Paris_Noon` (5) | (0.117286, -0.470409, 0.874620) | (193.86, 171.39, 152.64) |
+| `PAR_TOD_Paris_Sunset` (6) | (-0.601766, -0.622798, 0.5) | (40.21, 19.38, 4.58) |
+| `PAR_TOD_Paris_Night` (7) | (0.094270, 0.581659, 0.807952) | (6e-6, 4e-6, 3e-6) |
+
+- The pinned save's own Season is 4 (dawn). So the 2026-11-15 sample, called "probably late
+  afternoon" above, is the dawn sun: it is identical.
+  - The sun is therefore fixed per Season (the same values a day apart).
+  - Dawn and sunset sit exactly 30 degrees up (z = 0.5); noon about 61 degrees.
+- The night sun is effectively off. Night light must come from the sky, the moon or local lights;
+  none of them has been captured.
+- `g_Frame m_ShadowMapSize` reads 2048 at the Low preset, while `WorldAmbiance +3356` reads 1024.
+  Either `+3356` is not the shadow-map size (that role was INFERRED), or the engine overrides it.
+  Unknown.
+- Paris Dawn's `GIDatablock` near the anchor holds a `GIData` with a zero-length blob, which the
+  decoder used to reject. It is now kept as framing (dims 0). `gicp::decode_cell` still rejects
+  such a cell; the viewer would skip it and report it, and none of the anchor-region cells is
+  affected.
+
 ### Inferences (labelled; not proven)
 
 - GILoader `+16` / `+32` are the world-space minimum and size of the GI domain (Paris:
@@ -353,10 +393,14 @@ powershell -File tools/run_arno.ps1 -Capture outputs/lighting/arno-paris-noon.pn
   - `DirectionalLightShadowMap` = the set's map size (Paris 1024);
   - `CascadeShadowConfig.bounds` = the set's PSSM splits (Paris 5, 14, 38, 72).
 
-  One live Paris `g_Frame` sun sample (probably late afternoon) lights every set. GI is native
-  only for the four Paris sets.
-  - Implementation choice (SYNTHETIC): the sun and sky fill are scaled by
-    `2^(EV100_set - 12.94)`. 12.94 is the Paris EV100 the sample was taken under.
+  Since 2026-11-16 each Paris set uses its own live Season sun (`lighting::PARIS_SUNS`). Other
+  sets borrow a Paris sun (`lighting::sun_source`): Versailles uses the same time of day, the rest
+  use Paris day. GI is native only for the four Paris sets. Lux scale (SYNTHETIC): the Paris day
+  sun is set to Bevy's `DIRECT_SUNLIGHT`, so the native ratios between suns and between sun and GI
+  hold. With EV100 12.94 for all four Paris sets and no eye adaptation, day reads brighter than
+  in game.
+  - Implementation choice (SYNTHETIC, borrowed suns only): the sun and sky fill are scaled by
+    `2^(EV100_set - 12.94)`. 12.94 is the Paris EV100 the suns were captured under.
   - Why: without the scale, sets exposed for dim scenes burned out to white under the day sun.
     Saint-Denis moon has EV100 -5.32 (scale about 4e-6) and Medieval dawn 2.49 (about 7e-4).
   - The scale is 1 for every Paris set. Paris Night therefore renders much like Paris Day: its

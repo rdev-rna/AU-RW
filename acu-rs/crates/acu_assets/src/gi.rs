@@ -270,8 +270,18 @@ pub struct GiData {
 }
 
 fn gicp_dims(blob: &[u8]) -> Result<[u32; 3]> {
+    // Observed: some Paris Dawn GIData carry a zero-length blob (2026-11-16, a cell near
+    // Arno's anchor). Kept as framing with dims 0; what the engine decodes for it is unknown,
+    // so `gicp::decode_cell` rejects such a cell rather than guessing.
+    if blob.is_empty() {
+        return Ok([0; 3]);
+    }
     if blob.len() < 20 || &blob[..4] != GICP_MAGIC {
-        return invalid("GIData blob without GICP magic");
+        let head: String = blob.iter().take(8).map(|b| format!("{b:02x}")).collect();
+        return invalid(format!(
+            "GIData blob without GICP magic ({} bytes, starts {head})",
+            blob.len()
+        ));
     }
     let d = |o: usize| u32::from_le_bytes(blob[o..o + 4].try_into().expect("4 bytes"));
     Ok([d(8), d(12), d(16)])

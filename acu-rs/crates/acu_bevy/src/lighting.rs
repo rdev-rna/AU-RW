@@ -13,11 +13,10 @@
 //!
 //! - baked GI (bounce): native Paris irradiance cells around Arno (`gi_volume`), Paris sets only
 //!   (the other levels' GI loaders are not wired; Arno's anchor is a Paris street);
-//! - sun colour and direction: ONE live `g_Frame` sample from a Paris save (probably late
-//!   afternoon), used for every set. `WorldAmbiance` holds no sun; the per-time-of-day sun is
-//!   presumably driven by the `LayeredSky` / time of day, not decoded. Its magnitude is scaled by
-//!   `sun_scale` (SYNTHETIC) so dark sets do not burn out, so sets differ here in shadows and
-//!   (Paris) GI, not yet in sun colour, angle or apparent brightness.
+//! - sun colour and direction: live `g_Frame` per Paris Season (`PARIS_SUNS`: dawn, day, sunset,
+//!   night, read after switching the Season in game; `WorldAmbiance` holds no sun). The Paris
+//!   sets use their own; every other set borrows a Paris sun (`sun_source`: Versailles by time of
+//!   day, the rest Paris day), labelled SYNTHETIC and scaled by `sun_scale` to its exposure.
 //!
 //! Still synthetic: the lux-per-ACU-unit scale, the sky fill (ACU's sky SH is a runtime
 //! constant not captured), the clear colour, SSAO (decoded, not applied).
@@ -249,13 +248,10 @@ pub fn report(native: Option<&Native>) -> serde_json::Value {
                 "hdr_value132": n.ambiance.hdr.value132,
                 "ssao": &n.ambiance.ssao,
             },
-            "live_sun": {"direction_native": LIVE_SUN_DIRECTION, "sun_color_acu": LIVE_SUN_COLOR,
-                         "source": "g_Frame read live 2026-11-15 (pinned Paris save's time of day)",
-                         "note": "one sample reused for every set; not this set's sun"},
+            "sun": sun_report(n),
             "lux_per_acu_unit_synthetic": lux_per_acu_unit(),
-            "sun_scale_synthetic": sun_scale(n),
-            "synthetic": ["lux per ACU unit (sun luminance = Bevy DIRECT_SUNLIGHT)",
-                          "sun per set (the live Paris sample is reused, scaled by 2^(EV100 - 12.94))",
+            "synthetic": ["lux per ACU unit (Paris day sun luminance = Bevy DIRECT_SUNLIGHT)",
+                          "sun of non-Paris sets (a Paris sun, scaled by 2^(EV100 - 12.94))",
                           "sky fill (sky SH not captured)", "clear colour"],
         }),
     }
@@ -265,24 +261,81 @@ pub fn report(native: Option<&Native>) -> serde_json::Value {
 /// runtime constant not captured yet, so a sky-like ambient stands in for it.
 const SYNTHETIC_SKY_FILL: f32 = 4_000.0;
 
-/// Live `g_Frame` sample (ACU-RE-0073): read-only, ACU pid 101640, 2026-11-15, Paris at
-/// (496.663, -7.305, -0.253) from the pinned save `capture-start-1` (its time of day; the Season
-/// was not identified). `m_SunLight.m_Direction` (towards the sun, native Z-up) and
-/// `m_VolumetricFog.SunColor` (`m_SunLight.m_Color` = SunColor / pi). `m_GlobalLightingScale` =
-/// (1, 1, 0, 0). Local copy: `local/lighting/live/g_frame-live-1.json`.
-pub const LIVE_SUN_DIRECTION: [f32; 3] = [0.700_562, 0.509_13, 0.5];
-pub const LIVE_SUN_COLOR: [f32; 3] = [44.624_485, 20.215_647, 3.637_588];
-
-fn live_sun_luminance() -> f32 {
-    0.2126 * LIVE_SUN_COLOR[0] + 0.7152 * LIVE_SUN_COLOR[1] + 0.0722 * LIVE_SUN_COLOR[2]
+/// A live `g_Frame` sun: `m_SunLight.m_Direction` (towards the sun, native Z up) and
+/// `m_VolumetricFog.SunColor` (`m_SunLight.m_Color` = SunColor / pi).
+pub struct LiveSun {
+    pub season: &'static str,
+    pub season_id: u32,
+    pub direction: [f32; 3],
+    pub color: [f32; 3],
 }
 
-/// SYNTHETIC: Bevy lux per ACU lighting unit, chosen so the live sun has Bevy's
-/// `DIRECT_SUNLIGHT` luminance. Native: the sun / GI ratio. ACU's deferred pass shades the sun as
-/// `albedo * SunColor/pi * NdotL` and GI as `albedo * (dot(L1, n) + L0)`, so the same factor maps
-/// SunColor to lux and GI texels to Bevy irradiance-volume units.
+/// Paris suns per Season (ACU-RE-0073): `tools/native_probe/tod_capture.py`, ACU pid 64912,
+/// 2026-11-16, pinned save `capture-start-1` (whose own Season is 4, dawn), after
+/// `TimeOfDayManager::SetCurrentSeason` (0x141E2F660; lead ACUFixes) and a 20 s settle; nine
+/// `g_Frame` copies agree per Season. Dawn equals the 2026-11-15 sample (pid 101640), so the sun is
+/// fixed per Season. Night's SunColor is about 6e-6: the night sun is effectively off.
+/// Local copies: `local/native-probe/tod-sun-20261116b/tod-sun*.json`.
+pub const PARIS_SUNS: [LiveSun; 4] = [
+    LiveSun {
+        season: "PAR_TOD_Paris_Dawn",
+        season_id: 4,
+        direction: [0.700_562, 0.509_13, 0.5],
+        color: [44.624_485, 20.215_647, 3.637_588],
+    },
+    LiveSun {
+        season: "PAR_TOD_Paris_Noon",
+        season_id: 5,
+        direction: [0.117_286, -0.470_409, 0.874_62],
+        color: [193.858_38, 171.389_68, 152.644_36],
+    },
+    LiveSun {
+        season: "PAR_TOD_Paris_Sunset",
+        season_id: 6,
+        direction: [-0.601_766, -0.622_798, 0.5],
+        color: [40.205_03, 19.384_531, 4.575_61],
+    },
+    LiveSun {
+        season: "PAR_TOD_Paris_Night",
+        season_id: 7,
+        direction: [0.094_27, 0.581_659, 0.807_952],
+        color: [6e-6, 4e-6, 3e-6],
+    },
+];
+
+const DAWN: usize = 0;
+const DAY: usize = 1;
+const SUNSET: usize = 2;
+const NIGHT: usize = 3;
+
+/// The sun a set uses and whether it is that set's own (native) sun. Versailles borrows the Paris
+/// sun of the same time of day; Saint-Denis, the Prologue, Rebirth and the rifts borrow Paris day
+/// (SYNTHETIC stand-ins: their Seasons live in other worlds, not captured).
+pub fn sun_source(preset: &str) -> (&'static LiveSun, bool) {
+    let paris = |i: usize| &PARIS_SUNS[i];
+    match preset {
+        "paris-dawn" => (paris(DAWN), true),
+        "paris-day" => (paris(DAY), true),
+        "paris-sunset" => (paris(SUNSET), true),
+        "paris-night" => (paris(NIGHT), true),
+        p if p.ends_with("-dawn") => (paris(DAWN), false),
+        p if p.ends_with("-sunset") => (paris(SUNSET), false),
+        p if p.ends_with("-night") => (paris(NIGHT), false),
+        _ => (paris(DAY), false),
+    }
+}
+
+fn luminance(c: [f32; 3]) -> f32 {
+    0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+}
+
+/// SYNTHETIC: Bevy lux per ACU lighting unit, chosen so the Paris day sun has Bevy's
+/// `DIRECT_SUNLIGHT` luminance. Native: the ratios between suns and the sun / GI ratio. ACU's
+/// deferred pass shades the sun as `albedo * SunColor/pi * NdotL` and GI as
+/// `albedo * (dot(L1, n) + L0)`, so the same factor maps SunColor to lux and GI texels to Bevy
+/// irradiance-volume units.
 pub fn lux_per_acu_unit() -> f32 {
-    lux::DIRECT_SUNLIGHT / live_sun_luminance()
+    lux::DIRECT_SUNLIGHT / luminance(PARIS_SUNS[DAY].color)
 }
 
 /// GI irradiance-volume intensity on the native sun / GI ratio.
@@ -290,18 +343,30 @@ pub fn gi_intensity() -> f32 {
     lux_per_acu_unit()
 }
 
-/// EV100 of the `WorldAmbiance` the live sun was sampled under (Paris; all four Paris sets share it).
-const LIVE_SAMPLE_EV100: f32 = 12.936_638;
+/// EV100 the Paris suns were captured under (all four Paris sets share it).
+const PARIS_EV100: f32 = 12.936_638;
 
-/// SYNTHETIC per-set sun / sky-fill scale `2^(EV100_set - EV100_live)`. Only the Paris sun was
-/// sampled; a set exposed for a dimmer scene (Saint-Denis moon EV -5.3, Medieval dawn 2.5) would
-/// otherwise burn out under it. This keeps the live sun at the brightness its own exposure gave it
-/// under every set's native exposure, until each set's sun is captured. 1 for every Paris set.
+/// Sun / sky-fill scale. 1 for a set's own sun. For a borrowed Paris sun, SYNTHETIC
+/// `2^(EV100_set - EV100_Paris)`: a set exposed for a dimmer scene (Saint-Denis moon EV -5.3,
+/// Medieval dawn 2.5) would otherwise burn out under a Paris sun.
 pub fn sun_scale(n: &Native) -> f32 {
+    if sun_source(n.set.preset).1 {
+        return 1.0;
+    }
     n.ambiance
         .hdr
         .ev100()
-        .map_or(1.0, |ev| 2f32.powf(ev - LIVE_SAMPLE_EV100))
+        .map_or(1.0, |ev| 2f32.powf(ev - PARIS_EV100))
+}
+
+fn sun_report(n: &Native) -> serde_json::Value {
+    let (sun, native) = sun_source(n.set.preset);
+    serde_json::json!({
+        "season": sun.season, "season_id": sun.season_id,
+        "direction_native": sun.direction, "sun_color_acu": sun.color,
+        "native_for_this_set": native, "scale_synthetic": sun_scale(n),
+        "source": "g_Frame live per Paris Season, 2026-11-16 (tod_capture.py)",
+    })
 }
 
 /// Marks the entities `spawn` creates (and the GI volume), so a preset switch replaces them.
@@ -363,18 +428,20 @@ pub fn spawn(commands: &mut Commands, native: Option<&Native>) -> Option<Exposur
         brightness: SYNTHETIC_SKY_FILL * scale,
         ..default()
     });
-    // Live native sun: colour and direction; magnitude on the synthetic lux scale.
-    let max = LIVE_SUN_COLOR.iter().copied().fold(f32::MIN, f32::max);
-    let [x, y, z] = LIVE_SUN_DIRECTION;
+    // Live sun of the set's Season: colour and direction; magnitude on the synthetic lux scale.
+    let sun = sun_source(n.set.preset).0;
+    let max = sun
+        .color
+        .iter()
+        .copied()
+        .fold(f32::MIN, f32::max)
+        .max(f32::MIN_POSITIVE);
+    let [x, y, z] = sun.direction;
     let towards_sun = crate::native_z_up_to_bevy_y_up() * Vec3::new(x, y, z).normalize();
     commands.spawn((
         SceneLight,
         DirectionalLight {
-            color: Color::linear_rgb(
-                LIVE_SUN_COLOR[0] / max,
-                LIVE_SUN_COLOR[1] / max,
-                LIVE_SUN_COLOR[2] / max,
-            ),
+            color: Color::linear_rgb(sun.color[0] / max, sun.color[1] / max, sun.color[2] / max),
             illuminance: lux_per_acu_unit() * max * scale,
             shadow_maps_enabled: true,
             ..default()
@@ -478,6 +545,21 @@ mod tests {
         assert_eq!(SETS[0].name, "PAR_WorldAmbiance_Noon");
         assert_eq!(canonical("paris-noon"), "paris-day");
         assert!(SETS.iter().all(|s| s.file_id.len() == 16));
+    }
+
+    #[test]
+    fn paris_sets_use_their_own_sun_and_others_borrow() {
+        assert_eq!(sun_source("paris-day").0.season_id, 5);
+        assert!(sun_source("paris-night").1);
+        assert_eq!(sun_source("versailles-sunset").0.season_id, 6);
+        assert!(!sun_source("versailles-sunset").1);
+        assert_eq!(sun_source("saint-denis-moon").0.season_id, 5);
+        assert!(
+            SETS.iter()
+                .all(|s| sun_source(s.preset).1 == s.preset.starts_with("paris-"))
+        );
+        let day = luminance(PARIS_SUNS[DAY].color) * lux_per_acu_unit();
+        assert!((day - lux::DIRECT_SUNLIGHT).abs() < 1.0);
     }
 
     #[test]

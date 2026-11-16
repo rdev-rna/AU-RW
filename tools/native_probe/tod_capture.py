@@ -65,7 +65,8 @@ def scan(h) -> list[int]:
                 f = np.frombuffer(raw, dtype="<f4").reshape(-1, 4)
                 with np.errstate(all="ignore"):
                     c, d = f[:-1, :3], f[1:, :3]
-                    ok = (c.min(1) > 1e-4) & (c.max(1) < 1e5) & np.all(
+                    # Night suns can have zero channels: require one positive channel, none negative.
+                    ok = (c.min(1) >= 0) & (c.max(1) > 1e-6) & (c.max(1) < 1e5) & np.all(
                         np.abs(d * math.pi - c) <= 1e-4 * np.abs(c) + 1e-7, axis=1)
                 hits += [base + 16 * int(i) for i in np.where(ok)[0]]
         a = base + size

@@ -524,13 +524,24 @@ Next, in order:
   tessellation; AA and resolution not needed). The capture preset stays Low only for captures.
   - Live check (ACU-RE-0084, done 2026-11-16): quality does not change the character-template
     pixel shaders. The skin port now follows the bound `0xc89d3` (no pore normal).
-  - Next: which shadow / SSAO / environment paths change at max, and the Tessellation option's
+  - AO at max is NVIDIA HBAO+ (`GFSDK_SSAO.win64.dll` in the install, exports
+    `GFSDK_SSAO_CreateContext_D3D11` / `_GL`, i.e. HBAO+ 3.x).
+    - Read reference: For Honor's port, `ForHonorRustRewrite/fh-rs/crates/fh_assets/src/hbao.rs`
+      (parameters) and `fh_bevy/src/fh_hbao.{rs,wgsl}` (a Bevy pass over the SSAO texture, kernel
+      after the SDK's DXBC).
+    - Next: capture ACU's `GFSDK_SSAO_Parameters` live by hooking the context's RenderAO at max,
+      then import the reviewed pass with provenance.
+    - Max shadows likely go through `GFSDK_ShadowLib.win64.dll`; capture its parameters the same way.
+  - Next: which shadow / environment paths change at max, and the Tessellation option's
     range (`ACU.ini` `Tessellation`, absent from the GSA xml). The character templates have no
     hull / domain shaders, so tessellation is a world-rendering item.
 - other outfits' templates (an outfit selector and the templates they use);
 - a live in-game comparison of the GI at the anchor spot;
-- the time-of-day sun / LayeredSky (needed before the sets differ in sun; one live Paris sample
-  is reused for all 15), and the GI loaders of the non-Paris levels;
+- Paris sun per Season, captured live (ACU-RE-0073, done 2026-11-16). Next:
+  - the Versailles, Saint-Denis and rift Seasons (they need world travel);
+  - the night light sources and the sky SH;
+  - the GI loaders of the non-Paris levels;
+  - eye adaptation.
 - the remaining PostEffects, Wind and WorldFog.
 
 Completed bounded numerical skin audit (ACU-RE-0015): eleven pieces, 29,481
