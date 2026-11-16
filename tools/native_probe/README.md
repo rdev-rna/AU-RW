@@ -305,6 +305,9 @@ python tools/native_probe/focus.py activate <pid>   # posts activation messages 
     2. `spawn-box X Y 60`;
     3. `to X Y 61.5`. Arno settles on the top face at z 60.5.
   - `capture_run.py --focus-dll PATH` injects another shim build.
+  - Several boxes per launch work. Arno braces against them and a tall one starts a wall entry,
+    but boxes give no vault, climb or ledge (ACU-RE-0103 obs. 10–11). They serve as floors and
+    blockers, not parkour props.
 - `teleport.py <pid> keep-safe`: re-arms Invisible + God Mode whenever a new player entity appears
   (each world arrival, death or reload makes a new one; ACU-RE-0049 obs. 15).
 - Keyboard (shim build t7+): `focus.InProcessKeys(pid)` writes `Localcu-keys-<pid>`
