@@ -1,0 +1,30 @@
+{
+  "description": "Type 39 (side exit / side hop) generators (ACU-RE-0055, 'The flat-wall side exit'). ACU.exe 748abdc6...7e40, base 0x140000000; guards from the mapped image (motion-link-20261020). Fancy slot 0x25 generators that pass ecx=0x27 to the candidate helper 0x1401D1CF0: 'Climb Facade' (table 0x1439E08D0) generator 0x1401351C0, call 0x1401352A8; 'Facade' (table 0x1439FA1A0) generator 0x14014BBD0, call 0x14014BCBA. Entry hits say which generator ran; call hits say it built a type 39 candidate. Registers only, no snapshots.",
+  "rotation_seconds": 600,
+  "probes": [
+    {
+      "label": "climb_facade_gen_entry",
+      "rva": "1351c0",
+      "expected_hex": "4c8bdc4d894b204d8943184989531055",
+      "category": "parkour"
+    },
+    {
+      "label": "climb_facade_type39_call",
+      "rva": "1352a8",
+      "expected_hex": "e843ca090084c00f84a90000008b4b08",
+      "category": "parkour"
+    },
+    {
+      "label": "facade_gen_entry",
+      "rva": "14bbd0",
+      "expected_hex": "4c8bdc4d894b204d8943184989531056",
+      "category": "parkour"
+    },
+    {
+      "label": "facade_type39_call",
+      "rva": "14bcba",
+      "expected_hex": "e83160080084c00f84a10000008b4b08",
+      "category": "parkour"
+    }
+  ]
+}

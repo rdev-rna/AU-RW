@@ -517,7 +517,24 @@ sticking to it. Played by the user on keyboard and mouse; the driver only built 
     sideways lets type 39 win when its generator finds a raised target beside the wall.
   - Without a target the facade generator offers nothing. The back eject (table `0x143AF10C0`, probably 79) wins
     instead. This is the "only if it detects something to eject to" behaviour.
-  - Which of the two facade generators ran is not established. Probe `0x1401351C0` and `0x14014BBD0` next time.
+  - Which generator ran is settled by the next run (below): "Climb Facade".
+- **Live: generator probe (run `side-eject-6/hands-on-2`, same launch).**
+  - Profile `tools/native_probe/side_exit_generators.profile.json`: hardware entry probes on both generators and on
+    their type-39 calls. The user replayed the side exit, with early and late second presses.
+  - **"Climb Facade" ran on every side exit; "Facade" never ran.** Eight side exits gave eight entries to
+    `0x1401351C0`.
+    - Each entry returned to `0x140130AF5`, in `0x1401309C0`. That is a virtual shared by the tester vtables
+      (`0x1439E06C0`, `0x1439E0BE0`, …), and it calls the generator through `vtbl+0x4B0`.
+    - In the same frame, each entry made 11 calls to the type-39 helper (`0x1401352A8`). The earlier run kept 2 of
+      them.
+    - Entry came 0.06–0.14 s after the second Space press (one entry logged 0.04 s before its key-log press; the two
+      clocks were aligned after the run). The generator runs once per press, not every frame.
+  - **Timing window.** The side exit played when the second press came 0.05–0.50 s after the `WallEntry_Fail` clip
+    began. At 0.59 s (98.8 s) and 0.63 s (103.0 s) the generator did not run: Arno hit the wall and fell
+    (`LeapingToVoidFwd_HitWall_Hurt`), or landed.
+  - Clips: `ClimbPassExitRight_Fd300cm-Level`, `Fd400cm-Up100cm` or `Fd600cm-Level`, then a leap to the beam
+    (`Leaping_Fd350cm-Dn200cm/Dn400cm`) or a vault off it.
+  - No D (no-target) control this run.
 - **Implication for a free eject.** Inject a synthetic target into the type-39 generator when its scanned list is
   empty. The target is AC1-style: 7–8 m along the stick direction, 3 m down (AC1-Movement-Rewritten). Doing that in
   the facade generator gives the native side exit clip, not the back eject.

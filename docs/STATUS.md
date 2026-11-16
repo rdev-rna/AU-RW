@@ -175,12 +175,13 @@ Latest (2026-11-16, the flat-wall side exit;
 - The result: Arno plays `ClimbPassExitRight_Fd300/400cm` with height gain onto the target.
 - The pick: about 0.15 s after the second press, the game commits two **type 39** candidates. Type 39 is the same
   action type the community calls the side hop.
-- The builders: only two generators make type 39, the "Climb Facade" (`0x1401351C0`) and "Facade" (`0x14014BBD0`)
-  testers.
+- The builder: two generators make type 39, "Climb Facade" (`0x1401351C0`) and "Facade" (`0x14014BBD0`). A live probe
+  shows "Climb Facade" runs once per second press (0.05–0.5 s after the wall-run fail), making 11 type-39 calls; "Facade"
+  never ran.
 - Without a target, the same input plays the back eject `WallEjectRt180_tr_Ground_Fd600cm-Dn600cm`.
 
-A free eject therefore means a synthetic target in the facade generator when its scan finds none. The user played it
-on keyboard and mouse; the recording is `side-eject-6/hands-on`.
+A free eject therefore means a synthetic target in the Climb Facade generator when its scan finds none. The user played
+it on keyboard and mouse; the recordings are `side-eject-6/hands-on` and `hands-on-2`.
 
 Earlier the same day (parkour ledge edges gated against live candidates;
 [ACU-RE-0055](findings/ACU-RE-0055-parkour-candidate-geometry.md), Rust gate):
