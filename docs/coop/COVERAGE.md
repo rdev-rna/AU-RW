@@ -57,6 +57,14 @@ types (1,293 fields, 299 of them in sub-memento arrays), in `local/coop/memento_
 `NetBehaviorAI_NetProtocol`, `AIComponent`, `LivingBreathingManager`, `VillaTrophyManager`,
 `GcLCrowdLifeProtocolContainer` and `ProxiesProtocol`. The "State" counts above are type counts, not decoded ones.
 
+**Receive side mapped (ACU-RE-0098):** the execute handler of all 963 messages, in
+`local/coop/message_handlers.json`, with each handler's dispatch style and role test:
+- dispatch: 749 direct, 185 event fan-out (most intention and behaviour messages), 29 queued in a director;
+- role test: 242 of 260 mission handlers test master, 161 of 171 behaviour handlers test replica, and directors
+  test their net object;
+- 12 handlers are empty;
+- 340 show no test within one call.
+
 **Phase 3a started (ACU-RE-0094):** `ParkourLeap` and `ParkourClimbLeap` decoded live on the testbed (52 leaps):
 three points and their directions plus a leap type, sent once at takeoff. The replica's copy of the avatar lands
 on the sent landing point.
