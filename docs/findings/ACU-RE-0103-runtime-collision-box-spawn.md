@@ -37,8 +37,10 @@ State: **observed** for the spawn sequence, and live for collision with the play
   `c33fcf4f4e56d8843fc6db47c2e42dbe36dbe4117543816bb4512b6930314b07` (local
   `acu_focus.dll` = `acu_focus_floor.dll`).
 - Spawn by file ID: `focus.cpp` mode 11, `runHandleForId` plus the mode 10 clone;
-  `teleport.py spawn-id`, `container_of`. Test DLL `acu_focus_floor.dll` SHA-256
-  `737b9981c6a4022681d2d1b05e7010e5238cda960081e93891a3ca341b40a453`. Runs `spawn-id-1` (crash,
+  `teleport.py spawn-id`, `container_of`. DLL SHA-256
+  `737b9981c6a4022681d2d1b05e7010e5238cda960081e93891a3ca341b40a453` (tested as
+  `acu_focus_floor.dll`; the local default `acu_focus.dll` since 2026-11-16, the previous default
+  `af54d7f0…` kept as `acu_focus_pre-spawnid-20261116.dll`). Runs `spawn-id-1` (crash,
   PID 128252, dump `ACU.exe.128252.dmp`, local) and `spawn-id-2` (PID 115724).
 - Live runs, local and ignored:
   - `local/native-probe/runs/floor-spawn-1` (launch);
@@ -356,7 +358,7 @@ and fps cap 60, and were closed with `--close`. Props were picked by `world_enti
    ```
 
 3. Place a prop that is not loaded, by file ID. This needs the local asset index and the mode 11
-   shim (`--focus-dll local/native-probe/acu_focus_floor.dll` at launch):
+   shim (the default `acu_focus.dll` since 2026-11-16):
 
    ```bash
    python tools/native_probe/teleport.py <pid> spawn-id 0000002962222a5d X Y 120.5

@@ -308,10 +308,10 @@ python tools/native_probe/focus.py activate <pid>   # posts activation messages 
   - Several boxes per launch work. Arno braces against them and a tall one starts a wall entry,
     but boxes give no vault, climb or ledge (ACU-RE-0103 obs. 10–11). They serve as floors and
     blockers, not parkour props.
-- Move and clone world entities (the default `acu_focus.dll` since 2026-11-16, SHA-256
-  `af54d7f0…5478`; the previous default, mode 8 only, is kept as `acu_focus_pre-clone-20261116.dll`;
-  `acu_focus_floor.dll` is the same build, SHA-256 `47dfb688…b9749318`, loaded with
-  `capture_run.py --focus-dll local/native-probe/acu_focus_floor.dll`; ACU-RE-0103 obs. 12–15):
+- Move, clone and spawn world entities (the default `acu_focus.dll` since 2026-11-16, modes 8–11,
+  SHA-256 `737b9981…a453`, the same build as `acu_focus_floor.dll`. Earlier defaults are kept:
+  modes 8–10 `af54d7f0…5478` as `acu_focus_pre-spawnid-20261116.dll`, mode 8 only as
+  `acu_focus_pre-clone-20261116.dll`. ACU-RE-0103 obs. 12–19):
   - `teleport.py <pid> move-entity 0xENTITY X Y Z [--yaw DEG]` (mode 9) moves an entity's
     collision through `Entity::set_world_matrix`. Parkour follows it: a moved crate or beam can be
     jumped on 60 m up. Its rendered mesh stays where it was. Find entities with
@@ -320,8 +320,7 @@ python tools/native_probe/focus.py activate <pid>   # posts activation messages 
     it renders, collides and keeps its parkour (a cloned crate and beam were jumped on in the sky).
     The shim opens an engine memory frame around the clone, as the game does. On a fault it
     returns the fault RVA and stack.
-  - `teleport.py <pid> spawn-id FILE_ID X Y Z [--yaw DEG]` (mode 11, test build
-    `acu_focus_floor.dll` `737b9981…a453` only, ACU-RE-0103 obs. 18–19) places a prop that is not
+  - `teleport.py <pid> spawn-id FILE_ID X Y Z [--yaw DEG]` (mode 11, ACU-RE-0103 obs. 18–19) places a prop that is not
     loaded. World Entities are embedded in `GridCellDataBlock` entries, and the engine loader
     accepts only top-level entry IDs: an embedded ID crashes it. So the tool looks up the entity's
     cell in the local asset index, loads the cell (one strong count kept for the session), then
