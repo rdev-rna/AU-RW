@@ -13,7 +13,10 @@ State: **observed** for the spawn sequence, and live for collision with the play
     (obs. 14);
   - the entity clone faults on the window thread without an engine memory frame (obs. 15);
   - with the frame opened, as the game does, cloned crates and beams render and keep their
-    parkour (obs. 16).
+    parkour (obs. 16);
+  - loading by file ID crashes the game for an ID embedded in a package (obs. 18). Loading the
+    package's top-level entry and then cloning the embedded entity works for props that were not
+    loaded: they render and keep their parkour (obs. 19).
 - **Not established:**
   - what the RigidBody motion field values mean;
   - the collision filter layer;
@@ -33,6 +36,10 @@ State: **observed** for the spawn sequence, and live for collision with the play
 - Shim: `tools/native_probe/focus.cpp` mode 8, `runSpawnBox`. The DLL SHA-256 is
   `c33fcf4f4e56d8843fc6db47c2e42dbe36dbe4117543816bb4512b6930314b07` (local
   `acu_focus.dll` = `acu_focus_floor.dll`).
+- Spawn by file ID: `focus.cpp` mode 11, `runHandleForId` plus the mode 10 clone;
+  `teleport.py spawn-id`, `container_of`. Test DLL `acu_focus_floor.dll` SHA-256
+  `737b9981c6a4022681d2d1b05e7010e5238cda960081e93891a3ca341b40a453`. Runs `spawn-id-1` (crash,
+  PID 128252, dump `ACU.exe.128252.dmp`, local) and `spawn-id-2` (PID 115724).
 - Live runs, local and ignored:
   - `local/native-probe/runs/floor-spawn-1` (launch);
   - `local/native-probe/runs/floor-sprint-1` (capture).
@@ -211,6 +218,54 @@ and fps cap 60, and were closed with `--close`. Props were picked by `world_enti
       `xx_WindowGratingEntry/Exit_*` (asset index), entered from climbing. An open window needs a
       climbable façade around it.
 
+### Observations (live and pseudocode, spawn by file ID, 2026-11-16)
+
+18. **Loading an embedded ID crashes the loader (`spawn-id-1`, PID 128252).**
+    - Mode 11, first version: a handle for the tree Entity `0000002962222a5d`, then the load
+      request `0x1426E4C80(1, id, &off_1450A9600, 0, 0, 0, 0)` on the window thread. It returned
+      status 1, and the game died shortly after.
+    - The minidump (read with a small stream parser) shows the fault on a loader worker thread,
+      not on the window thread: access violation reading `0x338` at `ACU.exe+0x27338EA`, with
+      `rdi` = `0x2962222A5D`.
+    - That is `sub_142733870` +0x7A (corpus `142733870.c`, lines 71–84). The worker asks the file
+      service `qword_14525BDB0` vf352 to locate the ID, then reads `[a2[2] + 824]` (`0x338`) with
+      no null check. Called from `sub_142733590` (line 111).
+    - The asset index (`asset_query.py where`, type label `crc-name`) shows why the lookup failed:
+      all three test props are resources embedded in `GridCellDataBlock` entries of
+      `DataPC_ACU_Paris.forge`, not entries of their own.
+
+      | Entity | Entry | Top-level entry ID | Ordinal |
+      | --- | --- | --- | --- |
+      | `GEN_ALL_GamePlayPlataneTree_01_042` `0000002962222a5d` | 5024 `Cell04953_DataBlock` | `0000000f18ec5f5d` | 2 of 46 |
+      | `GEN_ALL_Beam_6m_01_017` `0000001fb46dc0b2` | 6584 `Cell05968_DataBlock` | `0000000f18ec6354` | 62 of 839 |
+      | `GEN_ALL_CratesWine_01_017` `0000001dad0b6c28` | 5519 `Cell05328_DataBlock` | `0000002cb785fde2` | 11 of 123 |
+
+19. **Load the cell, clone the embedded entity (`spawn-id-2`, PID 115724, DLL `737b9981…`).**
+    - Mode 11, second version:
+      1. `teleport.py` looks up the entity's top-level entry in the asset index. Each ID had one
+         copy, so the duplicate question (#35) did not arise.
+      2. Op 2 reads the entity's handle (`0x1426EAFA0(0x14525BB70, id, 0)`). Its object was
+         empty for all three, so the props were not resident.
+      3. Op 0 takes one strong count on the cell entry's handle and queues its load.
+      4. Op 1 clones the entity's handle object once it appears.
+    - All three loads returned status 1. The entity handles held objects (vtable `0x143017D60`,
+      the Entity vtable) on the first poll, under 0.05 s. The clones returned status 1 at the
+      requested places on the 120.5 m sky floor.
+    - No crash. The game closed normally with `--close` (2.7 s).
+    - Parkour on the clones, with RT+A forward from 8 m:
+      - tree: `PreWallEntryFront`, `WallEntryFwd30Deg_tr_Climb_Lt100cm-Up275cm`,
+        `ClimbCycle_tr_VsLeapFeet_Balanced20Deg` (perched at z 124.5),
+        `Vshape_VsLeapFeet_Balanced_tr_Leaping`, `Leaping_Fd900cm-Dn400cm`. This is the same
+        sequence as the clone of a resident tree (obs. 17).
+      - 6 m beam, 1 m up: `Run_JumpOn50cm_tr_Sprint`, `StepLevel_300cm`,
+        `SprintingStepDown_Fd150cm-Dn100cm`, `LeapLevel_tr_Sprint`.
+      - crates: placed and rendered; no run was recorded.
+    - Screenshots show the tree trunk beside Arno; from the crates lane, the tree and the beam
+      are visible in the distance.
+    - Not checked: whether loading the cell outside the streamer also added its other entities
+      to the world. Nothing extra was seen near the lanes, but the cells' original places were
+      not visited.
+
 ### Inferences
 
 - The engine has a reusable runtime collision primitive: an InertComponent RigidBody with any
@@ -253,9 +308,10 @@ and fps cap 60, and were closed with `--close`. Props were picked by `world_enti
     nearby crate or beam (obs. 16).
   - Working prop types so far (obs. 17): crates, beam chains (bound jumps), gameplay trees
     (climb, perch, leap), corner awnings (ramp run), roof pieces (climb, ridge) and stairs.
+  - Any prop can be placed by its file ID without the original loaded nearby (obs. 19). The
+    asset index supplies the cell that holds it. This makes the "inventory of every world asset"
+    possible: every Entity in the index with its cell, spawned on demand.
   - Next steps:
-    - spawn by file ID through the loader, so any asset can be placed without the original loaded
-      nearby; streaming unloads originals by distance (obs. 17);
     - a container world for courses, for example a small rift World (`ACU_LGS_Medieval`,
       `ACU_LGS_WorldWar2`) or `ACU_RebirthRitual`, loaded with the existing world-load mode;
     - open windows on climbable façades, swing poles placed for a swing, real tightropes;
@@ -276,6 +332,12 @@ and fps cap 60, and were closed with `--close`. Props were picked by `world_enti
 - What makes a surface climbable (wall entry succeeds): the invisible parkour groups, a
   MeshShape, or a GameplaySurfaceNavType bit.
 - Whether the moved prop's collision also stays at its old place. Only the new place was tested.
+- Spawn by ID (obs. 19):
+  - whether a cell loaded outside the streamer also places its own entities in the World;
+  - what the kept strong count costs (the cell stays resident for the session);
+  - whether vf352 can be called safely as a pre-check in the shim, which would reject unknown IDs
+    without the asset index;
+  - which load group `off_1450A9600` is.
 
 ### Reproduction
 
@@ -293,10 +355,29 @@ and fps cap 60, and were closed with `--close`. Props were picked by `world_enti
    python tools/native_probe/teleport.py <pid> to X Y 61.5
    ```
 
-3. Close the game with `capture_run.py --close <pid>`, then run `save_pin.py release <run dir>`.
+3. Place a prop that is not loaded, by file ID. This needs the local asset index and the mode 11
+   shim (`--focus-dll local/native-probe/acu_focus_floor.dll` at launch):
+
+   ```bash
+   python tools/native_probe/teleport.py <pid> spawn-id 0000002962222a5d X Y 120.5
+   ```
+
+4. Close the game with `capture_run.py --close <pid>`, then run `save_pin.py release <run dir>`.
 
 ### Implementation implications
 
-None for Rust. This is a capture tool. It gives:
+The shim is a capture tool, but obs. 18–19 also set facts the Rust rewrite needs:
+- **World Entities live inside `GridCellDataBlock` packages.** The engine loads the package by its
+  top-level entry ID and reaches each Entity as an embedded resource. `acu_assets` should do the
+  same: resolve an Entity through its cell entry and ordinal, not as a forge entry of its own.
+- **Parkour comes from the Entity's own collision at its live transform** (obs. 13, 17, 19). An
+  Entity decoded from its cell and placed anywhere is enough input for the Rust parkour layer. No
+  per-location baked data is needed for props.
+- **Native comparison:** any prop can now be placed by ID on the sky floor, run into, and recorded
+  (clip timeline, live state). That gives native parkour references for single props, for checking
+  the Rust decode of their collision and parkour object data.
+
+For capture and modding it gives:
 - flat, open ground for clean native baselines (ACU-RE-0074 obs. 12);
-- a starting point for modding: runtime platforms and blocking volumes.
+- runtime platforms and blocking volumes;
+- props by ID with no original nearby.

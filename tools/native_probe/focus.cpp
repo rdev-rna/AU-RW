@@ -320,14 +320,22 @@ static int recordFault(EXCEPTION_POINTERS* p, uint32_t* code) {
     }
     return EXCEPTION_EXECUTE_HANDLER;
 }
-static int runCloneEntity(uintptr_t source, const float* matrix, uint64_t options, uint64_t* cloneOut, uint32_t* exception) {
+// fromResource: the source is a loaded Entity resource (mode 11), not a placed entity: it is not in
+// any World, so only its vtable (inside ACU.exe) is checked.
+static int runCloneEntity(uintptr_t source, const float* matrix, uint64_t options, uint64_t* cloneOut, uint32_t* exception,
+                          bool fromResource = false) {
     __try {
         uintptr_t holder = *(uintptr_t*)(imageLow + kWorldHolderRva);
         if (!readable(holder + 0x98, 8)) return -1;
         uintptr_t world = *(uintptr_t*)(holder + 0x98);
-        if (!world || !readable(source + kEntityWorld, 8) || *(uintptr_t*)(source + kEntityWorld) != world ||
-            !readable(source, 8) || !readable(world + 0xD8, 8)) return -1;
-        if (*(uintptr_t*)(world + 0xD8) == source) return -2;
+        if (!world || !readable(source, 0x170) || !readable(world + 0xD8, 8)) return -1;
+        if (fromResource) {
+            uintptr_t v = *(uintptr_t*)source;
+            if (v < imageLow || v >= imageHigh) return -1;
+        } else {
+            if (*(uintptr_t*)(source + kEntityWorld) != world) return -1;
+            if (*(uintptr_t*)(world + 0xD8) == source) return -2;
+        }
         uintptr_t vtable = *(uintptr_t*)source, clone = 0;
         // The clone allocates through the thread's engine memory context (TLS +104), whose frame
         // index (+2880) is -1 until a frame is opened: 0x1426E6F20(1, 0) opens one and 0x1426EEC40
@@ -353,6 +361,41 @@ static int runCloneEntity(uintptr_t source, const float* matrix, uint64_t option
         uintptr_t own = *(uintptr_t*)(clone + 304);  // keep the clone alive, as mode 8 does
         if (readable(own + 12, 4)) InterlockedIncrement((volatile LONG*)(own + 12));
         *cloneOut = clone;
+        return 1;
+    } __except (recordFault(GetExceptionInformation(), exception)) {
+        return -3;
+    }
+}
+
+// mode 11 (spawn by file ID, ACU-RE-0103): the engine's load request 0x1426E4C80(1, fileId,
+// &off_1450A9600, callback, ctx, 0, 0) (33 callers; e.g. 0x141CBF090 loads a World this way with a
+// callback, BuildTableDLCAddon::vf16 0x141D27660 with none) queues a request on the loader
+// [0x14525B8F8] whose record holds the file ID's handle (0x142710720, via 0x1426EAFA0). The
+// loader resolves only top-level forge entry IDs: its worker 0x142733870 asks the file service
+// [0x14525BDB0] vf352 for the entry and reads [container+0x338] without a null check, so loading
+// an ID embedded in a package (every world Entity sits inside a GridCellDataBlock entry) crashes
+// the game (dump of PID 128252: AV reading 0x338 at 0x1427338EA, rdi = the entity ID).
+// op 0 (human = 0): entity = a top-level entry ID (the caller resolves it from the asset index);
+// find or create its handle 0x1426EAFA0(0x14525BB70, id, 0), add one strong count (+12, kept for
+// the session so the package stays resident) and queue the load without a callback.
+// op 2 (human = 2): entity = an embedded resource ID; find or create its handle (no load, no count).
+// Both return the handle in t->entity; Python polls handle +0 (the object).
+// op 1 (human = 1): entity = a handle; clone its object as mode 10 does (memory frame, builder
+// flags) and place it at the matrix. Returns the clone in t->entity.
+// status: 1 queued / spawned, -1 bad ID or handle, -8 not loaded yet, -3 exception (+ fault record).
+constexpr uintptr_t kLoadRequestRva = 0x26E4C80, kLoadGroupRva = 0x50A9600, kFindHandleRva = 0x26EAFA0;
+static int runHandleForId(uint64_t id, bool load, uint64_t* handleOut, uint32_t* exception) {
+    if (!id || id >> 48) return -1;
+    __try {
+        uintptr_t handle = ((uintptr_t(__fastcall*)(uintptr_t, uint64_t, uintptr_t))(imageLow + kFindHandleRva))(
+            imageLow + kHandleTableRva, id, 0);
+        if (!readable(handle, 24) || *(uint64_t*)(handle + 16) != id) return -1;
+        if (load) {
+            InterlockedIncrement((volatile LONG*)(handle + 12));
+            ((uint64_t(__fastcall*)(uint32_t, uint64_t, uintptr_t, uintptr_t, uintptr_t, uint64_t, uint8_t))(
+                imageLow + kLoadRequestRva))(1, id, imageLow + kLoadGroupRva, 0, 0, 0, 0);
+        }
+        *handleOut = handle;
         return 1;
     } __except (recordFault(GetExceptionInformation(), exception)) {
         return -3;
@@ -472,6 +515,29 @@ static void serviceTeleport() {
         int guard = worldGuard();
         int status = guard ? guard : runOutfit(t->mode, ids, (uint32_t)t->human, &found, &exception);
         t->entity = found;
+        t->exception = exception;
+        t->status = status;
+        InterlockedIncrement(&teleports);
+        MemoryBarrier();
+        t->done = t->request;
+        return;
+    }
+    if (t->mode == 11) {
+        uint64_t out = 0;
+        int guard = worldGuard();
+        int status = guard;
+        if (!guard) {
+            if (t->human == 0 || t->human == 2) {
+                status = runHandleForId(t->entity, t->human == 0, &out, &exception);
+            } else {
+                uintptr_t handle = (uintptr_t)t->entity;
+                if (!readable(handle, 24)) status = -1;
+                else if (!*(uintptr_t*)handle) status = -8;
+                else status = runCloneEntity(*(uintptr_t*)handle, matrix, 0, &out, &exception, true);
+            }
+        }
+        t->entity = out;
+        if (status == -3) memcpy((void*)&t->matrix[0], cloneFault, sizeof cloneFault);
         t->exception = exception;
         t->status = status;
         InterlockedIncrement(&teleports);

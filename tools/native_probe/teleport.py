@@ -11,6 +11,8 @@ r"""Teleport Arno: write the player entity's matrix, then reset the Human's beha
                                           # move a world entity (shim mode 9, ACU-RE-0103)
     python tools/native_probe/teleport.py <pid> clone-entity 0xENTITY X Y Z [--yaw DEG] [--no-builder-flags]
                                           # copy a world entity to X Y Z (shim mode 10, ACU-RE-0103)
+    python tools/native_probe/teleport.py <pid> spawn-id FILE_ID X Y Z [--yaw DEG] [--wait 20]
+                                          # load an Entity resource by file ID and place a copy (mode 11)
 
 Route (binary SHA-256 748abdc6...7e40, image base 0x140000000):
   - The debug menu's "Teleport Character" (0x140EF73D0 -> 0x140EE11B0) asks the Human for
@@ -57,7 +59,7 @@ LAYOUT = struct.Struct("<IIIiQQ16fII")  # magic request done status human entity
 MAGIC = 0x54554341  # "ACUT"
 HUMAN_OFFSET, HUMAN_VTABLE = 0xC58, 0x142FB2010  # in the AtomAnimComponent; ACU-RE-0046
 BEHAVIOUR_VTABLE, INVISIBLE_BYTE = 0x142F08230, 208  # debug "Invisible :" flag (ACU-RE-0046)
-MODE_INVISIBLE, MODE_GOD, MODE_SPAWN_BOX, MODE_MOVE_ENTITY, MODE_CLONE_ENTITY = 1, 2, 8, 9, 10
+MODE_INVISIBLE, MODE_GOD, MODE_SPAWN_BOX, MODE_MOVE_ENTITY, MODE_CLONE_ENTITY, MODE_SPAWN_ID = 1, 2, 8, 9, 10, 11
 FALL_M = 1.5  # metres below the target after settling = fell through unstreamed ground
 STATUS = {1: "done", -1: "not the Human (vtable check)", -2: "not an entity", -3: "exception",
           -4: "unknown mode", -5: "world travel in progress (shim t8+)",
@@ -293,6 +295,104 @@ def clone_entity(pid: int, entity: int, position: list[float], yaw_deg: float | 
         mem.close()
 
 
+def _call_raw(shared: "Shared", human: int, entity: int, matrix: list[float], mode: int, timeout: float = 5.0):
+    _, request, done, *_ = shared.read()
+    request = done + 1
+    C.memmove(shared.view, LAYOUT.pack(MAGIC, done, done, 0, human, entity, *matrix, 0, mode), LAYOUT.size)
+    C.memmove(shared.view + 4, struct.pack("<I", request), 4)
+    end = time.monotonic() + timeout
+    while time.monotonic() < end:
+        row = shared.read()
+        if row[2] == request:
+            out = {"status": row[3], "entity": row[5], "exception": f"0x{row[22]:08X}" if row[22] else None}
+            if row[3] == -3:
+                fault = struct.unpack("<8Q", C.string_at(shared.view + 32, 64))
+                out["fault"] = {"at": f"0x{fault[0]:X}", "accessed": f"0x{fault[1]:X}",
+                                "stack": [f"0x{v:X}" for v in fault[2:] if v]}
+            return out
+        time.sleep(0.02)
+    return {"status": None, "meaning": "not serviced"}
+
+
+def container_of(file_id: int) -> dict:
+    """The top-level forge entry that holds a resource ID, from the local asset index (read-only).
+    The engine loader resolves only top-level entry IDs (ACU-RE-0103); a world Entity is embedded in
+    a GridCellDataBlock entry. Which duplicate the game loads is not established (#35): the first
+    row by archive name is used and the choice is reported."""
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    import asset_query
+    db = asset_query.connect(asset_query.DEFAULT_DB)
+    try:
+        rows = db.execute(
+            "SELECT a.name, e.idx, e.file_id, r.ordinal, r.name, r.type_name FROM resource r "
+            "JOIN entry e ON e.id = r.entry_id JOIN archive a ON a.id = e.archive_id "
+            "WHERE r.file_id = ? ORDER BY a.name, e.idx", (f"{file_id:016x}",)).fetchall()
+    finally:
+        db.close()
+    if not rows:
+        return {}
+    archive, idx, entry_id, ordinal, name, type_name = rows[0]
+    return {"archive": archive, "entry": idx, "entry_file_id": entry_id, "ordinal": ordinal, "name": name,
+            "type": type_name, "copies": len(rows)}
+
+
+def _wait_object(mem, handle: int, wait: float):
+    t0, obj = time.monotonic(), 0
+    while time.monotonic() - t0 < wait:
+        raw = mem.read(handle, 8)
+        if raw is None:
+            raise RuntimeError("game memory unreadable (process gone?)")
+        obj, = struct.unpack("<Q", raw)
+        if obj:
+            break
+        time.sleep(0.05)
+    return obj, round(time.monotonic() - t0, 2)
+
+
+def spawn_id(pid: int, file_id: int, position: list[float], yaw_deg: float = 0.0, wait: float = 20.0) -> dict:
+    """Shim mode 11: find the forge entry holding the resource (asset index), queue the engine load
+    of that entry, wait for the resource's handle to hold its object, then place a clone of it
+    (memory frame + builder flags, as mode 10)."""
+    where = container_of(file_id)
+    out = {"file_id": f"{file_id:016x}", "container": where}
+    if not where:
+        out["meaning"] = "ID not in the asset index"
+        return out
+    mem, shared = live_state.Memory(pid), Shared(pid)
+    try:
+        ready(mem)
+        pre = _call_raw(shared, 2, file_id, [0.0] * 16, MODE_SPAWN_ID)
+        if pre.get("status") == 1:
+            raw = mem.read(pre["entity"], 8)
+            out["resident_before"] = bool(raw and struct.unpack("<Q", raw)[0])
+        r = _call_raw(shared, 0, int(where["entry_file_id"], 16), [0.0] * 16, MODE_SPAWN_ID)
+        out["load"] = {k: v for k, v in r.items() if k != "entity"}
+        if r.get("status") != 1:
+            return out
+        h = _call_raw(shared, 2, file_id, [0.0] * 16, MODE_SPAWN_ID)
+        if h.get("status") != 1:
+            out["handle_request"] = h
+            return out
+        handle = h["entity"]
+        out["handle"] = f"0x{handle:X}"
+        obj, out["load_s"] = _wait_object(mem, handle, wait)
+        out["object"] = f"0x{obj:X}"
+        if not obj:
+            out["meaning"] = "not loaded within the wait"
+            return out
+        out["object_vtable"] = f"0x{mem.u64(obj):X}"
+        m = target_matrix([[1, 0, 0, 0], [0, 1, 0, 0], [0, 0, 1, 0]], position, yaw_deg)
+        s = _call_raw(shared, 1, handle, m, MODE_SPAWN_ID)
+        out["spawn"] = {k: (f"0x{v:X}" if k == "entity" else v) for k, v in s.items()}
+        if s.get("status") == 1:
+            after = struct.unpack("<16f", mem.read(s["entity"] + live_state.ENTITY_MATRIX, 64))
+            out["spawn"]["position"] = [round(v, 3) for v in after[12:15]]
+        return out
+    finally:
+        shared.close()
+        mem.close()
+
+
 def target_matrix(rows: list[list[float]], position: list[float], yaw_deg: float | None) -> list[float]:
     if yaw_deg is None:
         r0, r1, r2 = rows[0], rows[1], rows[2]
@@ -374,7 +474,17 @@ def main() -> None:
     cl.add_argument("z", type=float)
     cl.add_argument("--yaw", type=float)
     cl.add_argument("--no-builder-flags", action="store_true")
+    si = sub.add_parser("spawn-id")
+    si.add_argument("file_id", type=lambda v: int(v, 16))
+    si.add_argument("x", type=float)
+    si.add_argument("y", type=float)
+    si.add_argument("z", type=float)
+    si.add_argument("--yaw", type=float, default=0.0)
+    si.add_argument("--wait", type=float, default=20.0)
     a = ap.parse_args()
+    if a.mode == "spawn-id":
+        print(json.dumps(spawn_id(a.pid, a.file_id, [a.x, a.y, a.z], a.yaw, a.wait)))
+        return
     if a.mode == "clone-entity":
         print(json.dumps(clone_entity(a.pid, a.entity, [a.x, a.y, a.z], a.yaw, not a.no_builder_flags)))
         return

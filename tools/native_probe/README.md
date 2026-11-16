@@ -320,6 +320,12 @@ python tools/native_probe/focus.py activate <pid>   # posts activation messages 
     it renders, collides and keeps its parkour (a cloned crate and beam were jumped on in the sky).
     The shim opens an engine memory frame around the clone, as the game does. On a fault it
     returns the fault RVA and stack.
+  - `teleport.py <pid> spawn-id FILE_ID X Y Z [--yaw DEG]` (mode 11, test build
+    `acu_focus_floor.dll` `737b9981…a453` only, ACU-RE-0103 obs. 18–19) places a prop that is not
+    loaded. World Entities are embedded in `GridCellDataBlock` entries, and the engine loader
+    accepts only top-level entry IDs: an embedded ID crashes it. So the tool looks up the entity's
+    cell in the local asset index, loads the cell (one strong count kept for the session), then
+    clones the entity once its handle holds it.
   - The stick moves Arno relative to the camera, and the camera keeps its last heading across a
     teleport. Read it with `camera_state.py` and place the target along it.
 - `teleport.py <pid> keep-safe`: re-arms Invisible + God Mode whenever a new player entity appears
