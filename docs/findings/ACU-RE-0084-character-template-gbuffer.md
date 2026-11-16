@@ -174,6 +174,53 @@ materials' own `template` reference (`acu-mat`, `material::Material::template`).
   form `(1 + 4 exp(-cot^2 / alpha^2) / sin^4) / (1 + 4 alpha^2)`. The specular result is multiplied
   by `pow(t_Albedo.w, 2.2)` and by SSAO; `t_MiscProps.z * sat(-NdotL)` adds back-light diffuse.
 
+### Live check: bound permutations at Low and at max quality (2026-11-16)
+
+- Method: `acu_shader_probe.dll`, source `tools/native_probe/shader_probe.cpp`, build SHA-256
+  `bfb5bc4e…d701`.
+  - It hooks d3d11's `CreatePixelShader` and `PSSetShader` with MinHook and keys each created
+    shader by its DXBC checksum (bytecode bytes 4..20). Offline self-test:
+    `test_shader_probe.py`.
+  - It was injected before the menus with `capture_run.py --extra-dll`.
+  - Game: ACU.exe `748abdc6…7e40`, pinned save `capture-start-1`, fps cap 60, 1280 x 720.
+  - Bind counts are the difference between two snapshots 20 s apart in the world. Matching was
+    against the PS blobs of the three template payloads (local copies: cloth `03b613fc…`, skin
+    `756f210d…`, hair `eeca0062…`) with `shader_quality.py match`.
+- Settings:
+  - Low = the capture preset: every quality option 0.
+  - Max (`shader_quality.py set high`): ENVIRONMENT 4, TEXTURES 2, SHADOWS 2, SSAO 2,
+    REFLECTIONS 3, POST_FX on, as the RANGE maxima of `GFXSettings.ACU.xml` list.
+  - AA (0 of 6) and Tessellation (0) were left as in the preset.
+
+| Template | Bound PS at Low (PID 122852) | Bound PS at max (PID 112276, 60 s settle) |
+| --- | --- | --- |
+| cloth | `0x40655` (full form, two-sided) 3,603; `0x431e5` (full form, one-sided) 1,201; `0x9fc59` (depth, 3 textures) 1,201 | `0x40655` 2,402; `0x431e5` 1,201; `0x9fc59` 1,201 |
+| skin | `0xc89d3` 1,201 | `0xc89d3` 1,201 |
+| hair | `0x54c05` 43,617; `0x65875` (depth) 1,299 | `0x54c05` 53,407; `0x65875` 1,266 |
+
+- Both settings created the same shaders: 1,553 creations, 1,364 unique checksums, and the
+  same 20 / 18 / 20 template pixel shaders.
+  - An earlier max run sampled 3 s after the world loaded had only 1,063 creations and no hair
+    binds; the world was still streaming in.
+  - So the graphics-quality setting does not select different character-template pixel shaders.
+- The stripped cloth form (`0x4C391`) was never bound. The full form the port follows is what
+  the game uses.
+  - `0x431e5` differs from `0x40655` only in omitting the `is_front_face` normal flip.
+  - Hair `0x54c05` is `0x414d9` plus that flip. The port's hair maths stands.
+- Skin `0xc89d3` is not the `0x7ddb7` form described above:
+  - no t36 / t37 (wrinkle maps);
+  - t34 is sampled only for `.w` (pore gloss);
+  - the detail normal is t40 (the water-drop normal, UV0), blended from flat by the wetness
+    `sat(cb1[418].x * cb1[5].z + cb3[7].x)`, then reoriented onto t33;
+  - the albedo, tint, gloss combine, `o0.w` occlusion and F0 0.04 match.
+  - So a dry face has no pore normal: the pore map adds only gloss.
+- Limits:
+  - Binds are per checksum, not per object. The templates are shared with NPCs (the hair count is
+    roughly 900 binds a second), so which draws are Arno's is not separated.
+  - Shaders created before injection (title screen) show up only as `unknown_binds`.
+  - Runs: `local/native-probe/shader-low-20261116`, `shader-high-20261116c` (`probe-a/b.json`,
+    `match.json`).
+
 
 ## Inferences (labelled)
 
@@ -208,7 +255,8 @@ materials' own `template` reference (`acu-mat`, `material::Material::template`).
   BC7 detail maps (`LIB_cloth_Flecks` or `LIB_Cloth_Metal`, `LIB_cloth_cotton`, `LIB_Cloth_Leather`);
   fabric weave and folds, brighter metal fittings, no invalid pixels. Not compared with the game.
 - Skin (`acu_assets::character_template::Skin`, flags 2): saturation matrix, tint lerp by mask
-  B, F0 0.04; the template's default pore normal (t34, UV x30, the template's reoriented blend on
+  B, F0 0.04 (following the bound permutation `0xc89d3`: the pore map t34 gives gloss only, no
+  pore normal, since 2026-11-16); earlier: the template's default pore normal (t34, UV x30, the template's reoriented blend on
   the raw normal texel) and specular map (t35); gloss = `skin_gloss` (t35 dry / wet gloss with the
   pore gloss, times `sat(wet + cb3[2])`); specular occlusion `pow(mask B * pow(t35.z, 2.2), 2.2)`.
   A synthetic gloss remains only as the fallback when t35 cannot be loaded. Wrinkle normals are
@@ -224,8 +272,10 @@ materials' own `template` reference (`acu-mat`, `material::Material::template`).
 ## Unknowns
 
 - Render-target formats and blend state of the G-buffer pass.
-- Whether the graphics-quality setting selects shader permutations that drop these maps (the
-  user's game runs at Low); a live capture of bound resources at each setting would show it.
+- Which bound draws are Arno's: the probe counts per shader, not per object. The bound
+  textures (SRVs) per draw were not captured either.
+- What selects `0xc89d3` over `0x7ddb7`: quality does not. Facial animation or the wrinkle
+  weight is a candidate (not observed).
 - Runtime constants: sun and lighting scale captured live (see ACU-RE-0073); `g_SkySHConstants`
   not yet.
 

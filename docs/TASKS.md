@@ -520,8 +520,13 @@ Lighting sets (ACU-RE-0073, done): all 15 `WorldAmbiance` sets are decoded and s
 (`L` / `Shift+L`); the default is `paris-day`.
 Next, in order:
 - the sky SH (`g_SkySHConstants`) live, and the velvet lobe in a custom Bevy lighting path;
-- a live capture of bound shader resources to confirm the template-default bindings and how the
-  graphics-quality setting changes the shader permutations (the user's game runs at Low);
+- target: ACU at max graphics settings (shadows, AO, environment detail, textures, max
+  tessellation; AA and resolution not needed). The capture preset stays Low only for captures.
+  - Live check (ACU-RE-0084, done 2026-11-16): quality does not change the character-template
+    pixel shaders. The skin port now follows the bound `0xc89d3` (no pore normal).
+  - Next: which shadow / SSAO / environment paths change at max, and the Tessellation option's
+    range (`ACU.ini` `Tessellation`, absent from the GSA xml). The character templates have no
+    hull / domain shaders, so tessellation is a world-rendering item.
 - other outfits' templates (an outfit selector and the templates they use);
 - a live in-game comparison of the GI at the anchor spot;
 - the time-of-day sun / LayeredSky (needed before the sets differ in sun; one live Paris sample

@@ -14,8 +14,8 @@
 // translucency, the dissolve, global wetness. ACU's own deferred BRDF is
 // replaced by Bevy's.
 // CN_Skin_Wrinkle (flags.z = 2): saturation matrix, tint lerp by mask B,
-// F0 0.04; the template's default maps: pore normal (t34, UV x30, blended by
-// the template's RNM on the raw normal texel) and specular map (t35: dry /
+// F0 0.04; the template's default maps: pore map (t34, UV x30, gloss alpha only:
+// the bound permutation 0xc89d3 uses no pore normal) and specular map (t35: dry /
 // wet gloss, occlusion); gloss = t35 gloss combined with the pore gloss,
 // times sat(wet + cb3[2]); occlusion pow(mask B * pow(t35.z, 2.2), 2.2).
 // Wrinkle normals need a facial-animation weight and rain needs wetness: off.
@@ -165,22 +165,17 @@ fn fragment(in: VertexOutput, @builtin(front_facing) front: bool) -> FragmentOut
             surface.specular_occlusion = occlusion;
         }
         if surface_kind > 1.5 && surface_kind < 2.5 {
-            // skin: template default pore normal (t34) and specular map (t35)
+            // skin: template default pore map (t34, gloss alpha only) and specular map (t35).
+            // The permutation the game binds (payload 0xc89d3, observed live at Low and High)
+            // takes only t34.w; its detail normal is the rain normal weighted by wetness, so a
+            // dry face keeps the base normal.
             let bits = u32(settings.detail_uv.z + 0.5);
             let wet = settings.specular.z;
             var g = settings.specular.x;
             var spec_occlusion = 1.0;
             var pore_gloss = 4.0;
             if (bits & 1u) != 0u {
-                let p = textureSample(detail_metal, detail_metal_sampler, in.uv * settings.detail_uv.xy);
-                let pxy = p.xy * 2.0 - 1.0;
-                let d = vec3<f32>(pxy, sqrt(max(0.0, 1.0 - dot(pxy, pxy))));
-                let t = packed.xyz + vec3<f32>(0.0, 0.0, 1.0);
-                let u = d * vec3<f32>(-1.0, -1.0, 1.0);
-                let r = t * dot(t, u) / t.z - u;
-                let nxy = r.xy * 2.0 - 1.0;
-                normal = vec3<f32>(nxy, sqrt(max(0.0, 1.0 - dot(nxy, nxy))));
-                pore_gloss = p.w;
+                pore_gloss = textureSample(detail_metal, detail_metal_sampler, in.uv * settings.detail_uv.xy).w;
             }
             if (bits & 2u) != 0u {
                 let s = textureSample(detail_cloth, detail_cloth_sampler, in.uv);

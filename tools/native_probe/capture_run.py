@@ -347,8 +347,14 @@ def main():
             if '"injected":true' not in probe.stdout:
                 raise RuntimeError(f"probe injection failed: {probe.stdout}{probe.stderr}")
         for extra in a.extra_dll:
-            injected = subprocess.run([str(focus.OUT / "acu_probe_launcher.exe"), "--attach", str(pid),
-                                       "--dll", str(extra.resolve())], capture_output=True, text=True)
+            # The launcher's module snapshot of a freshly started game can miss kernel32 while the
+            # process is still loading modules ("loader module unavailable"); retry a few times.
+            for attempt in range(6):
+                injected = subprocess.run([str(focus.OUT / "acu_probe_launcher.exe"), "--attach", str(pid),
+                                           "--dll", str(extra.resolve())], capture_output=True, text=True)
+                if '"injected":true' in injected.stdout:
+                    break
+                time.sleep(3)
             if '"injected":true' not in injected.stdout:
                 raise RuntimeError(f"{extra} injection failed: {injected.stdout}{injected.stderr}")
             run.stage("extra_dll", dll=str(extra), sha256=hashlib.sha256(extra.read_bytes()).hexdigest())
