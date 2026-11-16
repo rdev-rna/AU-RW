@@ -187,7 +187,9 @@ Families take a default from the table above. A message without an established g
 
 ### Unknowns and next checks
 
-- Guards below depth 1: extend the search to depth 2 or 3, or read the 340 handlers by family.
+- Guards below depth 1. Searching to depth 2 and 3 finds only 2 more (338 remain "none"), so these guards are
+  not in nearby callees. They are in the director queue drains, the event listeners, or behind virtual calls;
+  read them by family.
 - The drain side of the director queues (`+832` and `+708` in `FightDirector`).
 - The listeners subscribed to each `NetHumanIntention` event hash.
 - The meaning of byte `+17` at `message+24`, and the full net-object state enum.
