@@ -1,0 +1,25 @@
+{
+  "description": "Parkour candidate list owner (ACU-RE-0055 follow-up). ACU.exe 748abdc6...7e40, base 0x140000000; guards from the mapped image (motion-link-20261020). Every selection call (0x140133B00) returns to 0x140134987 inside 0x140134880, a virtual in 54 vtables (0x1439E06E0..0x143A34B80) that calls the selection through vtbl+0x4F0 and then clears the list. Its return address names the code that filled the list. Entry: r9 (a4) is a vector whose |v|^2 < 0.01 falls back to [[rcx+0x118]+0x18] (snapshot 16 B); the 9th argument [rsp+0x48] is the candidate SmallArray (gather as in parkour_selection). Selection exit 0x140133D4B gives the chosen index. 0x1401B1770 = fancy slot 1 (record r9, 256 B) and 0x14019F920 = slot 0x47 entry (r9, 16 B, copied to rcx+0x30) test the two known candidate writers. register_index: 0=rcx 3=r9 6=rsi 9=rsp.",
+  "rotation_seconds": 600,
+  "probes": [
+    {
+      "label": "parkour_commit_entry",
+      "rva": "134880",
+      "expected_hex": "48896c24205641544155415641574881",
+      "category": "traversal",
+      "register_index": 3,
+      "offset": 0,
+      "bytes": 16,
+      "gather": {"register_index": 9, "offset": 72, "deref": true, "data_offset": 0, "count_offset": 10, "max_elements": 16, "element_bytes": 672}
+    },
+    {
+      "label": "parkour_select_exit",
+      "rva": "133d4b",
+      "expected_hex": "4c8d5c2470498b5b40498b6b48498be3415f415d415c5f5ec3",
+      "category": "traversal",
+      "gather": {"register_index": 6, "offset": 0, "deref": false, "data_offset": 0, "count_offset": 10, "max_elements": 16, "element_bytes": 672}
+    },
+    {"label": "candidate_from_record", "rva": "1b1770", "expected_hex": "48895c24084889742410574883ec4041", "category": "parkour", "register_index": 3, "offset": 0, "bytes": 256},
+    {"label": "candidate_slot47_entry", "rva": "19f920", "expected_hex": "4883ec28410f28010f2815813445030f", "category": "parkour", "register_index": 3, "offset": 0, "bytes": 16}
+  ]
+}

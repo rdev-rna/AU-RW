@@ -1,0 +1,26 @@
+{
+  "schema_version": 1,
+  "report_hz": 60,
+  "description": "Wall eject attempts for the parkour candidate probe (ACU-RE-0055 follow-up). From the pinned Paris save (605.7, -28.9, facing +Y) a full-stick free run with parkour up meets a wall ahead (loco-sprint-open-1) and climbs it. On the wall: stick back, left and right with RT + A (the AC1 rule: high profile + jump + stick picks the eject direction), and stick back with RT + B. Between attempts Arno climbs again. Xbox layout; button meanings are the game's published controls, not recovered behaviour.",
+  "steps": [
+    {"name": "settle", "duration_ms": 2000},
+    {"name": "climb_1", "duration_ms": 6000, "left_stick": [0, 32767], "right_trigger": 255, "buttons": ["A"]},
+    {"name": "cling_1", "duration_ms": 600, "right_trigger": 255},
+    {"name": "eject_back_A", "duration_ms": 1200, "left_stick": [0, -32768], "right_trigger": 255, "buttons": ["A"]},
+    {"name": "recover_1", "duration_ms": 3000},
+    {"name": "climb_2", "duration_ms": 6000, "left_stick": [0, 32767], "right_trigger": 255, "buttons": ["A"]},
+    {"name": "cling_2", "duration_ms": 600, "right_trigger": 255},
+    {"name": "eject_left_A", "duration_ms": 1200, "left_stick": [-32768, 0], "right_trigger": 255, "buttons": ["A"]},
+    {"name": "recover_2", "duration_ms": 3000},
+    {"name": "climb_3", "duration_ms": 6000, "left_stick": [0, 32767], "right_trigger": 255, "buttons": ["A"]},
+    {"name": "cling_3", "duration_ms": 600, "right_trigger": 255},
+    {"name": "eject_right_A", "duration_ms": 1200, "left_stick": [32767, 0], "right_trigger": 255, "buttons": ["A"]},
+    {"name": "recover_3", "duration_ms": 3000},
+    {"name": "climb_4", "duration_ms": 6000, "left_stick": [0, 32767], "right_trigger": 255, "buttons": ["A"]},
+    {"name": "cling_4", "duration_ms": 600, "right_trigger": 255},
+    {"name": "eject_back_B", "duration_ms": 1200, "left_stick": [0, -32768], "right_trigger": 255, "buttons": ["B"]},
+    {"name": "recover_4", "duration_ms": 3000},
+    {"name": "free_run", "duration_ms": 8000, "left_stick": [0, 32767], "right_trigger": 255, "buttons": ["A"]},
+    {"name": "release", "duration_ms": 1500}
+  ]
+}
