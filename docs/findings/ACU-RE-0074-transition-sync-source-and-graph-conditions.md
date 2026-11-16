@@ -114,6 +114,25 @@ State: **partially established**.
      - all 6,494 transitions carry only `f16` (node id), `f32`, `f36` and `f38` bits, so none
        references a graph.
 
+9. **Like-for-like sprint (`loco-sprint-open-1`).**
+   - Capture: 2026-11-16, PID 132540, `capture_run.py --until world --keep-game --save-pin
+     capture-start-1 --fps-cap 60`, executable hash checked.
+   - Moves: `local/native-probe/loco-sprint-open-1-moves.json`. Samplers: `live_state.py` at
+     60 Hz and `graph_params.py` at 30 Hz.
+   - Closed with `--close` (graceful, 1.7 s); saves put back.
+   - Start (605.693, −28.883), forward (0, 1).
+   - Native window 16.4–18.1 s:
+     - sprint 0.695, `Run_3-Loop` 0.163, uphill sprint 0.082, uphill run 0.019;
+     - sprint clip 0.884×, run clip 1.262×;
+     - 5.66 m/s;
+     - `VirtualFootIkSlope` median 2.77°, `InDenseCrowd` 41 of 48, `WallDistanceY` median 10.
+   - Rust with `VirtualFootIkSlope` 2.77 (`installed_sprint_slope_speed`):
+     - sprint 0.720, run 0.187, uphill sprint 0.073, uphill run 0.019;
+     - sprint clip 0.874×, run 1.31×;
+     - 6.05 m/s (6.37 m/s at slope 0).
+   - Half-stick stops in this capture: `WalkSlow_Stop_LP` twice. Two other half-stick walks
+     ended at a ledge.
+
 ## Inferences
 
 - With no source at transition entry, every SelectBestMatchingTags in a newly entered state
@@ -137,9 +156,9 @@ State: **partially established**.
       `0x140116AC0`, `0x14011C0D0`).
   - If such a source exists, the full-walk stop must still not pick by phase, and its events
     must lack the 4 % `WalkSlow` leaf. Neither is explained.
-- Sprint speed: the native runs were near walls and on uneven ground, which Rust's arena
-  doesn't model. An open, level native sprint with parameters captured would show whether
-  any gap is left.
+- Sprint speed: with the blend matched, Rust is still about 7 % faster (6.05 against 5.66
+  m/s). Either native root motion for the blend is shorter, or crowd contact slows the body.
+  Not checked: the native per-frame root delta (`root_delta_capture.py`).
 - Who activates state 8947 (game code request, or a layering link the parser misses).
 - What sets `*(source+20)`.
 - Context pass mode 2 (`+92`).

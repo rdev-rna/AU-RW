@@ -1040,6 +1040,36 @@ mod tests {
         (at(b) - at(a)).length() / (b - a)
     }
 
+    /// Sprint speed with the slope of the native sprint window in loco-sprint-open-1 (16.4-18.1 s:
+    /// `VirtualFootIkSlope` median 2.77, sprint 0.695 / run 0.163 / uphill sprint 0.082, sprint clip
+    /// at 0.884x, 5.66 m/s; ACU-RE-0074). Prints the Rust blend and speed at slopes 0 and 2.77.
+    #[test]
+    #[ignore = "requires original ACU install; sprint speed against a native window"]
+    fn installed_sprint_slope_speed() {
+        use acu_motion::atom_graph::Value;
+        let dir = std::env::var("ACU_GAME_DIR").expect("ACU_GAME_DIR required");
+        let dir = std::path::Path::new(&dir);
+        let library = crate::rig::load(dir).unwrap();
+        let (mut driver, _) = crate::motion::load_graph(dir, &library).unwrap();
+        let run: Script = vec![(1.0, Vec2::ZERO, false), (5.0, -Vec2::Y, true)];
+        for slope in [0.0, 2.77] {
+            driver
+                .player
+                .set("VirtualFootIkSlope", Value::Scalar(slope));
+            let s = script(&mut driver, &run);
+            let v = speed(&s, 4.4, 6.0);
+            let mut w: Vec<(String, f32, f32)> = driver
+                .player
+                .leaves
+                .iter()
+                .filter(|l| l.weight > 0.005)
+                .map(|l| (driver.name(l.clip).replace("xx_Nav_", ""), l.weight, l.rate))
+                .collect();
+            w.sort_by(|a, b| b.1.total_cmp(&a.1));
+            println!("slope {slope}: speed {v:.2} m/s over 4.4-6.0 s; leaves {w:?}");
+        }
+    }
+
     /// Walk stop clip against the release time. Native picked `WalkStop_RC` in 13 of 13 stops
     /// spread over the walk cycle (loco-stops-2 holds of 1.8-4.25 s; ACU-RE-0072).
     #[test]

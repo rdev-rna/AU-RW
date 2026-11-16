@@ -87,7 +87,9 @@ Tests: `forced_start_holds_a_self_sustaining_state` and `reset_does_not_depend_o
 
 1. **Walk stop travel.** Rust's RC stop travels 0.27 m against native 0.28–0.45 m (borderline).
 2. **Half-stick stop.** Rust plays `WalkStop_RC`. Native played `WalkSlow_Stop_LP` once and
-   `WalkSlow_Stop_LC` twice (3 of 3), each travelling 0.17 m.
+   `WalkSlow_Stop_LC` twice (3 of 3), each travelling 0.17 m. `loco-sprint-open-1` added two
+   more `WalkSlow_Stop_LP` (two further half-stick walks ended at a ledge,
+   `PreNavWalkStopOnEdge`). That makes LP 3 and LC 2 of 5: native picks by phase here.
    - The slow branch of 3723 needs its condition (event `0x00400026`) to hold at activation.
    - Native evaluates that condition once, over the events of the context's sync source.
    - With the null source of a transition entry, the condition is false, so Rust takes the
@@ -108,8 +110,21 @@ Tests: `forced_start_holds_a_self_sustaining_state` and `reset_does_not_depend_o
      - Native sprints ran near walls (`WallDistanceY` median 4.5 m, down to 0.57 m; below 4 m
        graph 3381 brings in wall-anticipate clips), with slope −5° to +8° and nonzero
        `TargetDistanceX`. Rust's arena is flat and open.
-     - So the remaining ~5 % (native 6.05 m/s on dominant runs, Rust 6.39) is not shown to be
-       a Rust defect. Needs a native sprint on open, level ground with parameters captured.
+   - New capture `loco-sprint-open-1` (2026-11-16, 60 Hz with parameters at 30 Hz). The save
+     started at a different spot (605.7, −28.9), and neither sprint was clear:
+     - the first ran into a wall;
+     - the second stumbled, then held `Sprint_3-Loop_V02` for 1.6 s at 5.66 m/s, uphill
+       (`VirtualFootIkSlope` median 2.77°) and in a crowd (`InDenseCrowd` 41 of 48 samples).
+   - Like for like (`installed_sprint_slope_speed`, slope 2.77°), the Rust blend matches that
+     window:
+     - sprint 0.72 / run 0.19 / uphill sprint 0.07 / uphill run 0.02, against native 0.70 /
+       0.16 / 0.08 / 0.02;
+     - sprint clip at 0.87× against native 0.88×.
+   - Rust still moves at 6.05 m/s against native 5.66 m/s, about 7 % faster.
+   - Native body velocity is the per-frame root delta (ACU-RE-0057). So either native root
+     motion for this blend is shorter, or crowd contact slows the body.
+   - Next: a `root_delta_capture.py` run to compare the native per-frame root delta with
+     Rust's.
 4. **After a sprint stop.**
    - Native plays `IdleHigh_tr_IdleLow_footl/footr` (1.09–1.1 s) in 3 of 3 runs; Rust goes
      straight to `IdleLow_Footr`.
