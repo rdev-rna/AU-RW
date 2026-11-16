@@ -182,12 +182,23 @@
   },
   {
    "id": "interest.relevance",
-   "title": "Interest management: which objects replicate to which peer",
-   "finding": null
+   "title": "Interest management: replication modes (every peer vs simulation camera) and Storm-owned scope",
+   "finding": "ACU-RE-0104"
   },
   {
    "id": "interest.delete_replica",
    "title": "DeleteReplicaEvent and unload hand-off",
+   "finding": null,
+   "note": "ACU-RE-0104: Storm alone builds AddReplica/RemoveReplica; replica create/delete timing still needs a live check"
+  },
+  {
+   "id": "interest.camera_scoped_classes",
+   "title": "Which object classes use SimulationCameraMode (descriptor byte +208)",
+   "finding": null
+  },
+  {
+   "id": "interest.shape_meaning",
+   "title": "Meaning of NetSimCamera_Default's seven floats (80,80,40,60,30,20,5), live",
    "finding": null
   },
   {
