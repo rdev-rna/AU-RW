@@ -215,3 +215,40 @@ fn installed_paris_gicp_blobs_decode() -> Result<()> {
     }
     Ok(())
 }
+
+/// Every other `WorldAmbiance` set in the installed game decodes with the same layout
+/// (Versailles, Saint-Denis, Prologue, Rebirth ritual and the three time-rift levels).
+#[test]
+#[ignore = "requires ACU_GAME_DIR; WorldAmbiance resources outside Paris"]
+fn installed_world_ambiance_sets_decode() -> Result<()> {
+    let dir = game_dir()?;
+    for (archive, entry, fid) in [
+        ("DataPC_ACU_Versailles.forge", 5435, "00000010cde129a8"),
+        ("DataPC_ACU_Versailles.forge", 5436, "00000010cde129cb"),
+        ("DataPC_ACU_Versailles.forge", 5437, "00000010cde129ee"),
+        ("DataPC_ACU_Versailles.forge", 5438, "00000010cde12a11"),
+        ("dlc_11/DataPC_ACU-DLC_Saint-Denis.forge", 1238, "00000012f8374555"),
+        ("dlc_11/DataPC_ACU-DLC_Saint-Denis.forge", 1232, "00000013786fcca2"),
+        ("DataPC_ACU_Prologue.forge", 2463, "0000001347aeb35f"),
+        ("DataPC_ACU_RebirthRitual.forge", 501, "0000001095d6a63f"),
+        ("DataPC_ACU_LGS_BelleEpoque.forge", 348, "000000104339fe67"),
+        ("DataPC_ACU_LGS_Medieval.forge", 513, "000000144de08bd3"),
+        ("DataPC_ACU_LGS_WorldWar2.forge", 413, "000000110e816c9e"),
+    ] {
+        let bytes = payload(&dir.join(archive), entry, fid)?;
+        let w = ambiance::decode(&bytes)?;
+        println!(
+            "{fid} {archive} len={} sha={} ev100={:?} value132={} shadow_map={} splits={:?} end={} sky={}",
+            bytes.len(),
+            sha256(&bytes),
+            w.hdr.ev100(),
+            w.hdr.value132,
+            w.shadow.value3356,
+            w.shadow.cascades3396,
+            w.shadow.pssm_shadow_end_distance,
+            w.layered_sky.1
+        );
+        assert!(w.hdr.ev100().is_some(), "{fid}");
+    }
+    Ok(())
+}

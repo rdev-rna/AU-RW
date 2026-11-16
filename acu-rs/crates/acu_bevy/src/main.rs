@@ -166,9 +166,13 @@ fn main() {
     );
     app.add_systems(Update, inspect_camera.after(player::follow));
     app.add_systems(Update, draw_ledges.run_if(resource_exists::<BlockView>));
+    app.add_systems(
+        Update,
+        lighting::switch_preset.run_if(resource_exists::<lighting::Switcher>),
+    );
     if !headless {
         println!(
-            "Controller: left stick walk; hold RT/R2 sprint; RT+X (South/A) upward priority; RT+Circle (East/B) downward priority; right stick camera yaw/pitch. Keyboard: WASD walk; Shift sprint; Shift+Space up; Shift+C down; Space jump; R reset. Arrows camera; Q/E zoom; F2 bind; F3 freeze; Esc exit. Original navigation clips; synthetic arena traversal."
+            "Controller: left stick walk; hold RT/R2 sprint; RT+X (South/A) upward priority; RT+Circle (East/B) downward priority; right stick camera yaw/pitch. Keyboard: WASD walk; Shift sprint; Shift+Space up; Shift+C down; Space jump; R reset. Arrows camera; Q/E zoom; L / Shift+L lighting set; F2 bind; F3 freeze; Esc exit. Original navigation clips; synthetic arena traversal."
         );
     }
     if let Some(path) = capture_path {
@@ -596,11 +600,16 @@ fn setup_world(
         std::fs::write(path, report).expect("write scene report");
     }
 
-    // Lighting (ACU-RE-0073): native Paris WorldAmbiance settings, synthetic remainder.
+    // Lighting (ACU-RE-0073): native WorldAmbiance settings, synthetic remainder; L cycles sets.
     let exposure = lighting::spawn(&mut commands, native_lighting.as_ref());
     if let Some(gi) = &native_gi {
-        gi_volume::spawn(&mut commands, &mut images, gi, gi_intensity);
+        let volume = gi_volume::spawn(&mut commands, &mut images, gi, gi_intensity);
+        commands.entity(volume).insert(lighting::SceneLight);
     }
+    commands.insert_resource(lighting::Switcher::new(
+        options.game_dir.clone(),
+        &options.lighting,
+    ));
 
     // Camera framing the decoded bounds.
     let center = (bevy_min + bevy_max) / 2.0;

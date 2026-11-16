@@ -85,7 +85,7 @@ pub struct Options {
     /// materials (ACU-RE-0071); `None` renders the raw diffuse. Row 1 is the
     /// table's default-weighted row ("Color 1", the default assassin blue).
     pub color_set: Option<usize>,
-    /// Lighting preset (`lighting::PRESETS`, ACU-RE-0073); default `paris-noon`.
+    /// Lighting preset (`lighting::SETS`, ACU-RE-0073); default `paris-day`.
     pub lighting: String,
     /// Drive cloth-simulated pieces with the ported solver (ACU-RE-0081);
     /// `--no-cloth` leaves them on their mesh skin.
@@ -149,7 +149,7 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut no_textures = false;
     let mut cloth = true;
     let mut color_set: Option<usize> = Some(1);
-    let mut lighting = "paris-noon".to_string();
+    let mut lighting = crate::lighting::DEFAULT.to_string();
     let mut static_scene = false;
     let mut scenario = "idle".to_string();
     let mut ticks = 0u32;
@@ -412,9 +412,10 @@ OPTIONS:
                        simulating them with the ported solver
     --color-set N|none Colour-set row for colour-masked cloth (default 1, the
                        default assassin blue; none = raw diffuse)
-    --lighting NAME    synthetic|paris-dawn|paris-noon|paris-sunset|paris-night
-                       (default paris-noon: native exposure/shadow settings,
-                       synthetic sun and fill; ACU-RE-0073)
+    --lighting NAME    paris-day (default), paris-sunset|night|dawn, versailles-day|sunset|night|dawn,
+                       saint-denis, saint-denis-moon, prologue-night, rebirth, rift-belle-epoque-sunset,
+                       rift-medieval-dawn, rift-ww2-night, synthetic; L / Shift+L cycle at runtime
+                       (native exposure/shadow settings, synthetic sun and fill; ACU-RE-0073)
     --static           Disable rig and test movement (old inspection mode)
     --scenario NAME    idle/bind/deform/walk/run/turn/jump/contact/profile-up/profile-down; walk/run-left/right/back/circle
                        reversals: visible loop, four right/left pairs (2 s each)

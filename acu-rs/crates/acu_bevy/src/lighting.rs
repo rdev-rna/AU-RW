@@ -1,17 +1,23 @@
-//! Scene lighting (ACU-RE-0073): native Paris `WorldAmbiance` settings where decoded,
-//! synthetic stand-ins elsewhere.
+//! Scene lighting (ACU-RE-0073): every native `WorldAmbiance` set in the install where decoded,
+//! synthetic stand-ins elsewhere. Default: `paris-day` (`PAR_WorldAmbiance_Noon`, "Day, Paris").
+//! `L` / `Shift+L` cycle the sets at runtime.
 //!
-//! Native (decoded by `acu_assets::ambiance`, Paris entries 22301-22304):
+//! Native (decoded by `acu_assets::ambiance`, sets in `SETS`):
 //! - camera exposure: `HDRLightingSettings` aperture / shutter / `ISO` -> EV100
 //!   (the field roles of aperture and shutter are INFERRED, `ISO` is a reflected name);
 //! - directional shadows: map size `+3356` (INFERRED) and the four PSSM split distances
 //!   `+3396` (native consumer `0x1421F9030`; named by the user's HardShadowPatch plugin).
-//!   `PSSMShadowEndDistance` (128 m), the split blend regions `+3412` and the per-cascade
+//!   `PSSMShadowEndDistance`, the split blend regions `+3412` and the per-cascade
 //!   biases `+3380..` are reported, not applied: Bevy has one overlap proportion and one
 //!   depth bias per light, and ACU's bias units are not established.
 //!
-//! - baked GI (bounce): native Paris irradiance cells around Arno (`gi_volume`);
-//! - sun colour and direction: a live `g_Frame` sample; the sun / GI ratio is native.
+//! - baked GI (bounce): native Paris irradiance cells around Arno (`gi_volume`), Paris sets only
+//!   (the other levels' GI loaders are not wired; Arno's anchor is a Paris street);
+//! - sun colour and direction: ONE live `g_Frame` sample from a Paris save (probably late
+//!   afternoon), used for every set. `WorldAmbiance` holds no sun; the per-time-of-day sun is
+//!   presumably driven by the `LayeredSky` / time of day, not decoded. Its magnitude is scaled by
+//!   `sun_scale` (SYNTHETIC) so dark sets do not burn out, so sets differ here in shadows and
+//!   (Paris) GI, not yet in sun colour, angle or apparent brightness.
 //!
 //! Still synthetic: the lux-per-ACU-unit scale, the sky fill (ACU's sky SH is a runtime
 //! constant not captured), the clear colour, SSAO (decoded, not applied).
@@ -20,47 +26,200 @@ use acu_assets::{Limits, ambiance, forge::Forge, package};
 use bevy::camera::Exposure;
 use bevy::light::{CascadeShadowConfig, DirectionalLightShadowMap, light_consts::lux};
 use bevy::prelude::*;
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
-/// `PAR_WorldAmbiance_*` resources in `DataPC_ACU_Paris.forge`: (name, entry, file id).
-const PARIS: [(&str, usize, &str); 4] = [
-    ("paris-dawn", 22301, "00000007f5f1bb7b"),
-    ("paris-night", 22302, "00000007f5f1bb9d"),
-    ("paris-sunset", 22303, "00000007f5f1bbbf"),
-    ("paris-noon", 22304, "00000007f5f1bbe1"),
-];
-
-pub const PRESETS: &str = "synthetic|paris-dawn|paris-noon|paris-sunset|paris-night";
-
-pub struct Native {
+/// A `WorldAmbiance` resource: preset name, archive (relative to the install), entry, file id,
+/// resource name (asset index, `crc-name`). Patch copies (`*_patch_03`) of the Prologue, Rebirth,
+/// Belle Epoque and Medieval sets have byte-identical payloads, so precedence does not matter.
+pub struct Set {
     pub preset: &'static str,
+    pub archive: &'static str,
     pub entry: usize,
     pub file_id: &'static str,
+    pub name: &'static str,
+}
+
+const fn set(
+    preset: &'static str,
+    archive: &'static str,
+    entry: usize,
+    file_id: &'static str,
+    name: &'static str,
+) -> Set {
+    Set {
+        preset,
+        archive,
+        entry,
+        file_id,
+        name,
+    }
+}
+
+const PARIS: &str = "DataPC_ACU_Paris.forge";
+const VERSAILLES: &str = "DataPC_ACU_Versailles.forge";
+const SAINT_DENIS: &str = "dlc_11/DataPC_ACU-DLC_Saint-Denis.forge";
+
+/// Every unique `WorldAmbiance` in the install (15), cycle order.
+pub const SETS: [Set; 15] = [
+    set(
+        "paris-day",
+        PARIS,
+        22304,
+        "00000007f5f1bbe1",
+        "PAR_WorldAmbiance_Noon",
+    ),
+    set(
+        "paris-sunset",
+        PARIS,
+        22303,
+        "00000007f5f1bbbf",
+        "PAR_WorldAmbiance_Sunset",
+    ),
+    set(
+        "paris-night",
+        PARIS,
+        22302,
+        "00000007f5f1bb9d",
+        "PAR_WorldAmbiance_Night",
+    ),
+    set(
+        "paris-dawn",
+        PARIS,
+        22301,
+        "00000007f5f1bb7b",
+        "PAR_WorldAmbiance_Dawn",
+    ),
+    set(
+        "versailles-day",
+        VERSAILLES,
+        5437,
+        "00000010cde129ee",
+        "VERS_WorldAmbiance_Noon",
+    ),
+    set(
+        "versailles-sunset",
+        VERSAILLES,
+        5438,
+        "00000010cde12a11",
+        "VERS_WorldAmbiance_Sunset",
+    ),
+    set(
+        "versailles-night",
+        VERSAILLES,
+        5436,
+        "00000010cde129cb",
+        "VERS_WorldAmbiance_Night",
+    ),
+    set(
+        "versailles-dawn",
+        VERSAILLES,
+        5435,
+        "00000010cde129a8",
+        "VERS_WorldAmbiance_Dawn",
+    ),
+    set(
+        "saint-denis",
+        SAINT_DENIS,
+        1238,
+        "00000012f8374555",
+        "SDN_WorldAmbiance",
+    ),
+    set(
+        "saint-denis-moon",
+        SAINT_DENIS,
+        1232,
+        "00000013786fcca2",
+        "SDN_moon_WorldAmbiance",
+    ),
+    set(
+        "prologue-night",
+        "DataPC_ACU_Prologue.forge",
+        2463,
+        "0000001347aeb35f",
+        "PRO_WorldAmbiance_Night",
+    ),
+    set(
+        "rebirth",
+        "DataPC_ACU_RebirthRitual.forge",
+        501,
+        "0000001095d6a63f",
+        "REBIRTH_WorldAmbiance_01",
+    ),
+    set(
+        "rift-belle-epoque-sunset",
+        "DataPC_ACU_LGS_BelleEpoque.forge",
+        348,
+        "000000104339fe67",
+        "LGS_BEP_WorldAmbiance_Sunset",
+    ),
+    set(
+        "rift-medieval-dawn",
+        "DataPC_ACU_LGS_Medieval.forge",
+        513,
+        "000000144de08bd3",
+        "LGS_MDA_WorldAmbiance_Dawn_V2",
+    ),
+    set(
+        "rift-ww2-night",
+        "DataPC_ACU_LGS_WorldWar2.forge",
+        413,
+        "000000110e816c9e",
+        "LGS_WWR_WorldAmbiance_Night",
+    ),
+];
+
+pub const DEFAULT: &str = "paris-day";
+
+/// `--lighting` help: `synthetic`, every set, and the `paris-noon` alias.
+pub fn presets() -> String {
+    let mut names = vec!["synthetic"];
+    names.extend(SETS.iter().map(|s| s.preset));
+    format!("{} (alias paris-noon = paris-day)", names.join("|"))
+}
+
+/// Canonical preset name (`paris-noon` is the earlier name of `paris-day`).
+pub fn canonical(preset: &str) -> &str {
+    if preset == "paris-noon" {
+        DEFAULT
+    } else {
+        preset
+    }
+}
+
+/// Cycle order: every set, then `synthetic`.
+fn cycle() -> impl Iterator<Item = &'static str> {
+    SETS.iter()
+        .map(|s| s.preset)
+        .chain(std::iter::once("synthetic"))
+}
+
+pub struct Native {
+    pub set: &'static Set,
     pub sha256: String,
     pub ambiance: ambiance::WorldAmbiance,
 }
 
-/// Decode the named Paris preset; `Ok(None)` for `synthetic`.
+/// Decode the named preset; `Ok(None)` for `synthetic`.
 pub fn load(game_dir: &Path, preset: &str) -> acu_assets::Result<Option<Native>> {
+    let preset = canonical(preset);
     if preset == "synthetic" {
         return Ok(None);
     }
-    let &(name, entry, file_id) = PARIS
+    let set = SETS
         .iter()
-        .find(|p| p.0 == preset)
-        .ok_or_else(|| format!("unknown lighting preset {preset:?}; expected {PRESETS}"))?;
-    let mut forge = Forge::open(game_dir.join("DataPC_ACU_Paris.forge"), Limits::default())?;
-    let p = package::decode(&forge.raw(entry)?, Limits::default())?;
+        .find(|s| s.preset == preset)
+        .ok_or_else(|| format!("unknown lighting preset {preset:?}; expected {}", presets()))?;
+    let mut forge = Forge::open(game_dir.join(set.archive), Limits::default())?;
+    let p = package::decode(&forge.raw(set.entry)?, Limits::default())?;
     let r = p
         .resources
         .iter()
-        .find(|r| r.file_id == file_id)
-        .ok_or_else(|| format!("{file_id} not in Paris entry {entry}"))?;
+        .find(|r| r.file_id == set.file_id)
+        .ok_or_else(|| format!("{} not in {} entry {}", set.file_id, set.archive, set.entry))?;
     let bytes = &p.bytes[r.payload.clone()];
     Ok(Some(Native {
-        preset: name,
-        entry,
-        file_id,
+        set,
         sha256: acu_assets::sha256(bytes),
         ambiance: ambiance::decode(bytes)?,
     }))
@@ -74,9 +233,9 @@ pub fn report(native: Option<&Native>) -> serde_json::Value {
             "note": "Synthetic daylight/PBR, not native Day Paris",
         }),
         Some(n) => serde_json::json!({
-            "preset": n.preset,
-            "source": {"archive": "DataPC_ACU_Paris.forge", "entry": n.entry,
-                       "file_id": n.file_id, "payload_sha256": n.sha256},
+            "preset": n.set.preset,
+            "source": {"archive": n.set.archive, "entry": n.set.entry, "name": n.set.name,
+                       "file_id": n.set.file_id, "payload_sha256": n.sha256},
             "applied": {
                 "ev100": n.ambiance.hdr.ev100(),
                 "shadow_map_size": n.ambiance.shadow.value3356,
@@ -91,9 +250,12 @@ pub fn report(native: Option<&Native>) -> serde_json::Value {
                 "ssao": &n.ambiance.ssao,
             },
             "live_sun": {"direction_native": LIVE_SUN_DIRECTION, "sun_color_acu": LIVE_SUN_COLOR,
-                         "source": "g_Frame read live 2026-11-15 (pinned save's time of day)"},
+                         "source": "g_Frame read live 2026-11-15 (pinned Paris save's time of day)",
+                         "note": "one sample reused for every set; not this set's sun"},
             "lux_per_acu_unit_synthetic": lux_per_acu_unit(),
+            "sun_scale_synthetic": sun_scale(n),
             "synthetic": ["lux per ACU unit (sun luminance = Bevy DIRECT_SUNLIGHT)",
+                          "sun per set (the live Paris sample is reused, scaled by 2^(EV100 - 12.94))",
                           "sky fill (sky SH not captured)", "clear colour"],
         }),
     }
@@ -128,6 +290,24 @@ pub fn gi_intensity() -> f32 {
     lux_per_acu_unit()
 }
 
+/// EV100 of the `WorldAmbiance` the live sun was sampled under (Paris; all four Paris sets share it).
+const LIVE_SAMPLE_EV100: f32 = 12.936_638;
+
+/// SYNTHETIC per-set sun / sky-fill scale `2^(EV100_set - EV100_live)`. Only the Paris sun was
+/// sampled; a set exposed for a dimmer scene (Saint-Denis moon EV -5.3, Medieval dawn 2.5) would
+/// otherwise burn out under it. This keeps the live sun at the brightness its own exposure gave it
+/// under every set's native exposure, until each set's sun is captured. 1 for every Paris set.
+pub fn sun_scale(n: &Native) -> f32 {
+    n.ambiance
+        .hdr
+        .ev100()
+        .map_or(1.0, |ev| 2f32.powf(ev - LIVE_SAMPLE_EV100))
+}
+
+/// Marks the entities `spawn` creates (and the GI volume), so a preset switch replaces them.
+#[derive(Component)]
+pub struct SceneLight;
+
 /// Spawn the lights and return the camera exposure to attach.
 pub fn spawn(commands: &mut Commands, native: Option<&Native>) -> Option<Exposure> {
     let sun_rotation = Quat::from_euler(EulerRot::YXZ, 0.6, -0.9, 0.0);
@@ -139,7 +319,9 @@ pub fn spawn(commands: &mut Commands, native: Option<&Native>) -> Option<Exposur
             brightness: 550.0,
             ..default()
         });
+        commands.insert_resource(DirectionalLightShadowMap::default());
         commands.spawn((
+            SceneLight,
             DirectionalLight {
                 color: Color::srgb(1.0, 0.91, 0.78),
                 illuminance: 18_000.0,
@@ -149,6 +331,7 @@ pub fn spawn(commands: &mut Commands, native: Option<&Native>) -> Option<Exposur
             Transform::from_rotation(sun_rotation),
         ));
         commands.spawn((
+            SceneLight,
             DirectionalLight {
                 illuminance: 2_000.0,
                 ..default()
@@ -158,11 +341,13 @@ pub fn spawn(commands: &mut Commands, native: Option<&Native>) -> Option<Exposur
         return None;
     };
     let shadow = &n.ambiance.shadow;
-    if shadow.value3356.is_power_of_two() {
-        commands.insert_resource(DirectionalLightShadowMap {
+    commands.insert_resource(if shadow.value3356.is_power_of_two() {
+        DirectionalLightShadowMap {
             size: shadow.value3356 as usize,
-        });
-    }
+        }
+    } else {
+        DirectionalLightShadowMap::default()
+    });
     let bounds = shadow.cascades3396;
     let cascades = if bounds.windows(2).all(|w| w[0] > 0.0 && w[1] > w[0]) {
         CascadeShadowConfig {
@@ -172,9 +357,10 @@ pub fn spawn(commands: &mut Commands, native: Option<&Native>) -> Option<Exposur
     } else {
         CascadeShadowConfig::default()
     };
+    let scale = sun_scale(n);
     commands.insert_resource(GlobalAmbientLight {
         color: Color::srgb(0.70, 0.81, 1.0),
-        brightness: SYNTHETIC_SKY_FILL,
+        brightness: SYNTHETIC_SKY_FILL * scale,
         ..default()
     });
     // Live native sun: colour and direction; magnitude on the synthetic lux scale.
@@ -182,13 +368,14 @@ pub fn spawn(commands: &mut Commands, native: Option<&Native>) -> Option<Exposur
     let [x, y, z] = LIVE_SUN_DIRECTION;
     let towards_sun = crate::native_z_up_to_bevy_y_up() * Vec3::new(x, y, z).normalize();
     commands.spawn((
+        SceneLight,
         DirectionalLight {
             color: Color::linear_rgb(
                 LIVE_SUN_COLOR[0] / max,
                 LIVE_SUN_COLOR[1] / max,
                 LIVE_SUN_COLOR[2] / max,
             ),
-            illuminance: lux_per_acu_unit() * max,
+            illuminance: lux_per_acu_unit() * max * scale,
             shadow_maps_enabled: true,
             ..default()
         },
@@ -196,4 +383,108 @@ pub fn spawn(commands: &mut Commands, native: Option<&Native>) -> Option<Exposur
         Transform::default().looking_to(-towards_sun, Vec3::Y),
     ));
     n.ambiance.hdr.ev100().map(|ev100| Exposure { ev100 })
+}
+
+type Cached = (Option<Native>, Option<crate::gi_volume::NativeGi>);
+
+/// Runtime preset switching (`L` next, `Shift+L` previous). Decoded sets and resampled GI are
+/// cached, so each set is read from its archive once.
+#[derive(Resource)]
+pub struct Switcher {
+    pub game_dir: PathBuf,
+    pub current: &'static str,
+    cache: HashMap<&'static str, Cached>,
+}
+
+impl Switcher {
+    pub fn new(game_dir: PathBuf, current: &str) -> Self {
+        let current = cycle()
+            .find(|p| *p == canonical(current))
+            .unwrap_or(DEFAULT);
+        Self {
+            game_dir,
+            current,
+            cache: HashMap::new(),
+        }
+    }
+}
+
+/// The preset after (or before) `current` in the cycle.
+fn step(current: &str, back: bool) -> &'static str {
+    let names: Vec<&'static str> = cycle().collect();
+    let at = names.iter().position(|p| *p == current).unwrap_or(0);
+    let offset = if back { names.len() - 1 } else { 1 };
+    names[(at + offset) % names.len()]
+}
+
+pub fn switch_preset(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut switcher: ResMut<Switcher>,
+    mut commands: Commands,
+    mut images: ResMut<Assets<Image>>,
+    lights: Query<Entity, With<SceneLight>>,
+    cameras: Query<Entity, With<Camera3d>>,
+) {
+    if !keys.just_pressed(KeyCode::KeyL) {
+        return;
+    }
+    let back = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
+    let next = step(switcher.current, back);
+    if !switcher.cache.contains_key(next) {
+        let dir = switcher.game_dir.clone();
+        let native = load(&dir, next).unwrap_or_else(|e| {
+            eprintln!("lighting preset {next:?} failed: {e}");
+            None
+        });
+        let gi = match native {
+            Some(_) => crate::gi_volume::load(&dir, next).unwrap_or_else(|e| {
+                eprintln!("native GI for {next:?} failed: {e}");
+                None
+            }),
+            None => None,
+        };
+        switcher.cache.insert(next, (native, gi));
+    }
+    for entity in &lights {
+        commands.entity(entity).despawn();
+    }
+    let (native, gi) = &switcher.cache[next];
+    let exposure = spawn(&mut commands, native.as_ref()).unwrap_or_default();
+    if let Some(gi) = gi {
+        let volume = crate::gi_volume::spawn(&mut commands, &mut images, gi, gi_intensity());
+        commands.entity(volume).insert(SceneLight);
+    }
+    for camera in &cameras {
+        commands.entity(camera).insert(exposure);
+    }
+    let mut info = report(native.as_ref());
+    info["gi"] = crate::gi_volume::report(gi.as_ref(), gi_intensity());
+    println!("lighting: {} -> {next}: {info}", switcher.current);
+    switcher.current = next;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn preset_names_are_unique_and_default_is_paris_day() {
+        let names: Vec<_> = cycle().collect();
+        let mut sorted = names.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), names.len());
+        assert_eq!(SETS[0].preset, DEFAULT);
+        assert_eq!(SETS[0].name, "PAR_WorldAmbiance_Noon");
+        assert_eq!(canonical("paris-noon"), "paris-day");
+        assert!(SETS.iter().all(|s| s.file_id.len() == 16));
+    }
+
+    #[test]
+    fn cycle_wraps_both_ways() {
+        assert_eq!(step("paris-day", false), "paris-sunset");
+        assert_eq!(step("paris-day", true), "synthetic");
+        assert_eq!(step("synthetic", false), "paris-day");
+        assert_eq!(step("rift-ww2-night", false), "synthetic");
+    }
 }

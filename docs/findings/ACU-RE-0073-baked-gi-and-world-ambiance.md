@@ -61,6 +61,34 @@ State: partially established (codec observed; GI evaluation inferred).
 | `GIDB_Cell18068_LOD1_sid_7f5f1bc0b` | `DataPC_ACU_Paris_gi.forge` 3338 | `0000001758716bd6` | 743,650 | `7e0c8a3d…c08c` |
 | `PAR_WorldAmbiance_Dawn/Night/Sunset/Noon` | `DataPC_ACU_Paris.forge` 22301–22304 | `…f5f1bb7b/bb9d/bbbf/bbe1` | 4,037 each | `b044dd36…`, `ff675df4…`, `dca7ebd3…`, `0814f1c8…` |
 
+- Every other `WorldAmbiance` in the install (2026-11-16): eleven more unique resources. Each
+  decodes with the same 4,037-byte layout. They were found by type label `21c2d472`
+  (`crc-name`), and the names come from the asset index. Each entry also holds the set's
+  `LayeredSky`. The `*_patch_03` copies of the Prologue, Rebirth, Belle Epoque and Medieval sets
+  have byte-identical payloads, so which copy the game loads does not matter here.
+
+| Name | Archive / entry | File id | EV100 | Shadow map | PSSM splits (m) | End (m) | SHA-256 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `VERS_WorldAmbiance_Dawn` | `DataPC_ACU_Versailles.forge` 5435 | `00000010cde129a8` | 12.94 | 1024 | 5, 14, 38, 88 | 128 | `7af8c132…` |
+| `VERS_WorldAmbiance_Night` | same 5436 | `00000010cde129cb` | 12.94 | 1024 | 5, 14, 38, 88 | 128 | `f45d40d4…` |
+| `VERS_WorldAmbiance_Noon` | same 5437 | `00000010cde129ee` | 12.94 | 1024 | 5, 14, 38, 88 | 128 | `20f90497…` |
+| `VERS_WorldAmbiance_Sunset` | same 5438 | `00000010cde12a11` | 12.94 | 1024 | 5, 14, 38, 88 | 128 | `5baa2ca7…` |
+| `SDN_WorldAmbiance` | `dlc_11/DataPC_ACU-DLC_Saint-Denis.forge` 1238 | `00000012f8374555` | 11.14 | 1024 | 5, 14, 38, 72 | 128 | `bf85d837…` |
+| `SDN_moon_WorldAmbiance` | same 1232 | `00000013786fcca2` | -5.32 | 1024 | 8, 24, 128, 400 | 400 | `85529b7c…` |
+| `PRO_WorldAmbiance_Night` | `DataPC_ACU_Prologue.forge` 2463 | `0000001347aeb35f` | 12.94 | 1024 | 5, 14, 38, 88 | 100 | `2f18dafe…` |
+| `REBIRTH_WorldAmbiance_01` | `DataPC_ACU_RebirthRitual.forge` 501 | `0000001095d6a63f` | 12.94 | 1024 | 5, 14, 38, 88 | 100 | `29f76544…` |
+| `LGS_BEP_WorldAmbiance_Sunset` | `DataPC_ACU_LGS_BelleEpoque.forge` 348 | `000000104339fe67` | 12.94 | 640 | 5, 14, 38, 88 | 150 | `01ad239a…` |
+| `LGS_MDA_WorldAmbiance_Dawn_V2` | `DataPC_ACU_LGS_Medieval.forge` 513 | `000000144de08bd3` | 2.49 | 384 | 20, 38, 64, 128 | 400 | `7af5a087…` |
+| `LGS_WWR_WorldAmbiance_Night` | `DataPC_ACU_LGS_WorldWar2.forge` 413 | `000000110e816c9e` | 12.94 | 384 | 5, 14, 38, 88 | 100 | `aa04abfc…` |
+
+  The four Versailles sets share exposure and shadows, as do the four Paris sets. So in these
+  fields the time of day changes only `HDRLighting +132` (Versailles Night -5.6, the others 0).
+  The visible time-of-day difference must come from the sun, sky and GI. Dumped by
+  `installed_world_ambiance_sets_decode` (`tests/gi.rs`).
+- `LayeredSky` (Paris `…bb45/bb54/bb4a/bb4f`, about 2.36 MB each, mostly tables): a diff of the
+  four Paris payloads found only a few time-of-day parameters in the header (0x1b–0x11e). No sun
+  direction or colour was found there, so the per-set sun is not decoded.
+
 - GI decode shaders: four DXBC `cs_5_0` programs embedded in the image, extracted from the mapped
   capture and disassembled with `d3dcompiler_47.dll` `D3DDisassemble`:
 
@@ -306,7 +334,7 @@ cargo test --locked -p acu_assets --lib -- gi:: gicp:: ambiance::
 $env:ACU_GAME_DIR = 'D:/Games/Assassin''s Creed Unity'
 cargo test --locked -p acu_assets --test gi -- --ignored
 cd ..
-powershell -File tools/run_arno.ps1 -Capture outputs/lighting/arno-paris-noon.png   # default --lighting paris-noon
+powershell -File tools/run_arno.ps1 -Capture outputs/lighting/arno-paris-noon.png   # default --lighting paris-day
 ```
 
 ### Implementation
@@ -317,11 +345,24 @@ powershell -File tools/run_arno.ps1 -Capture outputs/lighting/arno-paris-noon.pn
   `GIDecodeYCbCr` texel) and `decode_cell` (a result's 16^3 texels).
 - `acu_assets::ambiance::decode`: the SSAO / HDR prefix and the shadow tail. `HdrLighting::ev100`
   computes EV100.
-- `acu_bevy::lighting`, selected by `--lighting synthetic|paris-dawn|paris-noon|paris-sunset|paris-night`
-  (default `paris-noon`), applies:
+- `acu_bevy::lighting`: the `--lighting` option selects one of the 15 `WorldAmbiance` sets
+  (`lighting::SETS`) or `synthetic`. The default is `paris-day` (`PAR_WorldAmbiance_Noon`, "Day,
+  Paris"; `paris-noon` is an alias). `L` / `Shift+L` cycle the sets at runtime; each set and its GI
+  is decoded once and then cached. Each set applies:
   - camera `Exposure` = native EV100;
-  - `DirectionalLightShadowMap` 1024;
-  - `CascadeShadowConfig.bounds` = (5, 14, 38, 72).
+  - `DirectionalLightShadowMap` = the set's map size (Paris 1024);
+  - `CascadeShadowConfig.bounds` = the set's PSSM splits (Paris 5, 14, 38, 72).
+
+  One live Paris `g_Frame` sun sample (probably late afternoon) lights every set. GI is native
+  only for the four Paris sets.
+  - Implementation choice (SYNTHETIC): the sun and sky fill are scaled by
+    `2^(EV100_set - 12.94)`. 12.94 is the Paris EV100 the sample was taken under.
+  - Why: without the scale, sets exposed for dim scenes burned out to white under the day sun.
+    Saint-Denis moon has EV100 -5.32 (scale about 4e-6) and Medieval dawn 2.49 (about 7e-4).
+  - The scale is 1 for every Paris set. Paris Night therefore renders much like Paris Day: its
+    native GI is about 3,000 times weaker (median L0 luminance 1.6e-7 against 4.8e-4), but the
+    reused day sun dominates.
+  - So the sets differ only in shadows and (Paris) GI until each set's sun is captured.
 
   Sun direction, sun illuminance (Bevy `DIRECT_SUNLIGHT`) and clear colour are synthetic. They
   are listed in the scene report's `lighting.synthetic`.

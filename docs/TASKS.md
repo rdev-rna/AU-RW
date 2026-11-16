@@ -516,13 +516,16 @@ Lighting slice 2 (ACU-RE-0073, done): GICP codec and `GIDecodeYCbCr` decoded wit
 native Paris GI applied around Arno as one Bevy irradiance volume.
 Lighting slice 3 (ACU-RE-0073 / 0084, done): forward GI evaluation read; live sun, GI and
 lighting-scale constants applied; cloth template surface (detail normals, gloss, specular) ported.
+Lighting sets (ACU-RE-0073, done): all 15 `WorldAmbiance` sets are decoded and switchable
+(`L` / `Shift+L`); the default is `paris-day`.
 Next, in order:
 - the sky SH (`g_SkySHConstants`) live, and the velvet lobe in a custom Bevy lighting path;
 - a live capture of bound shader resources to confirm the template-default bindings and how the
   graphics-quality setting changes the shader permutations (the user's game runs at Low);
 - other outfits' templates (an outfit selector and the templates they use);
 - a live in-game comparison of the GI at the anchor spot;
-- the time-of-day sun / LayeredSky;
+- the time-of-day sun / LayeredSky (needed before the sets differ in sun; one live Paris sample
+  is reused for all 15), and the GI loaders of the non-Paris levels;
 - the remaining PostEffects, Wind and WorldFog.
 
 Completed bounded numerical skin audit (ACU-RE-0015): eleven pieces, 29,481

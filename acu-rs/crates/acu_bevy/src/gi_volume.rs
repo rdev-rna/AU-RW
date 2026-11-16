@@ -38,7 +38,7 @@ const LOADER_ENTRY: usize = 21267;
 const LOADERS: [(&str, &str); 4] = [
     ("paris-night", "0000003a66d8e3b4"),
     ("paris-dawn", "0000003a66d8e3b5"),
-    ("paris-noon", "0000003a66d8e3b6"),
+    ("paris-day", "0000003a66d8e3b6"),
     ("paris-sunset", "0000003a66d8e3b7"),
 ];
 
@@ -129,6 +129,7 @@ fn luminance(v: &[[f32; 4]; 3]) -> f32 {
 
 /// Decode and resample the cells for `preset` (`Ok(None)` for presets without a Paris loader).
 pub fn load(game_dir: &Path, preset: &str) -> acu_assets::Result<Option<NativeGi>> {
+    let preset = crate::lighting::canonical(preset);
     let Some(&(_, loader_id)) = LOADERS.iter().find(|l| l.0 == preset) else {
         return Ok(None);
     };
@@ -290,20 +291,27 @@ fn ambient_cube(gi: &NativeGi) -> Image {
 }
 
 /// Spawn the irradiance volume, anchored so `ANCHOR` sits at the arena origin.
-pub fn spawn(commands: &mut Commands, images: &mut Assets<Image>, gi: &NativeGi, intensity: f32) {
+pub fn spawn(
+    commands: &mut Commands,
+    images: &mut Assets<Image>,
+    gi: &NativeGi,
+    intensity: f32,
+) -> Entity {
     let size = Vec3::from_array(REGION_VOXELS.map(|v| v as f32));
     let center = Vec3::from_array(REGION_MIN) + size / 2.0;
     let rotation = crate::native_z_up_to_bevy_y_up();
-    commands.spawn((
-        LightProbe::default(),
-        IrradianceVolume {
-            voxels: images.add(ambient_cube(gi)),
-            intensity,
-            affects_lightmapped_meshes: true,
-        },
-        Transform::from_translation(rotation * center)
-            .with_scale(Vec3::new(size.x, size.z, size.y)),
-    ));
+    commands
+        .spawn((
+            LightProbe::default(),
+            IrradianceVolume {
+                voxels: images.add(ambient_cube(gi)),
+                intensity,
+                affects_lightmapped_meshes: true,
+            },
+            Transform::from_translation(rotation * center)
+                .with_scale(Vec3::new(size.x, size.z, size.y)),
+        ))
+        .id()
 }
 
 pub fn report(gi: Option<&NativeGi>, intensity: f32) -> serde_json::Value {
