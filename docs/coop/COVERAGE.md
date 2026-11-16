@@ -64,7 +64,7 @@ python tools/coop_coverage_check.py --update-ledger docs/coop/COVERAGE.md --no-f
 | A. states (118) | fields 117, handler 117, behaviour 0, verdict 0, done 0 |
 | A. objects (33) | fields 0, handler 0, behaviour 0, verdict 0, done 0 |
 | A. Verdicts given | port 12, engine-local 2, diagnostic 10, acu-only 0 |
-| B. Cross-cutting gaps closed | 6 of 24 (25.0%) |
+| B. Cross-cutting gaps closed | 8 of 27 (29.6%) |
 | B. Easy-to-miss checklist closed | 0 of 16 (0.0%) |
 | C. Port systems with a live trace | 0 of 3 (0.0%): behaviour, combat, health |
 | D. Trace replay in coop/core / shadow mode | 0.0% / 0.0% |
@@ -136,7 +136,7 @@ on the sent landing point.
 | Mechanism | Known | Gap |
 |---|---|---|
 | Session, LAN, hosting, joining | LAN path and network-mode flag (0087–0090), private hosting without UI and auto-join (0092 obs 1–5), backend boundary (BACKEND_BOUNDARY.md) | Leave and rejoin; disconnect handling; host migration (0100): outcome codes, completion (peers not fully joined are dropped), the game returns to the lobby if the host leaves before the mission starts, and otherwise the new host queues per-peer object work. Still open: the consumer of that queue |
-| Ownership and migration | Role bits, Storm role callbacks, the measured hysteresis (0092 obs 17–20); the hand-over primitive `Give Master Role` and its callers: distance (release R − 40, claim R − 45, planar, R per entity), fight request, interaction, crowd-group transfer (0097) ; the acquisition protocol (request, give or fail; a per-object latch) and its "ask, then act" callers; three object migration modes (0100) | The sender of the fight load-balance request; the per-class radius table; Storm's acceptance of a hand-over; what state moves with ownership |
+| Ownership and migration | Role bits, Storm role callbacks, the measured hysteresis (0092 obs 17–20); the hand-over primitive `Give Master Role` and its callers: distance (release R − 40, claim R − 45, planar, R per entity), fight request, interaction, crowd-group transfer (0097) ; the acquisition protocol (request, give or fail; a per-object latch) and its "ask, then act" callers; three object migration modes (0100) ; R is a world load-distance grid at the owner's focus, capped by the load-square diagonal, with mission and config overrides; Storm, not game code, accepts or refuses a hand-over; the game posts the request with a pending flag and learns the result from the role callbacks; a fallback gives an object to the first valid peer; no state is sent at hand-over (0103) | The sender of the fight load-balance request; the grid values (live); the fallback's trigger; where the pending flag clears; whether Storm forwards pending state |
 | Join in progress | Intention re-send (0083) | Fight JIP (`NetFightJIPManager`), Domino JIP snapshot, memento full-state sends |
 | Relevance and world streaming | An owner keeps an entity until it unloads (100–111 m), then hands it over (0092 obs 19) | Which objects replicate to which peer (interest management); `DeleteReplicaEvent`; what each peer loads when players are far apart |
 | Time | Session clock (0078) | Timestamps on intentions and states; lag compensation |

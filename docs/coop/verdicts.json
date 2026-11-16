@@ -1,90 +1,416 @@
 {
  "schema": "acu-coop-verdicts/1",
  "about": "Read by tools/coop_coverage_check.py. A verdict records what an item IS (port, engine-local, diagnostic, acu-only), never permission to skip it. 'behaviour' lists the findings that show what the item does; 'fields' and 'handler' override the tool-derived evidence with a finding ID when no tool output covers the item. 'trace' points to a saved two-game testbed trace (local, not distributed).",
- "verdict_values": ["port", "engine-local", "diagnostic", "acu-only"],
+ "verdict_values": [
+  "port",
+  "engine-local",
+  "diagnostic",
+  "acu-only"
+ ],
  "items": {
-  "NetFightManager_RFC_FightInputMSG_NetProtocol": {"verdict": "port", "behaviour": ["ACU-RE-0102"], "note": "one fight input record per member per frame, applied by sub_1406E2D20"},
-  "NetFightManager_RFC_AllFightInputMSG_NetProtocol": {"verdict": "port", "behaviour": ["ACU-RE-0102"], "note": "batched fight inputs; shares the handler with the 10..60 variants"},
-  "NetFightManager_RFC_AllFightInput10MSG_NetProtocol": {"verdict": "port", "behaviour": ["ACU-RE-0102"]},
-  "NetFightManager_RFC_AllFightInput20MSG_NetProtocol": {"verdict": "port", "behaviour": ["ACU-RE-0102"]},
-  "NetFightManager_RFC_AllFightInput30MSG_NetProtocol": {"verdict": "port", "behaviour": ["ACU-RE-0102"]},
-  "NetFightManager_RFC_AllFightInput40MSG_NetProtocol": {"verdict": "port", "behaviour": ["ACU-RE-0102"]},
-  "NetFightManager_RFC_AllFightInput50MSG_NetProtocol": {"verdict": "port", "behaviour": ["ACU-RE-0102"]},
-  "NetFightManager_RFC_AllFightInput60MSG_NetProtocol": {"verdict": "port", "behaviour": ["ACU-RE-0102"]},
-  "NetFightManager_RFC_JoinFightMSG_NetProtocol": {"verdict": "port", "behaviour": ["ACU-RE-0102"], "note": "frame-stamped join command; dropped after 1000 frames"},
-  "NetFightManager_RFC_LeaveFightMSG_NetProtocol": {"verdict": "port", "behaviour": ["ACU-RE-0102"], "note": "frame-stamped leave command; dropped after 1000 frames"},
-  "NetFight_RFC_SendCRCMSG_NetProtocol": {"verdict": "diagnostic", "behaviour": ["ACU-RE-0102"], "note": "debug-gated per-frame CRC; a mismatch reaches an empty stub"},
-  "NetBehaviorAI_ParkourLeapMSG_NetProtocol": {"verdict": "port", "behaviour": ["ACU-RE-0094"], "note": "jump contract sent at takeoff; live-checked"},
-  "ZenHealthReplication_RFCSetMasterLifeMSG_NetProtocol": {"verdict": "port", "behaviour": ["ACU-RE-0092"], "note": "owner's life applied on replicas; live in both directions"},
-  "NetObjectRemoteFunctionCallDynamic": {"verdict": "engine-local", "fields": "ACU-RE-0072", "handler": "ACU-RE-0072", "behaviour": [], "note": "RFC base class counted in the atlas, not a message on the wire; behaviour finding still owed"},
-  "NetObjectRemoteFunctionCallDiff": {"verdict": "engine-local", "fields": "ACU-RE-0072", "handler": "ACU-RE-0072", "behaviour": [], "note": "RFC diff base class counted in the atlas; behaviour finding still owed"}
+  "NetFightManager_RFC_FightInputMSG_NetProtocol": {
+   "verdict": "port",
+   "behaviour": [
+    "ACU-RE-0102"
+   ],
+   "note": "one fight input record per member per frame, applied by sub_1406E2D20"
+  },
+  "NetFightManager_RFC_AllFightInputMSG_NetProtocol": {
+   "verdict": "port",
+   "behaviour": [
+    "ACU-RE-0102"
+   ],
+   "note": "batched fight inputs; shares the handler with the 10..60 variants"
+  },
+  "NetFightManager_RFC_AllFightInput10MSG_NetProtocol": {
+   "verdict": "port",
+   "behaviour": [
+    "ACU-RE-0102"
+   ]
+  },
+  "NetFightManager_RFC_AllFightInput20MSG_NetProtocol": {
+   "verdict": "port",
+   "behaviour": [
+    "ACU-RE-0102"
+   ]
+  },
+  "NetFightManager_RFC_AllFightInput30MSG_NetProtocol": {
+   "verdict": "port",
+   "behaviour": [
+    "ACU-RE-0102"
+   ]
+  },
+  "NetFightManager_RFC_AllFightInput40MSG_NetProtocol": {
+   "verdict": "port",
+   "behaviour": [
+    "ACU-RE-0102"
+   ]
+  },
+  "NetFightManager_RFC_AllFightInput50MSG_NetProtocol": {
+   "verdict": "port",
+   "behaviour": [
+    "ACU-RE-0102"
+   ]
+  },
+  "NetFightManager_RFC_AllFightInput60MSG_NetProtocol": {
+   "verdict": "port",
+   "behaviour": [
+    "ACU-RE-0102"
+   ]
+  },
+  "NetFightManager_RFC_JoinFightMSG_NetProtocol": {
+   "verdict": "port",
+   "behaviour": [
+    "ACU-RE-0102"
+   ],
+   "note": "frame-stamped join command; dropped after 1000 frames"
+  },
+  "NetFightManager_RFC_LeaveFightMSG_NetProtocol": {
+   "verdict": "port",
+   "behaviour": [
+    "ACU-RE-0102"
+   ],
+   "note": "frame-stamped leave command; dropped after 1000 frames"
+  },
+  "NetFight_RFC_SendCRCMSG_NetProtocol": {
+   "verdict": "diagnostic",
+   "behaviour": [
+    "ACU-RE-0102"
+   ],
+   "note": "debug-gated per-frame CRC; a mismatch reaches an empty stub"
+  },
+  "NetBehaviorAI_ParkourLeapMSG_NetProtocol": {
+   "verdict": "port",
+   "behaviour": [
+    "ACU-RE-0094"
+   ],
+   "note": "jump contract sent at takeoff; live-checked"
+  },
+  "ZenHealthReplication_RFCSetMasterLifeMSG_NetProtocol": {
+   "verdict": "port",
+   "behaviour": [
+    "ACU-RE-0092"
+   ],
+   "note": "owner's life applied on replicas; live in both directions"
+  },
+  "NetObjectRemoteFunctionCallDynamic": {
+   "verdict": "engine-local",
+   "fields": "ACU-RE-0072",
+   "handler": "ACU-RE-0072",
+   "behaviour": [],
+   "note": "RFC base class counted in the atlas, not a message on the wire; behaviour finding still owed"
+  },
+  "NetObjectRemoteFunctionCallDiff": {
+   "verdict": "engine-local",
+   "fields": "ACU-RE-0072",
+   "handler": "ACU-RE-0072",
+   "behaviour": [],
+   "note": "RFC diff base class counted in the atlas; behaviour finding still owed"
+  }
  },
  "patterns": [
-  {"match": "UnitTest_RFC_*", "verdict": "diagnostic", "behaviour": [], "note": "classified by name only; a finding must still show they never run in retail"}
+  {
+   "match": "UnitTest_RFC_*",
+   "verdict": "diagnostic",
+   "behaviour": [],
+   "note": "classified by name only; a finding must still show they never run in retail"
+  }
  ],
  "systems": {
-  "combat": {"trace": null, "replay": false, "shadow": false},
-  "behaviour": {"trace": null, "replay": false, "shadow": false},
-  "health": {"trace": null, "replay": false, "shadow": false}
+  "combat": {
+   "trace": null,
+   "replay": false,
+   "shadow": false
+  },
+  "behaviour": {
+   "trace": null,
+   "replay": false,
+   "shadow": false
+  },
+  "health": {
+   "trace": null,
+   "replay": false,
+   "shadow": false
+  }
  },
  "cross_cutting": [
-  {"id": "ownership.radius_table", "title": "Per-class ownership radius table (R per entity class)", "finding": null},
-  {"id": "ownership.state_on_handover", "title": "What state moves with a master hand-over", "finding": null},
-  {"id": "ownership.storm_acceptance", "title": "Storm's acceptance or refusal of a hand-over", "finding": null},
-  {"id": "ownership.loadbalance_sender", "title": "Sender of FightDirector_RFC_RequestLoadBalanceMigration", "finding": null},
-  {"id": "ownership.handover_primitive", "title": "Give Master Role and its callers; distance rule", "finding": "ACU-RE-0097"},
-  {"id": "ownership.acquisition", "title": "Acquisition protocol: request, give or fail; latch", "finding": "ACU-RE-0100"},
-  {"id": "interest.relevance", "title": "Interest management: which objects replicate to which peer", "finding": null},
-  {"id": "interest.delete_replica", "title": "DeleteReplicaEvent and unload hand-off", "finding": null},
-  {"id": "jip.fight", "title": "Fight join-in-progress (NetFightJIPManager)", "finding": null},
-  {"id": "jip.domino", "title": "Domino JIP snapshot", "finding": null},
-  {"id": "jip.memento_full_state", "title": "Full-state memento sends on join", "finding": null},
-  {"id": "jip.intention_resend", "title": "Intention re-send on join", "finding": "ACU-RE-0083"},
-  {"id": "session.leave_rejoin", "title": "Leave, rejoin and disconnect mid-mission", "finding": null},
-  {"id": "session.hostmig_queue_consumer", "title": "Consumer of the host-migration per-peer queue (storm+1648)", "finding": null},
-  {"id": "session.host_migration", "title": "Host migration outcome codes and completion", "finding": "ACU-RE-0100"},
-  {"id": "time.timestamps", "title": "Timestamps on intentions and states", "finding": null},
-  {"id": "time.lag_compensation", "title": "Lag compensation", "finding": null},
-  {"id": "time.session_clock", "title": "Session clock", "finding": "ACU-RE-0078"},
-  {"id": "time.fight_clock", "title": "Fight frame clock and its unit", "finding": null},
-  {"id": "bandwidth.rates", "title": "Send rates per system", "finding": null},
-  {"id": "bandwidth.dirty_frequencies", "title": "Memento dirty-flag frequencies", "finding": null},
-  {"id": "bandwidth.fight_input_buckets", "title": "AllFightInput10..60 send-side bucketing", "finding": null},
-  {"id": "desync.fight_crc", "title": "Fight CRC coverage and mismatch handling", "finding": "ACU-RE-0102"},
-  {"id": "desync.outside_fights", "title": "Desync detection outside fights", "finding": null}
+  {
+   "id": "ownership.radius_table",
+   "title": "Ownership radius source (ACU-RE-0103: a world load-distance grid at the focus, not per class)",
+   "finding": "ACU-RE-0103"
+  },
+  {
+   "id": "ownership.state_on_handover",
+   "title": "What state moves with a master hand-over",
+   "finding": null,
+   "note": "ACU-RE-0103 obs 7: no state is sent in the game give path; Storm pending-state forwarding undecoded (backend boundary) - live check owed"
+  },
+  {
+   "id": "ownership.radius_values",
+   "title": "Load-distance grid values per region (live dump)",
+   "finding": null
+  },
+  {
+   "id": "ownership.fallback_trigger",
+   "title": "Trigger of the give-to-any-peer fallback (sub_141C43390)",
+   "finding": null
+  },
+  {
+   "id": "ownership.pending_clear",
+   "title": "Where the hand-over pending flag (+0xC1) is cleared and its timeout",
+   "finding": null
+  },
+  {
+   "id": "ownership.storm_acceptance",
+   "title": "Storm's acceptance or refusal of a hand-over",
+   "finding": "ACU-RE-0103"
+  },
+  {
+   "id": "ownership.loadbalance_sender",
+   "title": "Sender of FightDirector_RFC_RequestLoadBalanceMigration",
+   "finding": null
+  },
+  {
+   "id": "ownership.handover_primitive",
+   "title": "Give Master Role and its callers; distance rule",
+   "finding": "ACU-RE-0097"
+  },
+  {
+   "id": "ownership.acquisition",
+   "title": "Acquisition protocol: request, give or fail; latch",
+   "finding": "ACU-RE-0100"
+  },
+  {
+   "id": "interest.relevance",
+   "title": "Interest management: which objects replicate to which peer",
+   "finding": null
+  },
+  {
+   "id": "interest.delete_replica",
+   "title": "DeleteReplicaEvent and unload hand-off",
+   "finding": null
+  },
+  {
+   "id": "jip.fight",
+   "title": "Fight join-in-progress (NetFightJIPManager)",
+   "finding": null
+  },
+  {
+   "id": "jip.domino",
+   "title": "Domino JIP snapshot",
+   "finding": null
+  },
+  {
+   "id": "jip.memento_full_state",
+   "title": "Full-state memento sends on join",
+   "finding": null
+  },
+  {
+   "id": "jip.intention_resend",
+   "title": "Intention re-send on join",
+   "finding": "ACU-RE-0083"
+  },
+  {
+   "id": "session.leave_rejoin",
+   "title": "Leave, rejoin and disconnect mid-mission",
+   "finding": null
+  },
+  {
+   "id": "session.hostmig_queue_consumer",
+   "title": "Consumer of the host-migration per-peer queue (storm+1648)",
+   "finding": null
+  },
+  {
+   "id": "session.host_migration",
+   "title": "Host migration outcome codes and completion",
+   "finding": "ACU-RE-0100"
+  },
+  {
+   "id": "time.timestamps",
+   "title": "Timestamps on intentions and states",
+   "finding": null
+  },
+  {
+   "id": "time.lag_compensation",
+   "title": "Lag compensation",
+   "finding": null
+  },
+  {
+   "id": "time.session_clock",
+   "title": "Session clock",
+   "finding": "ACU-RE-0078"
+  },
+  {
+   "id": "time.fight_clock",
+   "title": "Fight frame clock and its unit",
+   "finding": null
+  },
+  {
+   "id": "bandwidth.rates",
+   "title": "Send rates per system",
+   "finding": null
+  },
+  {
+   "id": "bandwidth.dirty_frequencies",
+   "title": "Memento dirty-flag frequencies",
+   "finding": null
+  },
+  {
+   "id": "bandwidth.fight_input_buckets",
+   "title": "AllFightInput10..60 send-side bucketing",
+   "finding": null
+  },
+  {
+   "id": "desync.fight_crc",
+   "title": "Fight CRC coverage and mismatch handling",
+   "finding": "ACU-RE-0102"
+  },
+  {
+   "id": "desync.outside_fights",
+   "title": "Desync detection outside fights",
+   "finding": null
+  }
  ],
  "checklist": [
-  {"id": "saves_progression", "title": "Saves and progression", "finding": null},
-  {"id": "loot_economy", "title": "Loot and economy split", "finding": null},
-  {"id": "notoriety", "title": "Notoriety / wanted level", "finding": null},
-  {"id": "pause_menus", "title": "Pause and menus", "finding": null},
-  {"id": "cutscenes", "title": "Cutscenes and synced scenes", "finding": null},
-  {"id": "fast_travel_loading", "title": "Fast travel and loading", "finding": null},
-  {"id": "time_of_day_weather", "title": "Time of day and weather", "finding": null},
-  {"id": "rng_seeds", "title": "RNG seeds", "finding": null},
-  {"id": "physics_ragdoll_destruction", "title": "Physics objects, ragdolls, destruction", "finding": null},
-  {"id": "partner_hud_markers", "title": "Partner HUD, map markers, pings, emotes", "finding": null},
-  {"id": "audio_cues", "title": "Audio cues", "finding": null},
-  {"id": "difficulty_scaling", "title": "Difficulty scaling with two players", "finding": null},
-  {"id": "achievements", "title": "Achievements", "finding": null},
-  {"id": "version_handshake", "title": "Version / mod handshake on join", "finding": null},
-  {"id": "not_replicated", "title": "What ACU deliberately does not replicate (crowds, etc.) and why", "finding": null},
-  {"id": "ai_state_names", "title": "NPC AI-state names (live run logging state +36)", "finding": null}
+  {
+   "id": "saves_progression",
+   "title": "Saves and progression",
+   "finding": null
+  },
+  {
+   "id": "loot_economy",
+   "title": "Loot and economy split",
+   "finding": null
+  },
+  {
+   "id": "notoriety",
+   "title": "Notoriety / wanted level",
+   "finding": null
+  },
+  {
+   "id": "pause_menus",
+   "title": "Pause and menus",
+   "finding": null
+  },
+  {
+   "id": "cutscenes",
+   "title": "Cutscenes and synced scenes",
+   "finding": null
+  },
+  {
+   "id": "fast_travel_loading",
+   "title": "Fast travel and loading",
+   "finding": null
+  },
+  {
+   "id": "time_of_day_weather",
+   "title": "Time of day and weather",
+   "finding": null
+  },
+  {
+   "id": "rng_seeds",
+   "title": "RNG seeds",
+   "finding": null
+  },
+  {
+   "id": "physics_ragdoll_destruction",
+   "title": "Physics objects, ragdolls, destruction",
+   "finding": null
+  },
+  {
+   "id": "partner_hud_markers",
+   "title": "Partner HUD, map markers, pings, emotes",
+   "finding": null
+  },
+  {
+   "id": "audio_cues",
+   "title": "Audio cues",
+   "finding": null
+  },
+  {
+   "id": "difficulty_scaling",
+   "title": "Difficulty scaling with two players",
+   "finding": null
+  },
+  {
+   "id": "achievements",
+   "title": "Achievements",
+   "finding": null
+  },
+  {
+   "id": "version_handshake",
+   "title": "Version / mod handshake on join",
+   "finding": null
+  },
+  {
+   "id": "not_replicated",
+   "title": "What ACU deliberately does not replicate (crowds, etc.) and why",
+   "finding": null
+  },
+  {
+   "id": "ai_state_names",
+   "title": "NPC AI-state names (live run logging state +36)",
+   "finding": null
+  }
  ],
  "adapter": {
   "closed": false,
   "calls": [
-   {"name": "spawn_proxy", "acu_reference": "Proxy receiver creates or updates a remote player proxy", "finding": "ACU-RE-0077"},
-   {"name": "remove_proxy", "acu_reference": null, "finding": null},
-   {"name": "apply_pose", "acu_reference": "Position and heading replication onto the replica", "finding": "ACU-RE-0076"},
-   {"name": "apply_animation", "acu_reference": null, "finding": null},
-   {"name": "apply_intention", "acu_reference": "Intention receive and the AI-state listener offer", "finding": "ACU-RE-0080"},
-   {"name": "deliver_damage", "acu_reference": "Damage request to the victim's owner, then RFCSetMasterLife", "finding": "ACU-RE-0092"},
-   {"name": "fight_input", "acu_reference": "Per-member per-frame fight input into the lockstep step", "finding": "ACU-RE-0102"},
-   {"name": "mission_event", "acu_reference": null, "finding": null},
-   {"name": "awareness_event", "acu_reference": null, "finding": null},
-   {"name": "ownership_distance", "acu_reference": "Planar distance against R per entity (release R-40, claim R-45)", "finding": "ACU-RE-0097"},
-   {"name": "save_hook", "acu_reference": null, "finding": null}
+   {
+    "name": "spawn_proxy",
+    "acu_reference": "Proxy receiver creates or updates a remote player proxy",
+    "finding": "ACU-RE-0077"
+   },
+   {
+    "name": "remove_proxy",
+    "acu_reference": null,
+    "finding": null
+   },
+   {
+    "name": "apply_pose",
+    "acu_reference": "Position and heading replication onto the replica",
+    "finding": "ACU-RE-0076"
+   },
+   {
+    "name": "apply_animation",
+    "acu_reference": null,
+    "finding": null
+   },
+   {
+    "name": "apply_intention",
+    "acu_reference": "Intention receive and the AI-state listener offer",
+    "finding": "ACU-RE-0080"
+   },
+   {
+    "name": "deliver_damage",
+    "acu_reference": "Damage request to the victim's owner, then RFCSetMasterLife",
+    "finding": "ACU-RE-0092"
+   },
+   {
+    "name": "fight_input",
+    "acu_reference": "Per-member per-frame fight input into the lockstep step",
+    "finding": "ACU-RE-0102"
+   },
+   {
+    "name": "mission_event",
+    "acu_reference": null,
+    "finding": null
+   },
+   {
+    "name": "awareness_event",
+    "acu_reference": null,
+    "finding": null
+   },
+   {
+    "name": "ownership_distance",
+    "acu_reference": "Load distance at a position from the world grid (cap = load-square diagonal; mission and config overrides); release R-40, claim R-45, planar",
+    "finding": "ACU-RE-0103"
+   },
+   {
+    "name": "save_hook",
+    "acu_reference": null,
+    "finding": null
+   }
   ]
  }
 }

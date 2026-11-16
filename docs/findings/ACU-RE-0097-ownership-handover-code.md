@@ -90,7 +90,7 @@ Exact commands and search boundary:
        ACU-RE-0083 found the same virtual returning the local peer). It then creates a new group (counter
        `+384`), copies the members, appends the group to the herder's list (`+256`, count `+266`), and takes control
        of each member it now masters (`sub_14111E760`).
-5. **The radius is per entity.** `sub_141DF4190` returns a u16 distance:
+5. **The radius is per entity.** *(Superseded by ACU-RE-0103: the "per-class table" is a world load-distance grid looked up at the local focus position, so R is the same for every entity on a peer.)* `sub_141DF4190` returns a u16 distance:
    - an override at `+340`, when set; otherwise
    - a per-class table (`sub_1420F1EA0` index into `+56`, default `+20`);
    - capped by `+176`.
