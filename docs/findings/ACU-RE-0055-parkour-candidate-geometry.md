@@ -340,6 +340,51 @@ source, so that the Rust edges (Rust gate above) can be turned into candidates p
   next step is the four-slot live probe below, which names the generator VA and its reference
   point, then a disassembly of its edge query.
 
+## Wall eject: the "Off The Wall" tester (2026-11-16, static)
+
+Method: the mapped image `motion-link-20261020/.../main-image.mapped.bin` (ACU.exe `748abdc6…7e40`), read with capstone,
+and the corpus. No live run yet.
+
+- **Testers.** The parkour decision is owned by "tester" classes, each with a 41–44-entry fancy table (slot 0 hash
+  `0x090A5560`). In every table:
+  - slot 1 (hash `0x4B6BAA93`) returns a display name; the strings sit at `0x142E84200..0x142E84AA0`;
+  - slot `0x19` is `0x140134880`, which calls the selection through slot `0x27` = `0x140133B00` and then clears the
+    list. Every recorded selection returned to `0x140134987` inside it.
+- **"Off The Wall" is still built.**
+  - Its table is `0x1439ED580` and its ctor `0x140158B30`.
+  - The climb tester set `0x141A4E310` constructs it together with Climb, Climb Corner Inside/Outside, Climb Facade,
+    Overhang, Window Entry, Climb Ladder and Parkour.
+  - Six more builders (`0x141A8B030`…`0x141A8B960`) construct it with Climb Facade and Parkour.
+  - Other named testers: Side Leap (`0x1439F13E0`), Slope Ledge Eject, Get Down, Edge Drop, Leap From VShape.
+- **Its generator is slot `0x25` = `0x140137920`** (corpus `140137920.c`), one of the slots only this table
+  overrides.
+  - For each element of its input list `a8` (one object per scanned target), it builds actions through
+    `sub_1401D1CF0`. That routine creates the action through `0x1401CC990`, runs fancy `+1968`, and keeps it only when
+    fancy `+2416` accepts. The actions it tries:
+    - type **69**, only when `a6 == 4`, with a negated direction (`xorps` with a sign mask);
+    - type **36**;
+    - type **50**.
+  - Accepted actions are appended to the candidate list `a9`.
+  - In the oracle, type 69 is a point target (no span), 2.0–4.9 m below and 1.0–2.3 m out, directly behind Arno's
+    facing (cosine −1). That is a back eject to a landing point.
+- **Inference: this is why ejects are "sticky".** With nothing scanned behind or beside the wall, `a8` is empty, the
+  loop runs zero times, and no eject candidate exists. The move itself is intact; it only lacks a target.
+- **The AC1 rule for comparison** (AC1 Movement Rewritten, MIT, `src/player/targets.rs` `jump_off_wall_dir` /
+  `jump_off_wall_entry`, `walling.rs` `rebound_jump`):
+  - input: high profile + jump + stick;
+  - direction: more than 135° from straight out from the wall cancels; 90–135° is clamped to ±89°;
+  - target: a search along the direction first, else a free target 8 m out and 3 m down from a climb or hang, or
+    7 m out and 3 m down from a wall run.
+  - The game data has the matching target-free clip `xx_Climbing_WallEject_BkRt180_tr_Void` and a `WallEject` graph
+    parameter.
+- **Mod path (not done):** when `a8` is empty and the stick asks for an eject, give `0x140137920` one synthetic target
+  at the AC1 free point. Also check what fancy `+2416` of types 69, 36 and 50 requires of a target.
+- **Unknown:**
+  - the target object's layout;
+  - who fills `a8`, and what `a6` means;
+  - what types 36 and 50 are (no oracle rows);
+  - whether `+2416` rejects a target in the air.
+
 ## Implementation implications and finding-linked constants
 
 - Candidate fields: `+0x10` source, `+0x30` target, `+0x40` outward horizontal normal, `+0x50` /
