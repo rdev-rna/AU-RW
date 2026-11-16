@@ -5,6 +5,12 @@
 //! top. What is taken from findings: the ground support rule (ACU-RE-0050), ledge edges
 //! (ACU-RE-0055 recipe) and fall acceleration (−9.55 m/s², ACU-RE-0059). Native reach,
 //! candidate selection (types, windows), climb clips and root-motion warping are not used.
+//!
+//! The free eject (`Mode::Eject`) is an implementation choice (user request, 2026-11-16), not
+//! native ACU behaviour: ACU's ejects need a candidate target (ACU-RE-0055, "Free-eject
+//! attempts"). Its direction rule and free target follow AC1-Movement-Rewritten's jump off a
+//! wall (`player/targets.rs`, `jump_off_wall_dir` / `jump_off_wall_entry`; MIT, Banned445),
+//! re-derived from that behaviour, with its refusal into the wall removed.
 
 use crate::block::{Block, LedgeEdge};
 use crate::{DT, Input, Player, RADIUS, Traversal};
@@ -26,6 +32,78 @@ pub enum Mode {
         t: f32,
         duration: f32,
     },
+    /// Airborne after a free eject off a wall or out of a mantle, aimed at `target` (a ledge
+    /// landing, or the free target); falls like `Air`.
+    Eject {
+        target: Vec3,
+        to_ledge: bool,
+    },
+}
+
+/// Authored free-eject constants (metres, seconds). See the module note.
+#[derive(Debug, Clone, Copy)]
+pub struct EjectTuning {
+    /// Stick length below which the eject goes straight away from the wall.
+    pub dead_zone: f32,
+    /// Horizontal search radius for a ledge to land on. 12 m: the value at `+0xC0` of the
+    /// native candidate tester (ACU-RE-0055 base tester defaults), whose meaning is only a
+    /// reach candidate; used here because the user asked for a long eject range.
+    pub reach: f32,
+    /// Smallest cosine between the eject direction and a ledge landing.
+    pub cone: f32,
+    /// Highest / lowest ledge landing accepted, relative to the feet.
+    pub max_rise: f32,
+    pub max_drop: f32,
+    /// The target with no ledge: this far along the direction and this far down (AC1-MR).
+    pub free_distance: f32,
+    pub free_drop: f32,
+    /// Horizontal launch speed and the shortest flight.
+    pub speed: f32,
+    pub min_flight: f32,
+    /// Aim this far above a ledge landing so the body clears the lip.
+    pub clearance: f32,
+}
+
+impl Default for EjectTuning {
+    fn default() -> Self {
+        Self {
+            dead_zone: 0.2,
+            reach: 12.0,
+            cone: 30f32.to_radians().cos(),
+            max_rise: 3.0,
+            max_drop: 12.0,
+            free_distance: 8.0,
+            free_drop: 3.0,
+            speed: 6.5,
+            min_flight: 0.4,
+            clearance: 0.5,
+        }
+    }
+}
+
+/// The eject direction for stick `stick` off a wall whose outward normal is `away`: the stick
+/// past the dead zone, else `away`; a stick 90-135 degrees off `away` is turned to 89 degrees
+/// on its side (along the wall, AC1-MR); a stick further into the wall ejects straight away
+/// (AC1-MR refuses it; the user asked for no refusals).
+pub fn eject_direction(stick: Vec2, away: Vec2, dead_zone: f32) -> Vec2 {
+    let away = away.normalize_or(Vec2::Y);
+    if stick.length() < dead_zone {
+        return away;
+    }
+    let want = stick.normalize();
+    let c = want.dot(away);
+    if c < -std::f32::consts::FRAC_1_SQRT_2 {
+        return away;
+    }
+    if c < 0.0 {
+        let side = if away.perp_dot(want) >= 0.0 {
+            1.0
+        } else {
+            -1.0
+        };
+        return Vec2::from_angle(89f32.to_radians() * side).rotate(away);
+    }
+    want
 }
 
 /// Authored arena constants for block traversal (all metres / seconds).
@@ -42,6 +120,8 @@ pub struct BlockTuning {
     pub climb_side: f32,
     /// Ledge height above the feet accepted for a mantle from the ground.
     pub mantle_from_ground: (f32, f32),
+    /// Free eject (see [`EjectTuning`]).
+    pub eject: EjectTuning,
     /// Ledge height above the feet at which a climb tops out.
     pub top_out: f32,
     /// Horizontal reach from the body surface to a ledge.
@@ -60,6 +140,7 @@ impl Default for BlockTuning {
             climb_up: 1.4,
             climb_side: 0.9,
             mantle_from_ground: (0.5, 2.4),
+            eject: EjectTuning::default(),
             top_out: 1.9,
             reach: 0.7,
             landing_inset: 0.45,
@@ -134,6 +215,78 @@ impl Player {
         best.map(|(_, l)| l)
     }
 
+    /// Where a free eject along `dir` lands: the best ledge landing in the cone within reach
+    /// (not the wall being left), else the free target. Returns (target, is a ledge).
+    fn eject_target(
+        &self,
+        block: &Block,
+        tuning: &BlockTuning,
+        dir: Vec2,
+        away: Vec2,
+    ) -> (Vec3, bool) {
+        let e = tuning.eject;
+        let p = self.position;
+        let mut best: Option<(f32, Vec3)> = None;
+        for edge in block.ledges_near(p, e.reach) {
+            // The wall being left: its own lip, facing the same way, in its plane.
+            let mid = (edge.a + edge.b) * 0.5;
+            if edge.outward.dot(away) > 0.7 && (xz(mid) - xz(p)).dot(away).abs() < 1.0 {
+                continue;
+            }
+            if edge.outward.dot(dir) > 0.3 {
+                continue; // its top lies behind the lip as seen along `dir`
+            }
+            let along = (xz(mid) - xz(p)).dot(dir).max(0.0);
+            let (lip, _) = edge.closest(p + flat(dir) * along + Vec3::Y * (mid.y - p.y));
+            let Some(feet) = Self::ledge_landing(block, tuning, edge, lip) else {
+                continue;
+            };
+            let v = xz(feet) - xz(p);
+            let dist = v.length();
+            if !(0.6..=e.reach).contains(&dist) || v.dot(dir) / dist < e.cone {
+                continue;
+            }
+            let rise = feet.y - p.y;
+            if rise > e.max_rise || rise < -e.max_drop {
+                continue;
+            }
+            let score = dist * (2.0 - v.dot(dir) / dist); // nearest, then straightest (authored)
+            if best.is_none_or(|(s, _)| score < s) {
+                best = Some((score, feet));
+            }
+        }
+        match best {
+            Some((_, feet)) => (feet, true),
+            None => (
+                p + flat(dir) * e.free_distance - Vec3::Y * e.free_drop,
+                false,
+            ),
+        }
+    }
+
+    /// Leave a wall (outward normal `away`) or a mantle on a ballistic arc toward the eject
+    /// target along the stick `d`, at once.
+    fn start_eject(&mut self, block: &Block, tuning: &BlockTuning, d: Vec2, away: Vec2) {
+        let e = tuning.eject;
+        let dir = eject_direction(d, away, e.dead_zone);
+        let (target, to_ledge) = self.eject_target(block, tuning, dir, away);
+        let aim = if to_ledge {
+            target + Vec3::Y * e.clearance
+        } else {
+            target
+        };
+        let flat_d = xz(aim) - xz(self.position);
+        let t = (flat_d.length() / e.speed).max(e.min_flight);
+        let dy = aim.y - self.position.y;
+        let vy = (dy + 0.5 * tuning.gravity * t * t) / t;
+        // Step off the wall face so the body starts clear of it.
+        self.position += flat(away) * 0.05;
+        self.velocity = flat(flat_d / t) + Vec3::Y * vy;
+        self.yaw = dir.x.atan2(dir.y);
+        self.mode = Mode::Eject { target, to_ledge };
+        self.grounded = false;
+    }
+
     fn start_mantle(&mut self, to: Vec3) {
         let rise = (to.y - self.position.y).max(0.0);
         self.mode = Mode::Mantle {
@@ -175,6 +328,11 @@ impl Player {
         let before = self.position;
         let d = input.direction.clamp_length_max(1.0);
         match self.mode {
+            Mode::Mantle { from, to, .. } if input.jump => {
+                // Cancel the pull-up at any point: eject away from the ledge's wall.
+                let away = (xz(from) - xz(to)).normalize_or(Vec2::Y);
+                self.start_eject(block, tuning, d, away);
+            }
             Mode::Mantle {
                 from,
                 to,
@@ -208,7 +366,9 @@ impl Player {
                 };
             }
             Mode::Climb { normal } => self.climb(block, tuning, input, d, normal),
-            Mode::Ground | Mode::Air => self.walk(block, tuning, input, d, displacement, yaw),
+            Mode::Ground | Mode::Air | Mode::Eject { .. } => {
+                self.walk(block, tuning, input, d, displacement, yaw)
+            }
         }
         self.distance += (xz(self.position) - xz(before)).length();
         // Below the block: the caller respawns rather than this inventing a kill plane.
@@ -222,6 +382,11 @@ impl Player {
             // Let go: push off the wall and fall.
             self.mode = Mode::Air;
             self.velocity = flat(normal) * 1.5;
+            return;
+        }
+        if input.jump {
+            // Free eject at any moment of the climb, in any stick direction.
+            self.start_eject(block, tuning, d, normal);
             return;
         }
         if let Some(to) = self.find_ledge(block, tuning, normal, (0.3, tuning.top_out)) {
@@ -307,8 +472,23 @@ impl Player {
                 self.mode = Mode::Air;
             }
         }
-        if self.mode == Mode::Air {
+        if matches!(self.mode, Mode::Air | Mode::Eject { .. }) {
             self.velocity.y -= tuning.gravity * DT;
+        }
+        // A ledge-aimed eject drops straight onto its landing once over it (authored catch).
+        if let Mode::Eject {
+            target,
+            to_ledge: true,
+        } = self.mode
+        {
+            let h = Vec2::new(self.velocity.x, self.velocity.z);
+            let left = xz(target) - xz(self.position);
+            if left.dot(h) <= 0.0 || left.length() <= h.length() * DT {
+                self.position.x = target.x;
+                self.position.z = target.z;
+                self.velocity.x = 0.0;
+                self.velocity.z = 0.0;
+            }
         }
         // Horizontal move with axis sliding against walls.
         let mut p = self.position;
@@ -361,7 +541,7 @@ impl Player {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::block::tests::box_block;
+    use crate::block::tests::{box_block, boxes_block};
 
     /// Hold RT + stick (and `traversal`) until a mantle completes or `ticks` run out.
     fn run_into(
@@ -466,6 +646,146 @@ mod tests {
         assert_eq!(p.mode, Mode::Ground);
         assert_eq!(p.position.y, 0.0);
         assert!(p.position.z > -2.0 + RADIUS);
+    }
+
+    /// A climber on the 6 m wall's face (z = -2, outward +Z) at height `y`.
+    fn climber(x: f32, y: f32) -> Player {
+        Player {
+            position: Vec3::new(x, y, -2.0 + RADIUS + 0.05),
+            mode: Mode::Climb { normal: Vec2::Y },
+            ..Default::default()
+        }
+    }
+
+    /// Press jump with `stick` on the first tick, then hold nothing until landed.
+    fn eject_and_land(block: &Block, mut p: Player, stick: Vec2, ticks: u32) -> (Player, Mode) {
+        let tuning = BlockTuning::default();
+        let jump = Input {
+            direction: stick,
+            run: true,
+            jump: true,
+            ..Default::default()
+        };
+        p.step_in_block(block, &tuning, jump, Vec2::ZERO, 0.0);
+        let launched = p.mode;
+        for _ in 0..ticks {
+            if p.step_in_block(block, &tuning, Input::default(), Vec2::ZERO, 0.0) {
+                break;
+            }
+            if p.mode == Mode::Ground {
+                break;
+            }
+        }
+        (p, launched)
+    }
+
+    #[test]
+    fn eject_direction_follows_the_stick_and_never_refuses() {
+        let away = Vec2::Y;
+        let close = |a: Vec2, b: Vec2| (a - b).length() < 1e-5;
+        assert!(
+            close(eject_direction(Vec2::ZERO, away, 0.2), away),
+            "neutral: away"
+        );
+        assert!(
+            close(eject_direction(Vec2::X * 0.1, away, 0.2), away),
+            "dead zone"
+        );
+        assert!(close(eject_direction(Vec2::X, away, 0.2), Vec2::X), "side");
+        let diag = Vec2::new(1.0, 1.0).normalize();
+        assert!(
+            close(eject_direction(diag * 0.5, away, 0.2), diag),
+            "diagonal"
+        );
+        // 120 degrees round: turned to 89 degrees on the same side (AC1-MR).
+        let round = Vec2::from_angle(-120f32.to_radians()).rotate(away);
+        let d = eject_direction(round, away, 0.2);
+        assert!(
+            (d.angle_to(away).abs().to_degrees() - 89.0).abs() < 1e-3,
+            "{d}"
+        );
+        assert!(d.x > 0.0, "kept on the stick's side: {d}");
+        // Into the wall: straight away instead of AC1-MR's refusal.
+        assert!(close(eject_direction(-away, away, 0.2), away));
+    }
+
+    #[test]
+    fn side_eject_from_a_climb_lands_on_the_next_roof() {
+        // The 6 m wall and a 3 m roof 2 m to its right (synthetic boxes).
+        let b = boxes_block(&[
+            (Vec3::new(0.0, 3.0, -3.0), Vec3::new(1.0, 3.0, 1.0)),
+            (Vec3::new(4.0, 1.5, -1.0), Vec3::new(1.0, 1.5, 1.0)),
+        ]);
+        let (p, launched) = eject_and_land(&b, climber(0.6, 2.5), Vec2::X, 240);
+        assert!(
+            matches!(launched, Mode::Eject { to_ledge: true, .. }),
+            "{launched:?}"
+        );
+        assert_eq!(p.mode, Mode::Ground, "{p:?}");
+        assert!((p.position.y - 3.0).abs() < 1e-4, "on the roof: {p:?}");
+        assert!(p.position.x > 3.0 && p.position.x < 5.0, "{p:?}");
+    }
+
+    #[test]
+    fn neutral_eject_with_nothing_around_goes_far_back_and_down() {
+        let b = box_block(Vec3::new(0.0, 3.0, -3.0), Vec3::new(1.0, 3.0, 1.0));
+        let start = climber(0.0, 2.5);
+        let (p, launched) = eject_and_land(&b, start, Vec2::ZERO, 240);
+        let Mode::Eject { target, to_ledge } = launched else {
+            panic!("{launched:?}");
+        };
+        assert!(!to_ledge);
+        assert!(
+            (target.z - (start.position.z + 0.0 + 8.0)).abs() < 0.01,
+            "{target}"
+        );
+        assert_eq!(p.mode, Mode::Ground, "{p:?}");
+        assert_eq!(p.position.y, 0.0);
+        assert!(p.position.z > 4.0, "far from the wall: {p:?}");
+        assert!(p.position.x.abs() < 1e-4, "straight back: {p:?}");
+        let (q, _) = eject_and_land(&b, start, Vec2::ZERO, 240);
+        assert_eq!(p.position, q.position, "deterministic replay");
+    }
+
+    #[test]
+    fn a_stick_into_the_wall_still_ejects() {
+        let b = box_block(Vec3::new(0.0, 3.0, -3.0), Vec3::new(1.0, 3.0, 1.0));
+        let (p, launched) = eject_and_land(&b, climber(0.0, 2.5), -Vec2::Y, 240);
+        assert!(matches!(launched, Mode::Eject { .. }), "{launched:?}");
+        assert_eq!(p.mode, Mode::Ground);
+        assert!(p.position.z > 2.0, "{p:?}");
+    }
+
+    #[test]
+    fn jump_cancels_a_mantle_into_an_eject() {
+        let b = box_block(Vec3::new(0.0, 0.75, -3.0), Vec3::new(1.0, 0.75, 1.0)); // 1.5 m
+        let tuning = BlockTuning::default();
+        let mut p = Player::default();
+        let up = Input {
+            direction: -Vec2::Y,
+            run: true,
+            traversal: Traversal::Up,
+            ..Default::default()
+        };
+        let mut mantle_ticks = 0;
+        for _ in 0..150 {
+            p.step_in_block(&b, &tuning, up, -Vec2::Y * 3.0 * DT, std::f32::consts::PI);
+            if matches!(p.mode, Mode::Mantle { .. }) {
+                mantle_ticks += 1;
+                if mantle_ticks == 10 {
+                    break;
+                }
+            }
+        }
+        assert_eq!(mantle_ticks, 10, "mid-mantle: {p:?}");
+        let (p, launched) = eject_and_land(&b, p, Vec2::X, 240);
+        assert!(matches!(launched, Mode::Eject { .. }), "{launched:?}");
+        assert_eq!(p.mode, Mode::Ground);
+        assert_eq!(
+            p.position.y, 0.0,
+            "back on the floor, not on the ledge: {p:?}"
+        );
+        assert!(p.position.x > 2.0, "went right: {p:?}");
     }
 
     #[test]

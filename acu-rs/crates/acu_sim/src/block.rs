@@ -493,6 +493,11 @@ pub(crate) mod tests {
 
     /// Synthetic box (not game data): a `w x h x d` block resting on a 20 m floor.
     pub fn box_block(centre: Vec3, half: Vec3) -> Block {
+        boxes_block(&[(centre, half)])
+    }
+
+    /// Synthetic boxes (not game data), each `(centre, half extents)`, on one 20 m floor.
+    pub fn boxes_block(boxes: &[(Vec3, Vec3)]) -> Block {
         let mut tris = Vec::new();
         let mut quad = |a: Vec3, b: Vec3, c: Vec3, d: Vec3| {
             for v in [[a, b, c], [a, c, d]] {
@@ -510,39 +515,41 @@ pub(crate) mod tests {
             Vec3::new(f, 0.0, f),
             Vec3::new(-f, 0.0, f),
         );
-        let lo = centre - half;
-        let hi = centre + half;
         let p = |x: f32, y: f32, z: f32| Vec3::new(x, y, z);
-        quad(
-            p(lo.x, hi.y, lo.z),
-            p(hi.x, hi.y, lo.z),
-            p(hi.x, hi.y, hi.z),
-            p(lo.x, hi.y, hi.z),
-        );
-        quad(
-            p(lo.x, lo.y, lo.z),
-            p(hi.x, lo.y, lo.z),
-            p(hi.x, hi.y, lo.z),
-            p(lo.x, hi.y, lo.z),
-        );
-        quad(
-            p(lo.x, lo.y, hi.z),
-            p(hi.x, lo.y, hi.z),
-            p(hi.x, hi.y, hi.z),
-            p(lo.x, hi.y, hi.z),
-        );
-        quad(
-            p(lo.x, lo.y, lo.z),
-            p(lo.x, lo.y, hi.z),
-            p(lo.x, hi.y, hi.z),
-            p(lo.x, hi.y, lo.z),
-        );
-        quad(
-            p(hi.x, lo.y, lo.z),
-            p(hi.x, lo.y, hi.z),
-            p(hi.x, hi.y, hi.z),
-            p(hi.x, hi.y, lo.z),
-        );
+        for &(centre, half) in boxes {
+            let lo = centre - half;
+            let hi = centre + half;
+            quad(
+                p(lo.x, hi.y, lo.z),
+                p(hi.x, hi.y, lo.z),
+                p(hi.x, hi.y, hi.z),
+                p(lo.x, hi.y, hi.z),
+            );
+            quad(
+                p(lo.x, lo.y, lo.z),
+                p(hi.x, lo.y, lo.z),
+                p(hi.x, hi.y, lo.z),
+                p(lo.x, hi.y, lo.z),
+            );
+            quad(
+                p(lo.x, lo.y, hi.z),
+                p(hi.x, lo.y, hi.z),
+                p(hi.x, hi.y, hi.z),
+                p(lo.x, hi.y, hi.z),
+            );
+            quad(
+                p(lo.x, lo.y, lo.z),
+                p(lo.x, lo.y, hi.z),
+                p(lo.x, hi.y, hi.z),
+                p(lo.x, hi.y, lo.z),
+            );
+            quad(
+                p(hi.x, lo.y, lo.z),
+                p(hi.x, lo.y, hi.z),
+                p(hi.x, hi.y, hi.z),
+                p(hi.x, hi.y, lo.z),
+            );
+        }
         for t in &mut tris {
             t.normal = face_normal(&t.v);
         }

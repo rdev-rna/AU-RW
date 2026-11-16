@@ -5,7 +5,7 @@ pub mod cloth;
 pub mod skin;
 mod traverse;
 use glam::{Vec2, Vec3};
-pub use traverse::{BlockTuning, Mode};
+pub use traverse::{BlockTuning, EjectTuning, Mode, eject_direction};
 
 pub const DT: f32 = 1.0 / 60.0;
 pub const RADIUS: f32 = 0.28;
