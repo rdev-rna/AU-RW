@@ -15,6 +15,17 @@ order:
    machine. Find what activates it (no parsed layering state or transition references it).
 4. Damp law for rates other than 5 (k = 4.12 x rate is a CHOICE).
 
+Traversal port (2026-11-16): ledge edges pass the ACU-RE-0055 gate (`acu_sim/tests/parkour_geometry.rs`).
+Next, in order:
+1. Negative examples: for complete selection calls (16 or fewer candidates), list the emitted
+   edges near the source that did not become candidates. Bound range, height and facing per
+   action type, and turn the c0/c4 quantiles into explicit per-type windows.
+2. Point-target types (3, 8, 69, 48, 15): landing points on flat ground. Join them to
+   `acu_motion::traversal::landing_score`.
+3. Single-prop native references: spawn a prop by ID on the sky floor (ACU-RE-0103 obs. 19),
+   run into it with the candidate trace on, and compare the candidates to the Rust edges of
+   that prop's decoded collision.
+
 User priority (2026-10-20): reconstruct predictive traversal scanning linked to
 dynamic root-motion target matching. Start from ACU-RE-0030, not the authored
 matcher weights. First bounded kernel: `acu_motion::traversal::landing_score`

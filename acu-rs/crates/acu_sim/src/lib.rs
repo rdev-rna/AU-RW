@@ -1,5 +1,6 @@
 //! Synthetic deterministic-input test arena. No native gameplay constants.
 pub mod block;
+pub mod candidate;
 pub mod cloth;
 pub mod skin;
 mod traverse;

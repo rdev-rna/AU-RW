@@ -242,14 +242,50 @@ edge-enumeration query. It also gives the record layout and the reference point.
 can probe the generator itself (its edge query and the clip of A..B). A hardware execute
 breakpoint on a hot routine serialises hits; expect drops, as in ACU-RE-0042.
 
+## Rust gate (2026-11-16)
+
+`acu-rs/crates/acu_sim/tests/parkour_geometry.rs` checks the Rust port against this oracle.
+
+- **Candidate distances** (`acu_sim::candidate::candidate_scalars`, runs without the install):
+  `+0xC0..+0xC8` recomputed from the source match the game's values on all 4,534
+  `scalars_reproduced` rows. The worst error is 2.0 mm, which is the oracle's own rounding.
+- **Ledge edges** (`acu_sim::block::find_ledges`, ignored test, needs `ACU_PARKOUR_BLOCK`):
+  - Collision: an ACUBLK01 export of Versailles around the oracle rows, made with
+    `python tools/world_collision.py block 46 -233 --half 125 --samples 3 --write local/blocks/versailles-parkour-oracle.bin`.
+    It has 1,933,042 triangles from 18,553 instances.
+  - Criterion per row with a span longer than 2 mm (4,660 rows): an emitted edge within 5 cm of
+    the target, parallel to the span within 10°, and an outward normal on the same side as the
+    candidate's `+0x40`.
+  - First run: the Rust edges covered only 3,247 of the 4,274 `convex_ledge` rows. 1,020 of the
+    misses were thin lips, such as slab edges and stair nosings, where the side face drops about
+    4.5 cm below the edge. Rust required the side's far vertex to be 5 cm below the edge's lower
+    end. The oracle's `classify_edge` needs it only 1 cm below the top face's plane. Rust now
+    uses the oracle's rule (`CONVEX_M` = 0.01 m).
+  - Result:
+
+    | Rule | Edges | `convex_ledge` covered | `convex_other` covered | Outward agrees |
+    | --- | --- | --- | --- | --- |
+    | top ≥ 0.7, side ≤ 0.3 (old recipe) | 284,706 | 4,274 / 4,274 | 10 / 371 | all covered |
+    | top ≥ 0.7, side ≤ 0.7 (new default) | 306,848 | 4,274 / 4,274 | 368 / 371 | all covered |
+
+    With the new default, 4,643 of the 4,660 rows with a span are covered (99.6 %). The rest are
+    4 `concave`, 10 `flat` (3 covered, with the outward side wrong) and 3 `convex_other`.
+- **Inference:** the game also makes candidates where a walkable top meets a sloped side
+  (|nz| 0.3–0.7). The side threshold 0.3 was too strict. In the port, a side is now any face
+  that is not walkable.
+- **Not established:** how many emitted edges the game would reject. Without negative examples,
+  the 306,848 edges are a superset. The per-type windows and the generator still decide which
+  edges become candidates.
+
 ## Implementation implications and finding-linked constants
 
 - Candidate fields: `+0x10` source, `+0x30` target, `+0x40` outward horizontal normal, `+0x50` /
   `+0x60` span, `+0xC0` = target.z − ref.z, `+0xC4` = |xy|, `+0xC8` = |3D| (from `0x1401B1770`,
   where ref is an argument).
 - Port recipe (implementation choice backed by the counts above). Find candidate edges among
-  MeshShape triangle edges (ACU-RE-0050 composition): convex, top face |nz| ≥ 0.7, other face
-  |nz| ≤ 0.3. Target = a point on the edge span; normal = horizontal, pointing away from the top
+  MeshShape triangle edges (ACU-RE-0050 composition): convex (the other face's far vertex more
+  than 1 cm below the top plane), top face |nz| ≥ 0.7, other face |nz| ≤ 0.7 (Rust gate above;
+  the original 0.3 missed the sloped-side candidates). Target = a point on the edge span; normal = horizontal, pointing away from the top
   face. Per-type windows: the c0/c4 quantiles above, as starting values only (observed ranges,
   not limits).
 

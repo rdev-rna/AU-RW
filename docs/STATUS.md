@@ -156,6 +156,20 @@ the default assassin blue) and bakes the template's recoloured albedo. That albe
 mask zones and the YIQ hue rotation, re-derived from the template's ps_5_0 code. The user
 visually confirmed that row 1 matches the in-game default; there is no pixel comparison.
 
+Latest (2026-11-16, parkour ledge edges gated against live candidates;
+[ACU-RE-0055](findings/ACU-RE-0055-parkour-candidate-geometry.md), Rust gate):
+`acu_sim::block::find_ledges` now emits an edge under every live Versailles candidate on a
+convex ledge: 4,274 of 4,274, with the outward side agreeing on all of them. Two rules changed:
+- convexity is the oracle's own: the side's far vertex lies 1 cm below the top plane, so thin
+  lips count;
+- a side is any face that is not walkable (|nz| ≤ 0.7). The game also makes candidates on
+  sloped sides: 368 of 371 are now covered.
+
+`acu_sim::candidate::candidate_scalars` reproduces the candidates' `+0xC0..+0xC8` on 4,534 rows
+within 2 mm. The test is `acu_sim/tests/parkour_geometry.rs`; the edge gate needs a local
+Versailles block (`ACU_PARKOUR_BLOCK`). Not established: which emitted edges the game rejects,
+the per-type windows, and the generator.
+
 Latest (2026-11-15, the arena walks and runs on the native NewDemo graph;
 [ACU-RE-0069](findings/ACU-RE-0069-atomgraph-evaluation-sync-and-mirroring.md)):
 - `acu_bevy` no longer uses the For Honor style matcher. `motion::load_graph` loads NewDemo

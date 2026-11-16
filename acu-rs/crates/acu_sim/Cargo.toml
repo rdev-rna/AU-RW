@@ -9,6 +9,9 @@ publish.workspace = true
 glam.workspace = true
 acu_assets = { path = "../acu_assets" }
 
+[dev-dependencies]
+serde_json.workspace = true
+
 [features]
 # Use this CPU's rsqrtss estimate (validation only; see acu_motion).
 hw-rsqrt = []

@@ -10,7 +10,8 @@
 //! - ground height uses the ACU-RE-0050 rule (highest surface crossed by the vertical line
 //!   at or below the probe height plus a step);
 //! - ledge edges follow the ACU-RE-0055 port recipe (convex triangle edge, walkable top
-//!   `|n.y| >= 0.7`, steep side `|n.y| <= 0.3`);
+//!   `|n.y| >= 0.7`, side `|n.y| <= 0.7`), gated against live candidates in
+//!   `tests/parkour_geometry.rs`;
 //! - the body shape, wall contact and climb/mantle rules in [`crate::Player::step_in_block`]
 //!   are authored for this arena; no native capsule, reach or timing is claimed.
 
@@ -22,9 +23,15 @@ pub const MAGIC: &[u8; 8] = b"ACUBLK01";
 pub const MAX_TRIANGLES: usize = 2_000_000;
 /// Grid cell, metres (implementation choice).
 const CELL: f32 = 1.0;
-/// Walkable-top and steep-side thresholds of the ACU-RE-0055 recipe (analysis thresholds).
+/// Walkable-top and side thresholds (analysis thresholds). ACU-RE-0055's recipe had a steep
+/// side (|nz| <= 0.3); live candidates also sit on convex edges with sloped sides, |nz| 0.3..0.7
+/// (368 of 371 such oracle rows are covered at 0.7, 10 at 0.3). So a side is any face that is not
+/// walkable.
 pub const TOP_NY: f32 = 0.7;
-pub const SIDE_NY: f32 = 0.3;
+pub const SIDE_NY: f32 = 0.7;
+/// Far-vertex distance below the top plane that makes an edge convex (analysis choice,
+/// `classify_edge` in `tools/parkour_geometry.py`).
+pub const CONVEX_M: f32 = 0.01;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Triangle {
@@ -381,11 +388,35 @@ fn ray_triangle(o: Vec3, d: Vec3, v: &[Vec3; 3]) -> Option<f32> {
     (t >= 0.0).then_some(t)
 }
 
-/// Convex edges between a walkable top and a steep side (ACU-RE-0055 recipe).
+/// Face-slope thresholds for [`find_ledges_with`] (|normal.y| in the arena frame, = native |nz|).
+/// Analysis choices from ACU-RE-0055, not recovered native constants.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct LedgeRule {
+    /// A top face counts as walkable at or above this.
+    pub top_ny: f32,
+    /// A side face counts at or below this.
+    pub side_ny: f32,
+}
+
+impl Default for LedgeRule {
+    fn default() -> Self {
+        Self {
+            top_ny: TOP_NY,
+            side_ny: SIDE_NY,
+        }
+    }
+}
+
+/// Convex edges between a walkable top and a side that is not walkable (ACU-RE-0055 recipe).
+pub fn find_ledges(triangles: &[Triangle]) -> Vec<LedgeEdge> {
+    find_ledges_with(triangles, LedgeRule::default())
+}
+
+/// [`find_ledges`] with explicit thresholds.
 ///
 /// Triangles are joined across shapes by vertex positions quantised to 1 mm, since the
 /// export already composed each placement into world space.
-pub fn find_ledges(triangles: &[Triangle]) -> Vec<LedgeEdge> {
+pub fn find_ledges_with(triangles: &[Triangle], rule: LedgeRule) -> Vec<LedgeEdge> {
     let key = |p: Vec3| {
         (
             (p.x * 1000.0).round() as i64,
@@ -412,7 +443,7 @@ pub fn find_ledges(triangles: &[Triangle]) -> Vec<LedgeEdge> {
         let users = &edges[&pair];
         for &(ti, k) in users {
             let top = &triangles[ti as usize];
-            if top.normal.y.abs() < TOP_NY {
+            if top.normal.y.abs() < rule.top_ny {
                 continue;
             }
             let (a, b) = (top.v[k], top.v[(k + 1) % 3]);
@@ -425,20 +456,20 @@ pub fn find_ledges(triangles: &[Triangle]) -> Vec<LedgeEdge> {
             if outward.dot(Vec2::new(inner.x - a.x, inner.z - a.z)) > 0.0 {
                 outward = -outward;
             }
-            // Best steep side across the edge: its far vertex must drop below the edge and
-            // must not sit back over the top face (convex).
+            // Best (steepest) side across the edge. Convex: the side's far vertex lies more than
+            // CONVEX_M below the top face's plane (the ACU-RE-0055 oracle's classify_edge).
+            // A thin lip (a slab edge or stair nosing a few centimetres tall) counts.
+            let up = top.normal * top.normal.y.signum();
             let side = users
                 .iter()
                 .filter(|&&(si, _)| si != ti)
                 .filter_map(|&(si, sk)| {
                     let s = &triangles[si as usize];
-                    if s.normal.y.abs() > SIDE_NY {
+                    if s.normal.y.abs() > rule.side_ny {
                         return None;
                     }
                     let far = s.v[(sk + 2) % 3];
-                    let low = a.y.min(b.y);
-                    let back = outward.dot(Vec2::new(far.x - a.x, far.z - a.z));
-                    (far.y < low - 0.05 && back > -0.05).then_some(s.normal.y.abs())
+                    ((far - a).dot(up) < -CONVEX_M).then_some(s.normal.y.abs())
                 })
                 .min_by(f32::total_cmp);
             if let Some(side_ny) = side {
