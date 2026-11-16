@@ -552,7 +552,14 @@ Next, in order:
   - the Versailles, Saint-Denis and rift Seasons (they need world travel);
   - the night light sources and the sky SH;
   - the GI loaders of the non-Paris levels;
-  - eye adaptation.
+  - eye adaptation:
+    - Decoded: `acu_assets::ambiance::WorldAmbiance::auto_exposure`. Every Paris set has
+      auto-exposure on, down 1.5 s, up 3 s, and its own 32-entry EVAdjustments curve (EV ranges:
+      dawn and sunset [1.5, 18], noon [3, 18], night [-4.8, 16]).
+    - Still unknown: ACU's metering (the QuickEyeAdaptation site `0x142258981` is only the
+      settings deserializer) and the curve's x axis. Static corpus searches found no consumer.
+      Next: a live trace of the per-frame exposure (e.g. a `g_Frame` scan while the view changes
+      light), or Bevy `AutoExposure` as a labelled approximation.
 - the remaining PostEffects, Wind and WorldFog.
 
 Completed bounded numerical skin audit (ACU-RE-0015): eleven pieces, 29,481
