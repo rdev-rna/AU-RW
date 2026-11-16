@@ -147,8 +147,10 @@ Tests: `forced_start_holds_a_self_sustaining_state` and `reset_does_not_depend_o
        sprint clip to 0.884×.
      - On flat open ground Rust gives the sprint 0.79 at 0.919×, and the verified model then
        gives Rust's 6.3–6.4 m/s.
-     - So the gap comes from the terrain in the captures, not from Rust. No native sample on
-       flat, open ground exists to confirm the flat value directly.
+     - So the gap comes from the terrain in the captures, not from Rust.
+     - **Confirmed (ACU-RE-0074 obs. 12):** on a spawned flat floor (ACU-RE-0103) the native
+       sprint settles at sprint 0.76 / run 0.24 and 6.33–6.38 m/s root (body 6.30). Rust gives
+       6.3–6.4 m/s.
 4. **After a sprint stop.**
    - Native plays `IdleHigh_tr_IdleLow_footl/footr` (1.09–1.1 s) in 3 of 3 runs; Rust goes
      straight to `IdleLow_Footr`.

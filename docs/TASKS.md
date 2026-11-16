@@ -9,8 +9,8 @@ order:
    stop still does not pick by phase.
 2. Sprint speed: explained (ACU-RE-0074 obs. 11). Native root motion is the weight-normalised
    blend Rust uses. The native windows were slower because slope and wall leaves took weight.
-   Optional: a native sprint on flat, open ground (teleport) to confirm the predicted
-   6.3–6.4 m/s.
+   Confirmed on a spawned flat floor (obs. 12, ACU-RE-0103): native 6.33–6.38 m/s, matching
+   Rust.
 3. State 8947 (`IdleHigh_tr_IdleLow` after a sprint stop) is shaped like an overlay layer
    machine. Find what activates it (no parsed layering state or transition references it).
 4. Damp law for rates other than 5 (k = 4.12 x rate is a CHOICE).

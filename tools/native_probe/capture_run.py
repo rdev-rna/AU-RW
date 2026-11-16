@@ -279,6 +279,8 @@ def main():
                     help="world: stop once in the world and leave the game running with shim and probe "
                          "attached (for live RE); with --save-pin the lease stays held: after --close run "
                          "the printed `save_pin.py release <run dir>`")
+    ap.add_argument("--focus-dll", type=Path, default=focus.OUT / "acu_focus.dll",
+                    help="focus shim build to inject (default: the current acu_focus.dll)")
     a = ap.parse_args()
     if a.save_pin and a.attach:
         ap.error("--save-pin needs a launch (no --attach)")
@@ -332,7 +334,7 @@ def main():
         # Block the user's mouse/keyboard from the start: right after launch ACU really holds the
         # foreground, so the "only while unfocused" rule would let the user's mouse drive it.
         with save_pin.file_lock(SHIM_LOCK):  # acu_focus.ini is shared until the shim has read it
-            shim = focus.install(pid, fps_cap=a.fps_cap, block_user_input=not a.allow_user_input,
+            shim = focus.install(pid, a.focus_dll, fps_cap=a.fps_cap, block_user_input=not a.allow_user_input,
                                  return_focus=user_window or 0)
         try:
             checked(pid, "STATUS")

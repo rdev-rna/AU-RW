@@ -174,6 +174,19 @@ State: **partially established**.
     - Rust flat sprint (`ACU_LEAF_TRACE`, 3–5 s): sprint weight 0.77, mean rate 0.919.
     - Native `loco-sprint-open-1` window: sprint 0.695, rate 0.884. Its linear merge of cycle
       lengths gives 0.527 s against a measured 0.528 s.
+12. **Native sprint on flat, open ground (`floor-sprint-1`, 2026-11-16).**
+    - Ground: a 200 × 200 m static collision box spawned 60 m up
+      ([ACU-RE-0103](ACU-RE-0103-runtime-collision-box-spawn.md)). Every live sample has z 60.496.
+    - Capture: PID 125172, the same launch path and pin, `root_delta_capture.py --free-run --stick
+      0 32000 --walk 5` with `live_state.py` at 60 Hz. Closed with `--close`.
+    - Steady sprint, 5.60–7.47 s: sprint 0.76 / run 0.24, with no slope, wall or avoid leaves.
+      - Root delta: 6.34, 6.36, 6.33 and 6.38 m/s per 0.467 s cycle.
+      - Body: 6.30 m/s over the 1.85 s window.
+    - Rust's predicted flat sprint (obs. 11) is 6.3–6.4 m/s at sprint 0.77–0.79.
+    - `tools/root_delta_blend_compare.py` over 257 multi-leaf frames:
+      - weighted blend: native/predicted 0.9997, median error 0.03 mm;
+      - normalised blend: 0.9995 (weight sum 0.9998);
+      - heaviest leaf only: 3.38 mm.
 
 ## Inferences
 
@@ -201,8 +214,7 @@ State: **partially established**.
 - Sprint speed:
   - Explained by the extra leaves in every native window (obs. 11). Native root motion is the
     weight-normalised blend Rust uses.
-  - Not checked: a native sprint on flat, open ground (no slope or wall leaves) to confirm the
-    predicted 6.3–6.4 m/s directly.
+  - Confirmed on flat ground (obs. 12): native 6.33–6.38 m/s at sprint 0.76 / run 0.24.
 - Who activates state 8947 (game code request, or a layering link the parser misses).
 - What sets `*(source+20)`.
 - Context pass mode 2 (`+92`).

@@ -123,7 +123,9 @@ existing live captures by the ignored test `installed_locomotion_segments` (`acu
 - Different:
   - walk stop travel 0.27 m against native 0.28-0.45 m;
   - the half-stick stop clip;
-  - sprint 6.3 m/s against native 5.96 m/s on clear ground;
+  - (resolved) sprint: native on a spawned flat floor runs 6.33–6.38 m/s, as Rust does
+    ([ACU-RE-0103](findings/ACU-RE-0103-runtime-collision-box-spawn.md) floor; ACU-RE-0074 obs.
+    12). The earlier 5.96 m/s came from slope and wall leaves;
   - the post-sprint `IdleHigh_tr_IdleLow` lives outside the hub the interpreter is rooted at.
 - Unverified: bank/avoid clips in turns, the free-run turn law, TimeScale.
 

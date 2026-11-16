@@ -81,6 +81,9 @@ Lighting: [ACU-RE-0073](findings/ACU-RE-0073-baked-gi-and-world-ambiance.md) dec
 containers (GILoader tree, GIDatablock / GIResult / GIData, exact end), the GICP octree-delta codec
 and the forward GI evaluation, and part of WorldAmbiance (HDR camera, SSAO, shadow tail); Bevy applies
 native exposure, shadows and Paris GI around Arno.
+Runtime collision: [ACU-RE-0103](findings/ACU-RE-0103-runtime-collision-box-spawn.md) spawns a
+static InertComponent box (BoxShape, World add) from the shim (`teleport.py spawn-box`); Arno
+stands and sprints on it, which gave the first native flat-ground sprint (6.33–6.38 m/s).
 Character materials: [ACU-RE-0084](findings/ACU-RE-0084-character-template-gbuffer.md) locates the
 outfit templates' DXBC (cloth, skin, hair) and the deferred G-buffer contract; RT order open.
 

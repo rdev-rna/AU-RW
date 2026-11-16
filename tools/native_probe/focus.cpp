@@ -31,6 +31,7 @@
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
+#include <cmath>
 #include <string>
 #pragma comment(lib, "user32.lib")
 #pragma comment(lib, "dxguid.lib")
@@ -200,6 +201,72 @@ static int runStartWorld(uintptr_t world, uint32_t* exception) {
         return -3;
     }
 }
+// mode 8 (spawn a static collision box, ACU-RE-0103): the generic runtime entity spawn 0x141FAFDE0
+// (allocate 368 B, 0x141CB9AA0 construct, 0x141CE9100 init, 0x141CC00A0 attach component,
+// 0x141D40250 World add, entity vtbl+248 activate; caller 0x141FAFE80 then sets the matrix through
+// 0x1420F7510) with the component PhysicsWorldComponent::vf16 (0x142613F80) builds: an
+// InertComponent (304 B, 0x1425EA110; its constructor sets the RigidBody (+0x50) motion field +0x58
+// to 0) whose ObjectShape is set by 0x1425DEEC0. The shape is a BoxShape (128 B, 0x1425C3600) with
+// half extents set through 0x1425DDAF0 (as 0x141DA0D30 does; vtbl+168 rebuilds the Havok box) and
+// a handle from 0x1426EB640(0x14525BB70, 0, box). Memory: 0x1426D9A10(size, align,
+// 0x1426F3760(size, align, [0x1452585D0])). matrix[0..2] = half extents, matrix[3..5] = centre,
+// matrix[6] = yaw (radians); the box is world-aligned otherwise. The entity is never freed (one
+// extra handle reference is taken). Returns entity in t->entity, component in t->human;
+// matrix[8..11] = raw qwords RigidBody +0x98 and +0xA0 after activation (body pointers, if any).
+// status: 1 spawned, -1 no World, -7 vtable check failed after construction (nothing added), -3 exception.
+constexpr uintptr_t kAllocHeapRva = 0x26F3760, kAllocRva = 0x26D9A10, kDefaultHeapRva = 0x52585D0,
+                    kBoxCtorRva = 0x25C3600, kBoxVtableRva = 0x361ECF0, kBoxSetExtentsRva = 0x25DDAF0,
+                    kMakeHandleRva = 0x26EB640, kHandleTableRva = 0x525BB70, kInertCtorRva = 0x25EA110,
+                    kInertVtableRva = 0x36238F0, kSetShapeRva = 0x25DEEC0, kEntityCtorRva = 0x1CB9AA0,
+                    kEntityInitRva = 0x1CE9100, kAttachRva = 0x1CC00A0, kWorldAddRva = 0x1D40250,
+                    kSetMatrixRva = 0x20F7510;
+static uintptr_t gameAlloc(size_t size, size_t align) {
+    uintptr_t heap = ((uintptr_t(__fastcall*)(size_t, size_t, uintptr_t))(imageLow + kAllocHeapRva))(
+        size, align, *(uintptr_t*)(imageLow + kDefaultHeapRva));
+    return ((uintptr_t(__fastcall*)(size_t, size_t, uintptr_t))(imageLow + kAllocRva))(size, align, heap);
+}
+static int runSpawnBox(const float* in, uint64_t* entityOut, uint64_t* componentOut, uint64_t* bodies, uint32_t* exception) {
+    __try {
+        uintptr_t holder = *(uintptr_t*)(imageLow + kWorldHolderRva);
+        if (!readable(holder + 0x98, 8)) return -1;
+        uintptr_t world = *(uintptr_t*)(holder + 0x98);
+        if (!world) return -1;
+        alignas(16) float extents[4] = {in[0], in[1], in[2], 0.0f};
+        uintptr_t box = gameAlloc(128, 16);
+        if (!box) return -1;
+        ((uintptr_t(__fastcall*)(uintptr_t))(imageLow + kBoxCtorRva))(box);
+        if (*(uintptr_t*)box != imageLow + kBoxVtableRva) return -7;
+        ((uintptr_t(__fastcall*)(uintptr_t, float*))(imageLow + kBoxSetExtentsRva))(box, extents);
+        uintptr_t handle = ((uintptr_t(__fastcall*)(uintptr_t, uintptr_t, uintptr_t))(imageLow + kMakeHandleRva))(
+            imageLow + kHandleTableRva, 0, box);
+        uintptr_t component = gameAlloc(304, 16);
+        if (!component) return -1;
+        ((uintptr_t(__fastcall*)(uintptr_t))(imageLow + kInertCtorRva))(component);
+        if (*(uintptr_t*)component != imageLow + kInertVtableRva) return -7;
+        ((double(__fastcall*)(uintptr_t, uintptr_t*))(imageLow + kSetShapeRva))(component + 0x50, &handle);
+        uintptr_t entity = gameAlloc(368, 16);
+        if (!entity) return -1;
+        ((uintptr_t(__fastcall*)(uintptr_t))(imageLow + kEntityCtorRva))(entity);
+        ((void(__fastcall*)(uintptr_t))(imageLow + kEntityInitRva))(entity);
+        float c = cosf(in[6]), s = sinf(in[6]);
+        alignas(16) float matrix[16] = {c, s, 0, 0, -s, c, 0, 0, 0, 0, 1, 0, in[3], in[4], in[5], 1};
+        memcpy((void*)(entity + kEntityMatrix), matrix, 64);
+        ((double(__fastcall*)(uintptr_t, uintptr_t))(imageLow + kAttachRva))(entity, component);
+        ((uintptr_t(__fastcall*)(uintptr_t, uintptr_t))(imageLow + kWorldAddRva))(world, entity);
+        (*(void(__fastcall**)(uintptr_t, uintptr_t))(*(uintptr_t*)entity + 248))(entity, 0);
+        ((char(__fastcall*)(uintptr_t, float*))(imageLow + kSetMatrixRva))(entity, matrix);
+        uintptr_t own = *(uintptr_t*)(entity + 304);  // the entity's own handle; keep it alive
+        if (readable(own + 12, 4)) InterlockedIncrement((volatile LONG*)(own + 12));
+        *entityOut = entity;
+        *componentOut = component;
+        bodies[0] = *(uint64_t*)(component + 0x50 + 0x98);
+        bodies[1] = *(uint64_t*)(component + 0x50 + 0xA0);
+        return 1;
+    } __except (*exception = GetExceptionCode(), EXCEPTION_EXECUTE_HANDLER) {
+        return -3;
+    }
+}
+
 // modes 6/7 (outfit, ACU-RE-0048/0070; lead: the ACUFixes plugin "Gear Visual Customization 365"
 // 1.2.5, read statically, no code reused): the matrix bytes carry up to 8 u64 item file IDs, human =
 // their count. Each AvatarGear is found as 0x140D2FFD0 does: AGM = [[ [0x1451B4C58]+0x1970 ]], three
@@ -313,6 +380,20 @@ static void serviceTeleport() {
         int guard = worldGuard();
         int status = guard ? guard : runOutfit(t->mode, ids, (uint32_t)t->human, &found, &exception);
         t->entity = found;
+        t->exception = exception;
+        t->status = status;
+        InterlockedIncrement(&teleports);
+        MemoryBarrier();
+        t->done = t->request;
+        return;
+    }
+    if (t->mode == 8) {
+        uint64_t entity = 0, component = 0, bodies[2] = {};
+        int guard = worldGuard();
+        int status = guard ? guard : runSpawnBox(matrix, &entity, &component, bodies, &exception);
+        t->entity = entity;
+        t->human = component;
+        memcpy((void*)&t->matrix[8], bodies, sizeof bodies);
         t->exception = exception;
         t->status = status;
         InterlockedIncrement(&teleports);

@@ -293,6 +293,18 @@ python tools/native_probe/focus.py activate <pid>   # posts activation messages 
   current World's player (stale pointer after a world change or reload). World-load requests
   (modes 3/4) answer `-5` while a travel runs. `teleport.ready()` / `wait_ready()` check the same
   from Python and raise `teleport.NotReady` without sending anything.
+- Collision box (shim mode 8, the default `acu_focus.dll` since 2026-11-16, SHA-256
+  `c33fcf4f…4b07`; the previous default is kept as `acu_focus_pre-floor-20261116.dll`, copy it back
+  to restore; ACU-RE-0103): `teleport.py <pid> spawn-box X Y Z [--half HX HY HZ] [--yaw DEG]`
+  adds a static, invisible InertComponent box to the current World. Arno stands on it.
+  - Default half extents: 100 × 100 × 0.5 m. Each axis is at least 0.01.
+  - The box is never removed; it is expected to go when the World unloads.
+  - It answers `-5` while a travel runs and `-7` if a constructed object fails its vtable check.
+  - A flat-ground baseline:
+    1. `godmode on`;
+    2. `spawn-box X Y 60`;
+    3. `to X Y 61.5`. Arno settles on the top face at z 60.5.
+  - `capture_run.py --focus-dll PATH` injects another shim build.
 - `teleport.py <pid> keep-safe`: re-arms Invisible + God Mode whenever a new player entity appears
   (each world arrival, death or reload makes a new one; ACU-RE-0049 obs. 15).
 - Keyboard (shim build t7+): `focus.InProcessKeys(pid)` writes `Localcu-keys-<pid>`

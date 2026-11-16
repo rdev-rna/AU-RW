@@ -5,6 +5,8 @@ r"""Teleport Arno: write the player entity's matrix, then reset the Human's beha
     python tools/native_probe/teleport.py <pid> invisible on|off     # enemies ignore Arno
     python tools/native_probe/teleport.py <pid> godmode on|off
     python tools/native_probe/teleport.py <pid> keep-safe [--seconds N]  # re-arm both after every arrival
+    python tools/native_probe/teleport.py <pid> spawn-box X Y Z [--half 100 100 0.5] [--yaw DEG]
+                                          # static collision box, centre X Y Z (shim mode 8, ACU-RE-0103)
 
 Route (binary SHA-256 748abdc6...7e40, image base 0x140000000):
   - The debug menu's "Teleport Character" (0x140EF73D0 -> 0x140EE11B0) asks the Human for
@@ -51,11 +53,12 @@ LAYOUT = struct.Struct("<IIIiQQ16fII")  # magic request done status human entity
 MAGIC = 0x54554341  # "ACUT"
 HUMAN_OFFSET, HUMAN_VTABLE = 0xC58, 0x142FB2010  # in the AtomAnimComponent; ACU-RE-0046
 BEHAVIOUR_VTABLE, INVISIBLE_BYTE = 0x142F08230, 208  # debug "Invisible :" flag (ACU-RE-0046)
-MODE_INVISIBLE, MODE_GOD = 1, 2
+MODE_INVISIBLE, MODE_GOD, MODE_SPAWN_BOX = 1, 2, 8
 FALL_M = 1.5  # metres below the target after settling = fell through unstreamed ground
 STATUS = {1: "done", -1: "not the Human (vtable check)", -2: "not an entity", -3: "exception",
           -4: "unknown mode", -5: "world travel in progress (shim t8+)",
-          -6: "not the current World's player (stale pointer; shim t8+)"}
+          -6: "not the current World's player (stale pointer; shim t8+)",
+          -7: "spawn-box: vtable check failed after construction (nothing added)"}
 
 
 class NotReady(RuntimeError):
@@ -197,6 +200,38 @@ class SafetyKeeper:
         return {"entity": f"0x{entity:X}", "armed": ok, **result}
 
 
+def spawn_box(pid: int, centre: list[float], half: list[float], yaw_deg: float = 0.0) -> dict:
+    """Shim mode 8: a static InertComponent entity with a BoxShape, added to the current World.
+
+    The entity is never removed (it lives until the World unloads). centre is world metres (Z up);
+    half = half extents along the box's x, y, z (each at least 0.01, the BoxShape setter's floor).
+    """
+    mem, shared = live_state.Memory(pid), Shared(pid)
+    try:
+        ready(mem)
+        _, request, done, *_ = shared.read()
+        request = done + 1
+        matrix = [*half, *centre, math.radians(yaw_deg)] + [0.0] * 9
+        C.memmove(shared.view, LAYOUT.pack(MAGIC, done, done, 0, 0, 0, *matrix, 0, MODE_SPAWN_BOX), LAYOUT.size)
+        C.memmove(shared.view + 4, struct.pack("<I", request), 4)
+        end = time.monotonic() + 5
+        while time.monotonic() < end:
+            row = shared.read()
+            if row[2] == request:
+                raw = C.string_at(shared.view + 32 + 8 * 4, 16)  # matrix[8..11]
+                bodies = struct.unpack("<2Q", raw)
+                status = row[3]
+                return {"status": status, "meaning": STATUS.get(status, "spawned" if status == 1 else "?"),
+                        "entity": f"0x{row[5]:X}", "component": f"0x{row[4]:X}",
+                        "rigid_body_98_a0": [f"0x{b:X}" for b in bodies], "centre": centre, "half": half,
+                        "yaw_deg": yaw_deg, "exception": f"0x{row[22]:08X}" if row[22] else None}
+            time.sleep(0.02)
+        return {"status": None, "meaning": "not serviced (window thread busy or shim without mode 8)"}
+    finally:
+        shared.close()
+        mem.close()
+
+
 def target_matrix(rows: list[list[float]], position: list[float], yaw_deg: float | None) -> list[float]:
     if yaw_deg is None:
         r0, r1, r2 = rows[0], rows[1], rows[2]
@@ -259,7 +294,16 @@ def main() -> None:
     t.add_argument("z", type=float)
     t.add_argument("--yaw", type=float)
     t.add_argument("--settle", type=float, default=1.0)
+    b = sub.add_parser("spawn-box")
+    b.add_argument("x", type=float)
+    b.add_argument("y", type=float)
+    b.add_argument("z", type=float)
+    b.add_argument("--half", type=float, nargs=3, default=[100.0, 100.0, 0.5])
+    b.add_argument("--yaw", type=float, default=0.0)
     a = ap.parse_args()
+    if a.mode == "spawn-box":
+        print(json.dumps(spawn_box(a.pid, [a.x, a.y, a.z], a.half, a.yaw)))
+        return
     if a.mode in ("invisible", "godmode"):
         print(json.dumps(set_flag(a.pid, MODE_INVISIBLE if a.mode == "invisible" else MODE_GOD, a.state == "on")))
         return
