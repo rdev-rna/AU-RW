@@ -134,8 +134,11 @@ pub fn solver(blob: &Blob, external: Option<&SoftBodySettings>) -> Result<Cloth,
     Ok(cloth)
 }
 
-/// Opcode 7 inputs from the blob: `Some` when the settings select rigid colliders on the
-/// swept path (S+7, S+192); an error for the non-swept path, which is not ported.
+/// Opcode 7 inputs from the blob: `Some` when the settings select rigid colliders (S+7).
+///
+/// The path (S+192): the blob's swept flag, except under external settings, where the flap
+/// runs the discrete path (observed live: S+192 = 0 on the body, swept path `0x1423d58a0`
+/// never called; the external field that carries it is not identified).
 pub fn collision_params(
     blob: &Blob,
     external: Option<&SoftBodySettings>,
@@ -143,9 +146,6 @@ pub fn collision_params(
     let n = blob.particle_count().map_err(err)?;
     let settings = blob.settings().map_err(err)?;
     let cs = settings.collision;
-    if cs.rigid && !cs.swept {
-        return Err("cloth: the non-swept collision path is not ported".into());
-    }
     if !cs.rigid {
         return Ok(None);
     }
@@ -157,5 +157,6 @@ pub fn collision_params(
         friction: external.map_or(cs.friction, |e| e.friction()),
         thickness_factor: if flags[30] != 0 { map(2) } else { None },
         friction_table: if flags[31] != 0 { map(3) } else { None },
+        swept: cs.swept && external.is_none(),
     }))
 }

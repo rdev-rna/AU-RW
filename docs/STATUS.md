@@ -48,7 +48,15 @@ Tailored flap's motion comes from the `Cloth` soft-body resource, not from bones
   With both, one replayed step is within 0.035 mm (mean) of the game standing, jogging and
   turning, against 17–23 mm of motion per step. A 450-step free-run drifts 0.1–2 mm (mean)
   and settles back onto the game's rest pose. The carry is translation only, even while
-  turning. A few-millimetre contact residual on capsule surfaces is still open.
+  turning.
+- Discrete collision (2026-11-16, third live run PID 11008): the flap never runs the swept
+  path. Under the external settings S+192 = 0 selects the discrete capsule push `0x14241b800`,
+  with friction on the motion relative to the collider. The port is bit-exact against the
+  game on 123,728 live collisions.
+  - Replay: one step is within 0.026 mm (mean) and 0.21 mm (worst particle).
+  - Free-run: 450 steps drift 0.03–0.14 mm (mean).
+  - The reversed normal at the fold is gone.
+  - Open: 4 of 76 live steps with falling cloth integrate about 17 mm off Verlet.
 
 Lighting (2026-11-15, [ACU-RE-0073](findings/ACU-RE-0073-baked-gi-and-world-ambiance.md)): the
 arena now uses the native `WorldAmbiance` settings. All 15 sets in the install are ported:

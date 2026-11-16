@@ -286,6 +286,19 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             // Diagnostic: the 8 worst free particles at step K, with the game's exit distance to
             // the nearest capsule surface (negative = inside) and our result's.
             if args[i + 1].parse::<usize>().ok() == Some(k) {
+                let surf_one = |sh: &acu_sim::cloth::collision::Shape, p: glam::Vec3| {
+                    let l = sh.current.local(p);
+                    match sh.kind {
+                        acu_sim::cloth::collision::ShapeKind::Capsule {
+                            radius,
+                            half_length,
+                        } => {
+                            let y = l.y.clamp(-half_length, half_length);
+                            (l - glam::Vec3::new(0.0, y, 0.0)).length() - radius
+                        }
+                        _ => f32::INFINITY,
+                    }
+                };
                 let surf = |p: Vec4| {
                     s.shapes
                         .iter()
@@ -325,6 +338,21 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
                         r,
                         (cl.state.pos[i] - s.out_pos[i]).truncate() * 1000.0
                     );
+                    // Per shape: surface distance of game exit, and the collider's motion at the
+                    // game exit point (current - previous frame, mm).
+                    for (j, sh) in s.shapes.iter().enumerate() {
+                        let g = s.out_pos[i].truncate();
+                        let d1 = surf_one(sh, g);
+                        if d1 < 0.06 {
+                            let mv = g - sh.current.world(sh.previous.local(g));
+                            eprintln!(
+                                "    shape {j} game_surf {d1:+.4} ours_surf {:+.4} in_surf {:+.4} motion {:?}",
+                                surf_one(sh, cl.state.pos[i].truncate()),
+                                surf_one(sh, s.pos[i].truncate()),
+                                mv * 1000.0
+                            );
+                        }
+                    }
                 }
             }
         }

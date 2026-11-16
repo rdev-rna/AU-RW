@@ -1,4 +1,12 @@
-//! Opcode 7, swept (continuous) path: native `0x1423d58a0` (ACU-RE-0081).
+//! Opcode 7 (ACU-RE-0081). The router `0x1423d5510` takes the swept path when the
+//! settings byte S+192 is set, else the discrete path.
+//!
+//! **Discrete path** (`0x1423d68d0`, capsules `0x1423d6360` → `0x14241d4b0` →
+//! `0x142419cc0` / `0x14241b800`): one push per particle against the shape in its
+//! current frame, in world space, with friction on the particle's motion relative to the
+//! collider (see [`collide_discrete`]). This is the path the flap runs live.
+//!
+//! **Swept (continuous) path**: native `0x1423d58a0`.
 //!
 //! Each shape record carries its current and previous frames. For every
 //! candidate particle the path runs in shape-local space, from `prev` in the
@@ -28,6 +36,8 @@ const EPS23: f32 = f32::from_bits(0x3400_0000);
 const EPS_POINT: f32 = f32::from_bits(0x322b_cc77);
 /// 1e-4 (`0x14361ea50`): boxes snap this far inside the surface.
 const BOX_INSET: f32 = f32::from_bits(0x38d1_b717);
+/// 2.5e-6 (`0x1435f5400`): degenerate-distance scale of the discrete capsule push.
+const EPS_CAPSULE: f32 = f32::from_bits(0x3627_c5ac);
 /// Box spacing factor 0.8 (`0x142e77f54`).
 const BOX_SPACING: f32 = f32::from_bits(0x3f4c_cccd);
 
@@ -101,6 +111,8 @@ pub struct Params {
     pub thickness_factor: Option<Vec<f32>>,
     /// Per-particle friction replacing `friction` (body +127, body +384+112).
     pub friction_table: Option<Vec<f32>>,
+    /// S+192 (body +324): the swept path; otherwise the discrete path.
+    pub swept: bool,
 }
 
 /// Motion between the previous and current frames (`0x1424382b0`).
@@ -381,6 +393,111 @@ pub fn collide_swept(state: &mut State, shapes: &[Shape], params: &Params) {
     }
 }
 
+/// Run opcode 7 by the settings' path. Returns the number of shapes the discrete path
+/// skipped because their kind is not ported (spheres and boxes).
+pub fn collide(state: &mut State, shapes: &[Shape], params: &Params) -> usize {
+    if params.swept {
+        collide_swept(state, shapes, params);
+        0
+    } else {
+        collide_discrete(state, shapes, params)
+    }
+}
+
+/// Unit vector perpendicular to the capsule axis `a` (the degenerate-distance
+/// normal of `0x14241b800`).
+fn perpendicular(a: Vec3) -> Vec3 {
+    let (x, y, z) = (a.x.abs(), a.y.abs(), a.z.abs());
+    let v = if x.min(y) - z < 0.0 {
+        if y - x < 0.0 {
+            Vec3::new(a.z, 0.0, -a.x)
+        } else {
+            Vec3::new(0.0, a.z, -a.y)
+        }
+    } else {
+        Vec3::new(a.y, -a.x, 0.0)
+    };
+    v * (1.0 / dot(v, v).sqrt())
+}
+
+/// Discrete path for capsules, in record order (`0x1423d68d0`, `0x1423d6360`; kernels
+/// `0x142419cc0` without and `0x14241b800` with the thickness table). For each free particle
+/// `P` (previous `Q`), with the capsule's current frame (centre `C`, axis = row Y):
+/// - `X = C + A·clamp(A·(P − C), ±h)`, `d = P − X`, `L = |d|`;
+/// - `n = d / max(L, ε)` with `ε = 2.5e-6·(r + h)`, or a fixed perpendicular when `L < ε`;
+/// - `pen = r_i − L` (`r_i = r + factor_i·thickness`, or `r + thickness` without the table);
+///   no contact when `pen < 0`;
+/// - contact: `out = X + n·r_i`. With `m` = the collider's motion at `Q` (previous frame to
+///   current), the motion relative to the collider `rel = out − m − Q` is shortened by
+///   `min(|rel|, μ·pen)`; the result `b + m` is then pushed back along `n` if it fell
+///   inside the push plane.
+///
+/// Every particle is tested (the native BVH candidates add only no-contact particles, which
+/// are left untouched). Returns the number of non-capsule shapes skipped (not ported).
+pub fn collide_discrete(state: &mut State, shapes: &[Shape], params: &Params) -> usize {
+    let mut skipped = 0;
+    for shape in shapes {
+        let ShapeKind::Capsule {
+            radius: r,
+            half_length: h,
+        } = shape.kind
+        else {
+            skipped += 1;
+            continue;
+        };
+        let (cur, prv) = (shape.current, shape.previous);
+        let axis = cur.y;
+        let base_r = if params.thickness_factor.is_some() {
+            r
+        } else {
+            r + params.thickness
+        };
+        let eps = EPS_CAPSULE * (base_r + h);
+        let fallback = perpendicular(axis);
+        for i in 0..state.pos.len() {
+            let p4 = state.pos[i];
+            if p4.w < 0.0 {
+                continue;
+            }
+            let p = p4.truncate();
+            let ri = match &params.thickness_factor {
+                Some(f) => base_r + f[i] * params.thickness,
+                None => base_r,
+            };
+            let mu = params
+                .friction_table
+                .as_ref()
+                .map_or(params.friction, |f| f[i]);
+            let t = dot(axis, p - cur.t).min(h).max(-h);
+            let x = axis * t + cur.t;
+            let d = p - x;
+            let l = dot(d, d).sqrt();
+            let n = if l - eps < 0.0 {
+                fallback
+            } else {
+                d / l.max(eps)
+            };
+            let pen = ri - l;
+            if pen < 0.0 {
+                continue;
+            }
+            let mut out = n * ri + x;
+            let q = state.prev[i].truncate();
+            let m = cur.world(prv.local(q)) - q;
+            let a = out - m;
+            let rel = a - q;
+            let len = dot(rel, rel).sqrt();
+            let c = len.min(mu * pen);
+            let b = if 0.0 < len { a - rel * (c / len) } else { q };
+            let b = b + m;
+            let s = dot(b - out, n);
+            out = if s < 0.0 { b - n * s } else { b };
+            state.pos[i] = out.extend(p4.w);
+        }
+    }
+    skipped
+}
+
 /// Convenience for callers holding particle arrays as `Vec4`.
 pub fn frame_from_rows(rows: [Vec4; 4]) -> Frame {
     Frame {
@@ -533,5 +650,111 @@ mod tests {
         );
         assert!((half.t - Vec3::new(1.0, 0.0, 0.0)).length() < 1e-6);
         assert_eq!(ip.pose(32), m1);
+    }
+
+    fn capsule(t: Vec3) -> Shape {
+        still(
+            ShapeKind::Capsule {
+                radius: 0.1,
+                half_length: 0.2,
+            },
+            t,
+        )
+    }
+
+    #[test]
+    fn discrete_capsule_pushes_to_the_inflated_surface() {
+        // Particle 0.05 from the axis (inside r + thickness = 0.15), resting.
+        let mut s = state(Vec3::new(0.05, 0.1, 0.0), Vec3::new(0.05, 0.1, 0.0));
+        let p = Params {
+            thickness: 0.05,
+            friction: 0.2,
+            ..Params::default()
+        };
+        assert_eq!(collide_discrete(&mut s, &[capsule(Vec3::ZERO)], &p), 0);
+        let q = s.pos[0].truncate();
+        assert!((q - Vec3::new(0.15, 0.1, 0.0)).length() < 1e-6, "{q}");
+        // Outside: untouched, bit for bit.
+        let mut s = state(Vec3::new(0.3, 0.0, 0.0), Vec3::new(0.3, 0.0, 0.0));
+        collide_discrete(&mut s, &[capsule(Vec3::ZERO)], &p);
+        assert_eq!(s.pos[0], Vec4::new(0.3, 0.0, 0.0, 0.0));
+    }
+
+    #[test]
+    fn discrete_capsule_uses_the_thickness_table_and_skips_pinned() {
+        let mut s = State {
+            pos: vec![
+                Vec4::new(0.05, 0.0, 0.0, 0.0),
+                Vec4::new(0.05, 0.0, 0.0, -1.0),
+            ],
+            prev: vec![
+                Vec4::new(0.05, 0.0, 0.0, 0.0),
+                Vec4::new(0.05, 0.0, 0.0, -1.0),
+            ],
+            target: vec![Vec4::ZERO; 2],
+        };
+        let p = Params {
+            thickness: 0.05,
+            thickness_factor: Some(vec![0.5, 0.5]),
+            ..Params::default()
+        };
+        collide_discrete(&mut s, &[capsule(Vec3::ZERO)], &p);
+        assert!((s.pos[0].x - 0.125).abs() < 1e-6, "{}", s.pos[0]);
+        assert_eq!(s.pos[1], Vec4::new(0.05, 0.0, 0.0, -1.0));
+    }
+
+    #[test]
+    fn discrete_friction_acts_on_motion_relative_to_the_collider() {
+        // The capsule moves +z by 0.04 into a particle resting at x = 0.12, z = 0.02 (prev
+        // equal). Frictionless: pushed radially. With friction, the tangential slide relative
+        // to the collider is shortened: the particle is carried further along +z.
+        let shape = Shape {
+            previous: Frame {
+                t: Vec3::new(0.0, 0.0, -0.04),
+                ..Frame::IDENTITY
+            },
+            ..capsule(Vec3::ZERO)
+        };
+        let run = |mu: f32| {
+            let mut s = state(Vec3::new(0.12, 0.0, 0.02), Vec3::new(0.12, 0.0, 0.02));
+            let p = Params {
+                thickness: 0.05,
+                friction: mu,
+                ..Params::default()
+            };
+            collide_discrete(&mut s, &[shape], &p);
+            s.pos[0].truncate()
+        };
+        let free = run(0.0);
+        assert!((free.length() - 0.15).abs() < 1e-6, "{free}");
+        let sticky = run(0.2);
+        assert!(sticky.z > free.z, "{sticky} vs {free}");
+        // Never left inside the push plane.
+        assert!(sticky.length() >= 0.15 - 1e-6, "{sticky}");
+    }
+
+    #[test]
+    fn discrete_on_axis_particle_uses_the_perpendicular() {
+        let mut s = state(Vec3::ZERO, Vec3::ZERO);
+        let p = Params {
+            thickness: 0.05,
+            ..Params::default()
+        };
+        collide_discrete(&mut s, &[capsule(Vec3::ZERO)], &p);
+        // Axis = +Y: min(|x|,|y|) - |z| = 0 is not < 0, so (ay, -ax, 0) = (1, 0, 0).
+        assert!((s.pos[0].truncate() - Vec3::new(0.15, 0.0, 0.0)).length() < 1e-6);
+    }
+
+    #[test]
+    fn collide_routes_by_the_swept_flag() {
+        let mut s = state(Vec3::new(0.3, 0.0, 0.0), Vec3::new(0.3, 0.0, 0.0));
+        let boxed = still(ShapeKind::Box(Vec3::splat(0.1)), Vec3::ZERO);
+        // The discrete path reports the unported box; the swept path handles it.
+        assert_eq!(collide(&mut s, &[boxed], &Params::default()), 1);
+        let p = Params {
+            swept: true,
+            ..Params::default()
+        };
+        assert_eq!(collide(&mut s, &[boxed], &p), 0);
     }
 }

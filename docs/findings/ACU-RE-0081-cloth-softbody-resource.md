@@ -9,11 +9,13 @@ State: **partially established.**
 - Observed live: the cloth solver's functions and their per-frame order (section "Where the
   solver is"). They are in the corpus.
 - Ported: the solver program and every kernel the flap schedule uses, particle skinning, the
-  render-vertex mapping, and swept collision against the flap's leg capsules. The viewer drives
+  render-vertex mapping, and collision against the flap's leg capsules: the discrete path the
+  game runs (bit-exact on live inputs) and the swept path. The viewer drives
   the Tailored flap with them (sections "Viewer" and "Collision").
-- Compared live (2026-11-16, sections "Live comparison" and "Toward parity"): one replayed
-  step lands within 0.035 mm (mean) of the game's, idle, walking, jogging and turning; a 450-step
-  free-run drifts 0.1–2 mm (mean) and returns to the game's rest state. The live settings come from the
+- Compared live (2026-11-16, sections "Live comparison", "Toward parity" and "The discrete
+  collision path"): one replayed step lands within 0.026 mm (mean) and 0.21 mm (worst particle)
+  of the game's, idle, walking, jogging and turning. A 450-step free-run drifts 0.03–0.14 mm
+  (mean) and returns to the game's rest state. The live settings come from the
   external `SoftBodySettings` resource, now decoded and used by the viewer (section "External
   `SoftBodySettings`").
 
@@ -218,7 +220,7 @@ The step entry `0x1423d4b60(solver, body, dt, wind vec3, shapes)` calls solver v
 | 13 | slot 3 → `0x1423da5b0` (tether, set 5) | `solve_tether` |
 | 5 | slot 3 → `0x1423d8990` (blend to targets, set 6) | `blend_to_targets` |
 | 6 | slot 4 → `0x1423d7720` (Verlet integrate; `0x14241dfb0` when body+124) | `integrate` |
-| 7 | `0x1423d4700` → `0x1423d8e50` → `0x1423d5510` → `0x1423d68d0` / swept `0x1423d58a0` | **not ported** (counted, skipped) |
+| 7 | `0x1423d4700` → `0x1423d8e50` → `0x1423d5510` → `0x1423d68d0` / swept `0x1423d58a0` | `collide` (discrete live; section "The discrete collision path") |
 | 8 | slot 6 → `0x1423e4cf0` (normals) | `compute_normals` |
 | 9 | slot 8 → `0x1423d72b0` (drag/wind) | `apply_drag` |
 | 10 n / 11 | repeat block; n LOD-reduced by `0x14240c090` | interpreter (full-LOD count) |
@@ -339,7 +341,9 @@ at 43, friction S+196 at 44, S+8 at 48, S+9 at 49 and the priority S+195 at 50. 
 - friction 0, thickness S+48 = 0, priority 128.
 
 `0x1423d4700` therefore builds mask 0x15, and `0x1423d5510` routes it to the swept path
-`0x1423d58a0`, not `0x1423d68d0`. Record `11.b1` sets body+126 = 1 (per-particle thickness
+`0x1423d58a0`, not `0x1423d68d0`. **Live correction (2026-11-16):** under the external settings
+the body has S+192 = 0, so the flap runs the discrete path `0x1423d68d0` (section "The discrete
+collision path"). Record `11.b1` sets body+126 = 1 (per-particle thickness
 table, map slot 2) and body+127 = 0 (no per-particle friction table).
 
 **The flap's colliders (observed).** The cloth payload ends with `SoftBodyState.Ragdoll`, a tag-1
@@ -612,19 +616,106 @@ cloth and decays back to 0.08 mm once Arno stops: the coat reaches the game's re
 Particle normals agree (mean 0.0003); one normal at a fold (step 248, particle 27) has the
 opposite sign.
 
-**Remaining residual.** The worst per-step particles sit on a capsule's surface in both
-results, a few millimetres apart along it. The native capsule kernel `0x14240fb60` matches our
-arithmetic (push, friction `min(L, μ·pen)` against the previous sample, radius
-`factor·thickness + r`, spacing r/2, query box), and thickness and friction are at a sharp
-error minimum. Open candidates: the axis-angle conversion (`glam`'s `Quat::from_mat3` against
-`0x1424382b0`), and the candidate set of the particle BVH.
+**Remaining residual (resolved 2026-11-16): the flap runs the discrete path.** See the next
+section.
+
+### The discrete collision path (observed live 2026-11-16, ported)
+
+**Which path runs (observed live).** Run: PID 11008, `capture_run.py --save-pin capture-start-1
+--fps-cap 60 --until world`, exe SHA-256 `748abdc6…7e40`, image base `0x140000000`, `acu_tap13`
+attached; closed with `capture_run.py --close` (graceful, 2.7 s), saves put back. Hardware hooks
+counted 0.3 s of entries per routine:
+
+| Routine | Entries |
+|---|---|
+| `0x1423d5510` (op 7 router) | 306 |
+| `0x1423d68d0` (discrete path) | 306 |
+| `0x1423d58a0` (swept path), `0x142410270`, `0x14240fb60` | **0** |
+| `0x1423d6360` (discrete capsule) | 2324 |
+| `0x14241d4b0` (kernel dispatch) | 2076 |
+| `0x14241b800` (thickness table, scalar friction) | 887 |
+| `0x142419cc0` (no tables, scalar friction) | 750 |
+| `0x14241c5e0`, `0x14241a9d0`, `0x142410190` | 0 |
+
+The router takes the swept path only when bit 0x10 is set, from `0x14240c1c0` = S[192] (and an
+LOD test when S[128]). The live flap body has **S[192] = 0** (the blob has 1), as do the bodies
+of run 3. Like blend and drag, the external settings turn it off; the carrying field is not
+identified. So the earlier swept-kernel reading (section "Collision") is correct but is not the
+code the flap runs.
+
+**Discrete capsule (observed, `0x1423d6360` → `0x14241d4b0` → `0x14241b800`; corpus
+`ACU - Decompiled/14241B800.c`, `1423D6360.c`, `14241D4B0.c`, `1423D68D0.c`).**
+- `0x1423d68d0` copies each record's current frame (+16) to obj+320 and the previous frame (+80)
+  to obj+256, then dispatches by type (capsule `0x1423d6360` when flag bit 0).
+- The BVH query box is the capsule in its **current frame only**, inflated by the thickness.
+- Radius: `r` with the thickness table (body+126), else `r + thickness`. With friction
+  (μ ≠ 0 or the friction table, obj+405) `0x14241d4b0` picks the kernel by the tables:
+  thickness and friction `0x14241c5e0`, thickness `0x14241b800`, friction `0x14241a9d0`,
+  neither `0x142419cc0`. Without friction: `0x142410190`.
+- Kernel, per particle `P` (previous `Q`), in world space, four particles per iteration
+  (independent):
+  1. `X = C + A·clamp(A·(P − C), −h, h)` with the current frame's translation `C` and row Y
+     `A`; `d = P − X`, `L = |d|`.
+  2. `n = d / max(L, ε)`, `ε = 2.5e-6·(r + h)` (`0x1435f5400`); when `L < ε`, a fixed unit
+     perpendicular of `A`.
+  3. `pen = r_i − L` with `r_i = r + factor_i·thickness`. No contact when `pen < 0`: `P` is
+     unchanged.
+  4. Contact: `out = X + n·r_i`. The collider's motion at `Q` is
+     `m = current.world(previous.local(Q)) − Q`. The motion relative to the collider,
+     `rel = (out − m) − Q`, is shortened by `c = min(|rel|, μ·pen)`:
+     `b = (out − m) − rel·c/|rel|`, or `Q` when `|rel| = 0`.
+  5. `b += m`; `s = (b − out)·n`; the result is `b − s·n` when `s < 0`, else `b`.
+  6. Pinned particles (w < 0) are written back unchanged.
+- Every candidate is processed. A non-contact particle is left bit-for-bit unchanged, so the
+  BVH candidate set does not matter.
+
+**Port.** `acu_sim::cloth::collision::collide_discrete` implements the steps above for
+capsules. `collide` routes by `Params.swept` (S+192): the blob's flag, false under external
+settings (observed). The viewer and `cloth_gate` take it through `asset::collision_params`.
+Spheres and boxes on the discrete path are not ported. They are skipped and counted
+(`Cloth.skipped_collision`); the flap has none.
+
+**Kernel check (live).** `tools/native_tap/cloth_collide_capture.py` hooks the step entry
+(filtered on the body) and `0x1423d68d0` (entry and exit, filtered on one per-thread
+collision object, `0x4344680`). It snapshots positions, previous and records at each call.
+- Capture: `collide-turn-11008-1794796597979657700.bin`, SHA-256 `ca68560d…daa0`, 581 steps.
+- 76 steps carry all four calls on the filtered object. All pass the pairing check (the first
+  call's previous equals the step entry: integrate's write).
+- `acu_tap_bridge` `cloth_collide_gate` runs our `collide` on the game's own input of each call:
+  **0.0 mm error on all 123,728 free-particle collisions (bit-exact)**.
+- The op-by-op pipeline from each step entry agrees at each collision exit within 0.017–0.03 mm
+  mean (0.05–0.17 mm max) in 72 of the 76 steps.
+- 4 steps (t ≈ 4.3–4.7 s, end of the left curve) differ by 3.7–8.5 mm mean from the first
+  call on. The cloth is falling 9–16 mm per step there, and the game's first-call input sits
+  about 17 mm above Verlet. So integration, not collision, is off in these steps (open).
+
+**Results with the discrete path** (`cloth_gate`, same captures as above):
+
+| Capture | Per step, mean / max | Normals, max | 450-step free-run, mean / max |
+|---|---|---|---|
+| idle (131236) | 0.027 / 0.13 mm | 0.003 | 0.033 / 0.22 mm |
+| walk and jog (131236) | 0.026 / 0.21 mm | 0.023 | 0.087 / 17 mm |
+| jog with turns (129560) | 0.025 / 0.18 mm | 0.010 | 0.14 / 15 mm |
+
+The few-millimetre contact residual is gone (it came from sweeping instead of the discrete
+push), and so is the reversed normal at the fold. The free-run drift is a tenth of what it was.
+
+Viewer (`acu_bevy --scenario idle|walk|run --ticks 160`, report `"path": "discrete 0x1423d68d0"`;
+`local/cloth/{idle,walk,run}-discrete-160.png`, ignored): the coat hangs at idle as before. In the
+run, the flap drapes over the raised knee instead of sliding around it. No visual comparison
+with the game's frames has been made.
+
 
 ## Unknowns
 
 - `SoftBodySettings`: the meaning of the 37 fields not matched live, the order of fields 0–2,
   and which of fields 24/33/36 is friction (all 0.2 in the flap's settings).
-- Where S+60 scales the tether lengths; which external fields carry the blend and drag
-  enables (S+6, S+64); the few-millimetre contact residual (section "Toward parity").
+- Where S+60 scales the tether lengths; which external fields carry the blend, drag and
+  swept-collision enables (S+6, S+64, S+192).
+- Four steps of the live kernel capture where the falling cloth integrates about 17 mm off
+  Verlet (section "The discrete collision path"): likely vertical character motion, which the
+  flat captures never exercise.
+- The discrete sphere and box kernels (`0x1423d66d0`, `0x1423d5630`); the flap has none.
 - The four unnamed leg bone hashes.
 - Whether the per-step error budget meets visual parity (no side-by-side frame comparison).
 - Why the engine steps with dt = 1/30 every frame at 60 fps (engine `0x141d96fb0`, mode c+92,
@@ -650,4 +741,7 @@ cargo test --locked -p acu_tap_bridge cloth
 python tools/native_tap/cloth_census.py <pid> 0.5
 python tools/native_tap/cloth_capture.py <pid> <body hex> idle 1.0
 cargo run --release -p acu_tap_bridge --bin cloth_gate -- local/native-probe/cloth-live/cloth-idle-<pid>.bin
+# collision op per call (discrete path; --swept for 0x1423d58a0), while moving:
+python tools/native_tap/cloth_collide_capture.py <pid> <body hex> turn 7.0
+cargo run --release -p acu_tap_bridge --bin cloth_collide_gate -- local/native-probe/cloth-live/collide-turn-<pid>-<ns>.bin
 ```

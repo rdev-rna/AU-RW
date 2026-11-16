@@ -454,7 +454,8 @@ impl Cloth {
             ),
             7 => match &self.collision {
                 Some(p) if !self.shapes.is_empty() => {
-                    collision::collide_swept(&mut self.state, &self.shapes, p)
+                    self.skipped_collision +=
+                        collision::collide(&mut self.state, &self.shapes, p) as u64
                 }
                 _ => self.skipped_collision += 1,
             },

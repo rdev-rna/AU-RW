@@ -11,7 +11,7 @@ use glam::{Vec3, Vec4};
 
 pub const RECORD: usize = 160;
 
-fn snap(e: &TapEvent, id: u16) -> Result<&[u8], BridgeError> {
+pub fn snap(e: &TapEvent, id: u16) -> Result<&[u8], BridgeError> {
     e.snaps
         .iter()
         .find(|(s, _)| *s == id)

@@ -56,7 +56,7 @@ pub struct ClothDriver {
     translation: Option<Vec3>,
     /// Leg capsules from the cloth's `LiteRagdoll` (opcode 7 shapes).
     colliders: Vec<Collider>,
-    /// Last tick's collider frames, for the swept path's previous frame.
+    /// Last tick's collider frames: the records' previous frame (both collision paths).
     previous_shapes: Option<Vec<collision::Frame>>,
     pub steps: u64,
 }
@@ -221,62 +221,60 @@ fn build(
         previous_shapes: None,
         steps: 0,
     };
-    // Opcode 7. The flap selects the swept path (S+192) with rigid colliders
-    // (S+7): its LiteRagdoll capsules (ACU-RE-0081).
+    // Opcode 7 with rigid colliders (S+7): the LiteRagdoll capsules. The path (S+192)
+    // comes from `collision_params`: discrete under the external settings, as the game
+    // runs it live (ACU-RE-0081).
     let cs = settings.collision;
     let mut collision_report = json!({"rigid":cs.rigid,"swept":cs.swept,"friction":cs.friction,
         "mesh":cs.mesh,"cloth":cs.cloth,"thickness":settings.thickness});
-    match (&ragdoll, cs.rigid, cs.swept) {
-        (Some((name, id, shapes)), true, true) => {
-            for sh in shapes {
-                if sh.shape_type != 0 {
-                    return Err(format!(
-                        "cloth: ragdoll shape type {} is not ported",
-                        sh.shape_type
-                    )
-                    .into());
-                }
-                let joint = skin.joint(sh.bone).ok_or_else(|| {
-                    format!("cloth: ragdoll bone {:08x} is not a skin joint", sh.bone)
-                })?;
-                let l = sh.local.map(Vec4::from_array);
-                driver.colliders.push(Collider {
-                    joint,
-                    local: Mat4::from_cols(l[0], l[1], l[2], l[3]),
-                    radius: sh.radius,
-                    height: sh.height,
-                });
+    if let (Some((name, id, shapes)), true) = (&ragdoll, cs.rigid) {
+        for sh in shapes {
+            if sh.shape_type != 0 {
+                return Err(
+                    format!("cloth: ragdoll shape type {} is not ported", sh.shape_type).into(),
+                );
             }
-            driver.solver.collision = sim::asset::collision_params(blob, ext)?;
-            // Bind-pose check: capsule centres/axes in mesh space and how many
-            // rest particles start inside each (expected few: none pinned).
-            let bind_pose: Vec<serde_json::Value> = driver
-                .colliders
-                .iter()
-                .map(|c| {
-                    let w = skin.bind(c.joint) * c.local;
-                    let (a, t) = (w.x_axis.truncate(), w.w_axis.truncate());
-                    let inside = driver
-                        .rest
-                        .iter()
-                        .filter(|p| {
-                            let d = **p - t;
-                            let y = d.dot(a).clamp(-c.height, c.height);
-                            (d - a * y).length() < c.radius
-                        })
-                        .count();
-                    json!({"centre":t.to_array(),"axis":a.to_array(),"radius":c.radius,
+            let joint = skin.joint(sh.bone).ok_or_else(|| {
+                format!("cloth: ragdoll bone {:08x} is not a skin joint", sh.bone)
+            })?;
+            let l = sh.local.map(Vec4::from_array);
+            driver.colliders.push(Collider {
+                joint,
+                local: Mat4::from_cols(l[0], l[1], l[2], l[3]),
+                radius: sh.radius,
+                height: sh.height,
+            });
+        }
+        driver.solver.collision = sim::asset::collision_params(blob, ext)?;
+        collision_report["path"] = json!(match &driver.solver.collision {
+            Some(p) if p.swept => "swept 0x1423d58a0",
+            Some(_) => "discrete 0x1423d68d0",
+            None => "none",
+        });
+        // Bind-pose check: capsule centres/axes in mesh space and how many
+        // rest particles start inside each (expected few: none pinned).
+        let bind_pose: Vec<serde_json::Value> = driver
+            .colliders
+            .iter()
+            .map(|c| {
+                let w = skin.bind(c.joint) * c.local;
+                let (a, t) = (w.x_axis.truncate(), w.w_axis.truncate());
+                let inside = driver
+                    .rest
+                    .iter()
+                    .filter(|p| {
+                        let d = **p - t;
+                        let y = d.dot(a).clamp(-c.height, c.height);
+                        (d - a * y).length() < c.radius
+                    })
+                    .count();
+                json!({"centre":t.to_array(),"axis":a.to_array(),"radius":c.radius,
                         "half_length":c.height,"rest_particles_inside":inside})
-                })
-                .collect();
-            collision_report["bind_pose"] = json!(bind_pose);
-            collision_report["ragdoll"] = json!({"name":name,"file_id":id,"capsules":shapes.len(),
+            })
+            .collect();
+        collision_report["bind_pose"] = json!(bind_pose);
+        collision_report["ragdoll"] = json!({"name":name,"file_id":id,"capsules":shapes.len(),
                 "bones":shapes.iter().map(|s| format!("{:08x}", s.bone)).collect::<Vec<_>>()});
-        }
-        (_, true, false) => {
-            return Err("cloth: the non-swept collision path is not ported".into());
-        }
-        _ => {}
     }
     // Rest check: mapping the rest particles must reproduce the mesh's
     // vertices in order, and the native frames give the mesh's handedness.
