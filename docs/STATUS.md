@@ -168,7 +168,21 @@ the default assassin blue) and bakes the template's recoloured albedo. That albe
 mask zones and the YIQ hue rotation, re-derived from the template's ps_5_0 code. The user
 visually confirmed that row 1 matches the in-game default; there is no pixel comparison.
 
-Latest (2026-11-16, parkour ledge edges gated against live candidates;
+Latest (2026-11-16, the flat-wall side exit;
+[ACU-RE-0055](findings/ACU-RE-0055-parkour-candidate-geometry.md), "The flat-wall side exit"):
+- The input: in high profile, run up a flat wall with no holds. At the wall-run fail, press jump again with the
+  stick toward a raised target beside the wall.
+- The result: Arno plays `ClimbPassExitRight_Fd300/400cm` with height gain onto the target.
+- The pick: about 0.15 s after the second press, the game commits two **type 39** candidates. Type 39 is the same
+  action type the community calls the side hop.
+- The builders: only two generators make type 39, the "Climb Facade" (`0x1401351C0`) and "Facade" (`0x14014BBD0`)
+  testers.
+- Without a target, the same input plays the back eject `WallEjectRt180_tr_Ground_Fd600cm-Dn600cm`.
+
+A free eject therefore means a synthetic target in the facade generator when its scan finds none. The user played it
+on keyboard and mouse; the recording is `side-eject-6/hands-on`.
+
+Earlier the same day (parkour ledge edges gated against live candidates;
 [ACU-RE-0055](findings/ACU-RE-0055-parkour-candidate-geometry.md), Rust gate):
 `acu_sim::block::find_ledges` now emits an edge under every live Versailles candidate on a
 convex ledge: 4,274 of 4,274, with the outward side agreeing on all of them. Two rules changed:

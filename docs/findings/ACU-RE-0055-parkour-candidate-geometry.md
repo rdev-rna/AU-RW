@@ -451,6 +451,82 @@ and the corpus. No live run yet.
     `Dn10M`.
 - **Next live step:** climb 8–12 m before the eject input, and reset the camera yaw before each attempt. Then compare
   the type 69 candidates (present or absent) with the clip played.
+- **Correction (user review, 2026-11-16):** `ClimbExit180Lt_tr_Ground_Dn600cm` is a plain drop to the ground behind, not
+  a back eject. The real flat-wall eject is the side exit below.
+
+## The flat-wall side exit (run `side-eject-6/hands-on`, 2026-11-16)
+
+The user's "only remnant of the classic eject": run up a flat wall in high profile, and at the apex press jump again
+with the stick toward a raised target beside the wall. Arno leaves the wall sideways with height gain instead of
+sticking to it. Played by the user on keyboard and mouse; the driver only built the course and recorded.
+
+- **Setup.**
+  - Binary SHA-256 `748abdc6456397fe7d8080f975f2a5ed3123bce548e7bf1c68b23f47e8b27e40`, image base `0x140000000`.
+  - PID 66284, launched by `capture_run.py … --save-pin capture-start-1 --fps-cap 60 --allow-user-input`.
+  - Sky floor (shim mode 8, top z 120.5) at (640, −40). The wall was a collision box (no parkour data, so no holds),
+    8 m wide, 1 m thick and 12 m tall, with its front face centre at (645.82, −41.47). It is invisible.
+  - Target: a spawned `GEN_ALL_Beam_6m_01_017` (`0000001fb46dc0b2`, shim mode 11) centred at (645.08, −44.38, 124.0),
+    turned perpendicular to the wall. Half of it passes through the wall, so about 2 m sticks out of the **back** face.
+  - Recorders: the `parkour_commit` probe (`client.py session`), `live_state.py` at 60 Hz, and a keyboard/mouse
+    logger (`GetAsyncKeyState`, wall clock aligned to QPC). Files are under
+    `local/native-probe/runs/side-eject-6/hands-on/`.
+- **Observed: three side exits, all from the back face (x ≈ 647.3).** Each followed `xx_Parkour_WallEntry_Fail_Fd0Deg`:
+
+  | WallEntry_Fail (s) | Exit clip | Then |
+  | --- | --- | --- |
+  | 271.26 | `xx_Parkour_ClimbPassExitRight_Fd300cm-Level` | `Leaping_Fd350cm-Dn200cm`, perched on the beam (z 123.96) |
+  | 293.50 | `xx_Parkour_ClimbPassExitRight_Fd400cm-Up100cm` | the same leap and beam perch |
+  | 302.88 | `xx_Parkour_ClimbPassExitRight_Fd400cm-Up100cm` | the same |
+
+  Arno moved about 3.8 m sideways (y −41.2 → −45.0) and about 2 m up.
+- **Observed: the input (key log).** In each case:
+  1. Shift (high profile) + W + Space, for the wall run up.
+  2. Space released at the wall-run fail; W swapped for A, the direction of the beam; Shift kept down.
+  3. Space pressed again 0.13–0.17 s later, and held for about 0.1–0.15 s.
+- **Observed: the commit.** About 0.15 s after the second Space press, one pick-and-commit call
+  (`0x140134880`) returned to **`0x141A8CE6D`**. That is a third call site in the list owner `sub_141A8C0E0`, besides
+  the ground site `0x141A8C2D9`.
+  - The gathered list held **2 candidates, both type 39**.
+  - a4 was (−0.21, −0.98), (−0.22, −0.97) and (−0.26, −0.96): the direction from Arno to the beam.
+- **Observed: control without a target.** At 122.57 s the same input was given with D (no target that side). Arno
+  played `xx_climbing_WallEjectRt180_tr_Ground_Fd600cm-Dn600cm`, a 180° turn and eject 6 m down to the floor.
+  - The commit before it (0x141A8CE6D, a4 (0.97, −0.24)) held 8 candidates of one type. Its table is `0x143AF10C0`,
+    and that table has no type number in the selection runs yet.
+  - Two more such ejects followed the same pattern (126.56 s, 137.22 s).
+  - After a `WallEntry45_Fail` with no second press (163.1 s), the calls held no candidates.
+- **Static (mapped image): who builds type 39.** The candidate helper `0x1401D1CF0` takes the action type in `ecx`.
+  - Check: the Off The Wall generator `0x140137920` passes 36 and 50 there.
+  - Exactly two of its callers pass `ecx = 0x27` (39). Both sit in fancy slot `0x25` (the generator slot) of a tester:
+
+    | Call | Generator | Tester (slot 1 name) | Fancy table |
+    | --- | --- | --- | --- |
+    | `0x1401352A8` | `0x1401351C0` | "Climb Facade" | `0x1439E08D0` |
+    | `0x14014BCBA` | `0x14014BBD0` | "Facade" | `0x1439FA1A0` |
+
+- **Community labels (cited, not original names).**
+  - "Freeform 2.0" (Nexus mod 434, an ACUPluginLoader plugin; read as strings only, not run) lists 87 action types by
+    number. Its labels: 39 `climbFacade_fromWallDescentSidewaysToGround_alsoSidehop`, 36
+    `offTheWall_fromWallToGroundReleaseOrEject`, 50 `offTheWall_fromWallToWallEjectAndCatch`, 69
+    `plainDismountFromWall_mb`, 79 `backEject_4F`.
+  - Its 36/50/69 agree with the Off The Wall generator above. Its 39 agrees with the facade generators.
+  - A second plugin, "Free form side eject cam based" (Nexus mod 439), turns Arno to the camera so the native back
+    eject goes toward the target. It steers the existing back eject; it is not a new move.
+- **Inferences.**
+  - The flat-wall side exit is the facade tester's type 39: the same action type the community calls the side hop.
+    A failed wall run on a facade with no holds still runs the facade testers. A second jump press with the stick
+    sideways lets type 39 win when its generator finds a raised target beside the wall.
+  - Without a target the facade generator offers nothing. The back eject (table `0x143AF10C0`, probably 79) wins
+    instead. This is the "only if it detects something to eject to" behaviour.
+  - Which of the two facade generators ran is not established. Probe `0x1401351C0` and `0x14014BBD0` next time.
+- **Implication for a free eject.** Inject a synthetic target into the type-39 generator when its scanned list is
+  empty. The target is AC1-style: 7–8 m along the stick direction, 3 m down (AC1-Movement-Rewritten). Doing that in
+  the facade generator gives the native side exit clip, not the back eject.
+- **Unknowns:**
+  - type 39's selection windows (height, side distance);
+  - the number for table `0x143AF10C0`;
+  - whether the beam's stand-on data or its edge was the target;
+  - why only the back face worked. From the front face the beam was about 1.5 m nearer the run line, and earlier
+    attempts grabbed it straight from the wall run.
 
 ## Implementation implications and finding-linked constants
 
