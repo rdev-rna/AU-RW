@@ -180,6 +180,13 @@ within 2 mm. The test is `acu_sim/tests/parkour_geometry.rs`; the edge gate need
 Versailles block (`ACU_PARKOUR_BLOCK`). Not established: which emitted edges the game rejects,
 the per-type windows, and the generator.
 
+Per-type windows (same day, measured from 2,383 complete selection calls): height / distance /
+facing windows hold every live candidate of a type by construction, but at most 6 % of the
+emitted edges inside a window are real candidates, and windows from half the runs recall only
+14–95 % on the other half. The chosen edges lie ahead of Arno (forward cosine median 0.77–0.94
+against 0.03–0.23), so the game's query is directional. Closing the windows needs the candidate
+generator: next is the ACU-RE-0055 four-slot live probe.
+
 Latest (2026-11-15, the arena walks and runs on the native NewDemo graph;
 [ACU-RE-0069](findings/ACU-RE-0069-atomgraph-evaluation-sync-and-mirroring.md)):
 - `acu_bevy` no longer uses the For Honor style matcher. `motion::load_graph` loads NewDemo

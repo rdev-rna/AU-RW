@@ -277,6 +277,69 @@ breakpoint on a hot routine serialises hits; expect drops, as in ACU-RE-0042.
   the 306,848 edges are a superset. The per-type windows and the generator still decide which
   edges become candidates.
 
+## Per-type windows from negative examples (2026-11-16)
+
+Question: can each action type be bounded by the geometry of an edge seen from the candidate's
+source, so that the Rust edges (Rust gate above) can be turned into candidates per type?
+
+- **Data:**
+  - `python tools/parkour_geometry.py calls --runs <the 17 oracle runs> --write local/parkour/calls-versailles.json`
+    (SHA-256 `38bef2cc…0379`) writes one record per selection call: 4,163 calls, 807 with a
+    selection. 2,018 have a live-state sample within 50 ms.
+  - Every call has a single source. Calls with 16 gathered candidates (the probe's cap) are
+    incomplete and are skipped.
+  - Block `local/blocks/versailles-parkour-oracle.bin` (SHA-256 `28ca8705…31ef`).
+  - Measurement: `per_type_windows_from_calls` in `acu_sim/tests/parkour_geometry.rs`, ignored;
+    output in `local/parkour/windows-versailles.{txt,json}`. It is a measurement, not a gate.
+- **Method:**
+  - 2,383 complete calls have a source more than 12 m inside the block.
+  - Each edge candidate is matched to its Rust edge (within 5 cm, parallel within 10°). 7 of
+    6,175 did not match.
+  - Per type, the window is the observed range of `acu_sim::candidate::edge_view` over its
+    matched edges, measured from the source: height, horizontal distance, and the cosine of the
+    outward normal against the direction back to the source.
+  - Every Rust edge near the source of every complete call is then tested against each window.
+- **Results (types with at least 20 matched candidates):**
+
+  | Type | Matched | Height (m) | Horizontal (m) | Facing cos | In-window edges that are candidates | Hold-out recall |
+  | --- | --- | --- | --- | --- | --- | --- |
+  | 53 | 4,184 | 1.78 – 5.05 | 0.05 – 5.69 | any | 0.3 % | 91.0 % |
+  | 65 | 703 | −3.39 – 3.50 | 0.00 – 5.04 | any | 0.1 % | 94.1 % |
+  | 9 | 316 | 0.26 – 2.56 | 0.25 – 1.54 | ≥ −0.61 | 1.0 % | 95.1 % |
+  | 8 | 181 | −10.31 – 1.54 | 0.49 – 10.36 | any | 0.0 % | 14.2 % |
+  | 14 | 115 | 1.00 – 2.08 | 0.31 – 1.04 | ≥ 0.29 | 4.2 % | (train < 10) |
+  | 73 | 104 | −0.14 – 0.18 | 0.00 – 0.46 | any | 2.0 % | 91.3 % |
+  | 39 | 81 | −1.15 – 2.62 | 0.28 – 5.95 | any | 0.0 % | 66.7 % |
+  | 68 | 80 | −0.78 – 1.35 | 0.05 – 1.86 | ≤ 0.41 | 0.2 % | 75.0 % |
+  | 54 | 62 | 3.45 – 5.03 | 0.02 – 2.37 | any | 0.0 % | 72.7 % |
+  | 35 | 59 | −9.38 – 2.82 | 1.31 – 8.60 | ≥ 0.74 | 0.0 % | 81.6 % |
+
+  The hold-out recall uses windows from even-numbered runs, tested on odd-numbered runs.
+- **Facing:** for calls with a live forward vector, the true edges lie ahead of Arno. The median
+  cosine of forward against the direction to the edge is 0.94 for types 8 and 35, 0.80 for
+  type 3, and 0.77 for type 53. The other in-window edges have medians of 0.03–0.23.
+  - Ranking does not recover the choice: the in-window edge most in front of Arno is a type-53
+    candidate in 9 of 391 calls, and the nearest one in 54 of 391.
+  - For types 32, 33 and 73, whose targets sit at the source (horizontal distance ≤ 0.5 m), the
+    nearest in-window edge is the candidate in every call: 5/5, 30/30 and 27/27.
+- **Source against player:** the source sits a median 1.36 m from the live player position
+  (p90 2.23 m; ACU-RE-0055 earlier: "usually the player").
+
+### Conclusions
+
+- **Geometric windows are necessary, not sufficient.** At most 6 % of the edges inside a type's
+  window are that type's candidates. The game narrows the edges by something these features do
+  not hold: a direction (the edges chosen lie ahead), a spatial query (for example the wall
+  probe rays of ACU-RE-0050, which hit the wall under the ledge), and the player's state.
+- **Observed ranges are not stable limits.** Hold-out recall drops to 14–95 %, because each run
+  covered different scenery. The crisp maxima (height 5.05 m for types 53 and 54; type 9
+  height 2.56 m and horizontal 1.54 m) suggest real limits. They do not appear as literals in
+  the corpus range `1401*` (search for `5.05` / `0x40A1999A`), so they may come from data or
+  from computed values.
+- **So per-type windows cannot be closed from these captures.** They need the generator. The
+  next step is the four-slot live probe below, which names the generator VA and its reference
+  point, then a disassembly of its edge query.
+
 ## Implementation implications and finding-linked constants
 
 - Candidate fields: `+0x10` source, `+0x30` target, `+0x40` outward horizontal normal, `+0x50` /

@@ -793,17 +793,89 @@ def _json_default(value):
     raise TypeError(type(value))
 
 
+def run_live_samples(run: Path):
+    """Live-state samples of a run directory, or of its parent (scenario sub-directories)."""
+    return live_samples(run) or live_samples(run.parent)
+
+
+def calls(runs, enums) -> tuple[list[dict], dict]:
+    """One record per selection call (entry event), in order, with the player at that time.
+
+    `complete` is False when the gather hit its 16-element cap. `selected` is the index the
+    paired exit event returned (register 4), or None. The player position / forward come from
+    the nearest live-state sample within 50 ms (None when there is none).
+    """
+    import bisect
+    out, stats = [], Counter()
+    for ri, run in enumerate(runs):
+        samples = run_live_samples(run)
+        qs = [q for q, _, _ in samples]
+        pending = {}
+        for e in iter_selection_events(run / "native-session.jsonl"):
+            key = (e["tid"], e["base"])
+            if e["label"] == ENTRY_LABEL:
+                cands = []
+                for _, raw in e["elements"]:
+                    try:
+                        c = decode_candidate(raw)
+                    except ValueError:
+                        stats["undecodable"] += 1
+                        continue
+                    cands.append({"type": enums.get(c["table"]), "source": c["source"], "target": c["target"],
+                                  "normal_xy": c["normal"][:2], "seg_a": c["seg_a"], "seg_b": c["seg_b"],
+                                  "c0": c["c0"], "c4": c["c4"], "fitness": c["fitness"]})
+                player = forward = None
+                if samples:
+                    i = bisect.bisect_left(qs, e["qpc"])
+                    best = min((samples[j] for j in (i - 1, i) if 0 <= j < len(samples)),
+                               key=lambda smp: abs(smp[0] - e["qpc"]))
+                    if abs(best[0] - e["qpc"]) <= 500_000:
+                        player, forward = best[1], best[2]
+                rec = {"run": ri, "qpc": e["qpc"], "n": len(e["elements"]),
+                       "complete": len(e["elements"]) < 16, "player": player, "forward": forward,
+                       "selected": None, "candidates": cands}
+                out.append(rec)
+                pending[key] = rec
+                stats["calls"] += 1
+                stats["with player"] += player is not None
+                continue
+            rec = pending.pop(key, None)
+            regs = e["registers"]
+            index = struct.unpack("<i", struct.pack("<I", int(regs[4], 16) & 0xFFFFFFFF))[0] if len(regs) > 4 else -1
+            if rec is not None and 0 <= index < rec["n"]:
+                rec["selected"] = index
+                stats["selected"] += 1
+    return out, dict(stats)
+
+
+def cmd_calls(args):
+    runs = selection_runs(args.runs)
+    enums = table_enums(runs)
+    records, stats = calls(runs, enums)
+    fixture = {"schema": "acu-parkour-calls/1", "finding": "ACU-RE-0055", "binary_sha256": BINARY_SHA256,
+               "world_archive": args.archive, "runs": provenance(runs), "stats": stats,
+               "note": "positions native Z-up world metres; candidates in gather order; "
+                       "complete = fewer than 16 gathered (the probe cap)",
+               "calls": records}
+    Path(args.write).parent.mkdir(parents=True, exist_ok=True)
+    Path(args.write).write_text(json.dumps(fixture, default=_json_default))
+    print(json.dumps(stats))
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="command", required=True)
     f = sub.add_parser("fields")
     a = sub.add_parser("analyze")
-    for p in (f, a):
+    c = sub.add_parser("calls", help="every selection call with the player and its candidates (JSON)")
+    c.add_argument("--archive", default="DataPC_ACU_Versailles.forge")
+    c.add_argument("--write", required=True)
+    for p in (f, a, c):
         p.add_argument("--runs", nargs="*", help="run directory names under local/native-probe/runs")
     a.add_argument("--archive", default="DataPC_ACU_Versailles.forge")
     a.add_argument("--write")
     args = ap.parse_args(argv)
-    {"fields": cmd_fields, "analyze": cmd_analyze}[args.command](args)
+    {"fields": cmd_fields, "analyze": cmd_analyze, "calls": cmd_calls}[args.command](args)
 
 
 if __name__ == "__main__":

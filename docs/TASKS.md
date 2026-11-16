@@ -17,9 +17,10 @@ order:
 
 Traversal port (2026-11-16): ledge edges pass the ACU-RE-0055 gate (`acu_sim/tests/parkour_geometry.rs`).
 Next, in order:
-1. Negative examples: for complete selection calls (16 or fewer candidates), list the emitted
-   edges near the source that did not become candidates. Bound range, height and facing per
-   action type, and turn the c0/c4 quantiles into explicit per-type windows.
+1. Per-type windows: measured (ACU-RE-0055, "Per-type windows from negative examples"). Geometric
+   windows are necessary but select at most 6 % correctly, and observed ranges do not hold out
+   across runs. Next: run the four-slot live probe (ACU-RE-0055) to name the candidate
+   generator, then disassemble its edge query (direction, ray fan, reference point, per-type limits).
 2. Point-target types (3, 8, 69, 48, 15): landing points on flat ground. Join them to
    `acu_motion::traversal::landing_score`.
 3. Single-prop native references: spawn a prop by ID on the sky floor (ACU-RE-0103 obs. 19),
