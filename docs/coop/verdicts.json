@@ -11,16 +11,20 @@
   "NetFightManager_RFC_FightInputMSG_NetProtocol": {
    "verdict": "port",
    "behaviour": [
-    "ACU-RE-0102"
+    "ACU-RE-0102",
+    "ACU-RE-0105"
    ],
-   "note": "one fight input record per member per frame, applied by sub_1406E2D20"
+   "note": "one fight input record per member per frame, applied by sub_1406E2D20; live: same frame-stamped records on both games, no move or animation id (ACU-RE-0105)",
+   "trace": "local/coop/gear-20261116/fightinput.jsonl"
   },
   "NetFightManager_RFC_AllFightInputMSG_NetProtocol": {
    "verdict": "port",
    "behaviour": [
-    "ACU-RE-0102"
+    "ACU-RE-0102",
+    "ACU-RE-0105"
    ],
-   "note": "batched fight inputs; shares the handler with the 10..60 variants"
+   "note": "batched fight inputs; shares the handler with the 10..60 variants",
+   "trace": "local/coop/gear-20261116/fightinput.jsonl"
   },
   "NetFightManager_RFC_AllFightInput10MSG_NetProtocol": {
    "verdict": "port",
@@ -106,6 +110,44 @@
    "handler": "ACU-RE-0072",
    "behaviour": [],
    "note": "RFC diff base class counted in the atlas; behaviour finding still owed"
+  },
+  "PlayerInventoryData_NetProtocol": {
+   "verdict": "port",
+   "behaviour": [
+    "ACU-RE-0105"
+   ],
+   "trace": "local/coop/gear-20261116/gear_change.jsonl",
+   "note": "whole loadout as a stamped, LZO-framed blob of InventoryItemSettings file IDs; dirty only on byte change; live colour/hood/weapon"
+  },
+  "NetBehaviorAI_SetSelectedWeaponMSG_NetProtocol": {
+   "verdict": "port",
+   "behaviour": [
+    "ACU-RE-0105"
+   ],
+   "note": "owner pushes the selected weapon value; sub_1406D9170 re-applies it on the replica every frame it disagrees",
+   "trace": "local/coop/gear-20261116/weapon.jsonl"
+  },
+  "NetBehaviorAI_SetSelectedEquipmentMSG_NetProtocol": {
+   "verdict": "port",
+   "behaviour": [
+    "ACU-RE-0105"
+   ],
+   "note": "owner pushes the selected equipment value; sub_1406D9170 re-applies it on the replica every frame it disagrees"
+  },
+  "NetBehaviorAI_SetSelectedRangedWeaponMSG_NetProtocol": {
+   "verdict": "port",
+   "behaviour": [
+    "ACU-RE-0105"
+   ],
+   "note": "owner pushes the selected ranged weapon value; sub_1406D9170 re-applies it on the replica every frame it disagrees"
+  },
+  "NetBehaviorAI_UnsheathWeaponMSG_NetProtocol": {
+   "verdict": "port",
+   "behaviour": [
+    "ACU-RE-0105"
+   ],
+   "trace": "local/coop/gear-20261116/weapon.jsonl",
+   "note": "draw replayed on the replica 31 ms later with the slot value"
   }
  },
  "patterns": [
@@ -118,17 +160,22 @@
  ],
  "systems": {
   "combat": {
-   "trace": null,
+   "trace": "local/coop/gear-20261116/fightinput.jsonl",
    "replay": false,
    "shadow": false
   },
   "behaviour": {
-   "trace": null,
+   "trace": "local/coop/gear-20261116/weapon.jsonl",
    "replay": false,
    "shadow": false
   },
   "health": {
    "trace": null,
+   "replay": false,
+   "shadow": false
+  },
+  "player_data": {
+   "trace": "local/coop/gear-20261116/gear_change.jsonl",
    "replay": false,
    "shadow": false
   }
@@ -214,7 +261,8 @@
   {
    "id": "jip.memento_full_state",
    "title": "Full-state memento sends on join",
-   "finding": null
+   "finding": null,
+   "note": "ACU-RE-0105 obs 8: on player object re-creation the replica reads an empty blob then the owner's full blob; general rule still open"
   },
   {
    "id": "jip.intention_resend",
@@ -280,6 +328,11 @@
    "id": "desync.outside_fights",
    "title": "Desync detection outside fights",
    "finding": null
+  },
+  {
+   "id": "sync.loadout_and_moveset",
+   "title": "Outfit, gear and weapon sync; how the moveset follows the weapon",
+   "finding": "ACU-RE-0105"
   }
  ],
  "checklist": [
@@ -421,6 +474,11 @@
     "name": "save_hook",
     "acu_reference": null,
     "finding": null
+   },
+   {
+    "name": "apply_loadout",
+    "acu_reference": "Replica resolves the owner's InventoryItemSettings references from local data and rebuilds the look; selected slot enforced per frame",
+    "finding": "ACU-RE-0105"
    }
   ]
  }

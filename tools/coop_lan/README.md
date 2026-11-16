@@ -45,3 +45,14 @@ Known pitfalls:
 `leapwatch.py <pid> <out.jsonl> [--rpid <other pid> --rent <entity>]` hooks four `NetBehaviorAI` leap message blocks
 on the master, free-runs the player with `navigate.Navigator`, and logs each leap's source object next to the
 master's position (and, with `--rpid/--rent`, the other game's replica of the player). ACU-RE-0094 has the field roles.
+
+## Gear, weapon and fight-input watch (ACU-RE-0105)
+
+- `gearwatch.py <out.jsonl> <pidA> <pidB> [--slots 0,1,2,3] [--extra pid:slot:label:rva:reg:off:bytes]` hooks the
+  `HumanAvatar` and `PlayerInventoryData` memento read/write on both games and saves each new loadout blob. `--extra`
+  arms any other site (for example `SetSelectedWeapon` `6D4E10`, `UnsheathWeapon` `6D8F50`, fight input `6EDB20`).
+  `privhost.py` and `lancall.py` reuse slots 0–3, so re-arm after them.
+- `inventory_blob.py items|diff` decodes a blob (ACU compressed frame, LZO1X) and names the item references from the
+  asset index.
+- `padnav.py <pid> <out.png> STEP...` drives the in-process pad (menus, sticks, high profile, camera) and screenshots
+  the game. Combat needs an enemy: in DEFEND Danton, drop into the courtyard below the starting roof.
