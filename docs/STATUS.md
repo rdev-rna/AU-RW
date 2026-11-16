@@ -110,6 +110,16 @@ arena now uses the native `WorldAmbiance` settings. All 15 sets in the install a
   (dry / wet gloss, occlusion), so no skin value is synthetic any more.
   Not ported: the velvet lobe, back-light translucency, skin diffuse LUT, wrinkle normals, ACU's
   two-lobe hair BRDF, other outfits.
+- Ambient occlusion at max ([ACU-RE-0105](findings/ACU-RE-0105-hbao-plus-ambient-occlusion.md),
+  2026-11-16): ACU runs NVIDIA HBAO+ (`GFSDK_SSAO.win64.dll`).
+  - Its `Parameters` were captured live at max: radius 0.8, bias 0.01, detail 1.34, coarse
+    1.09, power 2.4, blur radius 8 / sharpness 8.
+  - `acu_assets::hbao` derives the SDK constants as the DLL does.
+  - `acu_bevy::hbao` ports the kernel over Bevy's SSAO texture, adapted from For Honor's pass: 14
+    of the DLL's shaders match For Honor's opcode for opcode, and the detail-AO pass and the
+    radius-8 blur are ACU's own.
+  - Default `--ao hbao`. MSAA is now off in every mode.
+  - Capture: `outputs/lighting/ao/arno-paris-day-ao-off-hbao-bevy.png`.
 - Captures: `outputs/lighting/arno-paris-noon-skin-hair.png` and `arno-head-skin-closeup.png`
   (all three templates), `arno-paris-noon-cloth.png` (live sun + cloth surface; the warm low sun
   and long shadows come from the live `SunColor`, with a synthetic sky fill),

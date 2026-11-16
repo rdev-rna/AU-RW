@@ -982,6 +982,7 @@ mod tests {
             color_set: None,
             lighting: "synthetic".into(),
             cloth: false,
+            ao: crate::hbao::AoMode::Off,
         };
         let loaded = crate::load::load_all(&options).unwrap();
         let mut library = load(&dir).unwrap();

@@ -535,13 +535,12 @@ Next, in order:
   tessellation; AA and resolution not needed). The capture preset stays Low only for captures.
   - Live check (ACU-RE-0084, done 2026-11-16): quality does not change the character-template
     pixel shaders. The skin port now follows the bound `0xc89d3` (no pore normal).
-  - AO at max is NVIDIA HBAO+ (`GFSDK_SSAO.win64.dll` in the install, exports
-    `GFSDK_SSAO_CreateContext_D3D11` / `_GL`, i.e. HBAO+ 3.x).
-    - Read reference: For Honor's port, `ForHonorRustRewrite/fh-rs/crates/fh_assets/src/hbao.rs`
-      (parameters) and `fh_bevy/src/fh_hbao.{rs,wgsl}` (a Bevy pass over the SSAO texture, kernel
-      after the SDK's DXBC).
-    - Next: capture ACU's `GFSDK_SSAO_Parameters` live by hooking the context's RenderAO at max,
-      then import the reviewed pass with provenance.
+  - AO at max is NVIDIA HBAO+ (ACU-RE-0105, done 2026-11-16).
+    - Parameters captured live at max.
+    - Kernel compared with For Honor's 3.x shaders: same CoarseAO / blur / reinterleave, plus
+      ACU's detail-AO normal pass and a radius-8 blur.
+    - Ported as `acu_bevy::hbao`, on by default (`--ao hbao|bevy|off`).
+    - Open: the jitter table, how ACU composites AO into lighting, and other worlds' parameters.
     - Max shadows likely go through `GFSDK_ShadowLib.win64.dll`; capture its parameters the same way.
   - Next: which shadow / environment paths change at max, and the Tessellation option's
     range (`ACU.ini` `Tessellation`, absent from the GSA xml). The character templates have no

@@ -227,8 +227,16 @@ fn installed_world_ambiance_sets_decode() -> Result<()> {
         ("DataPC_ACU_Versailles.forge", 5436, "00000010cde129cb"),
         ("DataPC_ACU_Versailles.forge", 5437, "00000010cde129ee"),
         ("DataPC_ACU_Versailles.forge", 5438, "00000010cde12a11"),
-        ("dlc_11/DataPC_ACU-DLC_Saint-Denis.forge", 1238, "00000012f8374555"),
-        ("dlc_11/DataPC_ACU-DLC_Saint-Denis.forge", 1232, "00000013786fcca2"),
+        (
+            "dlc_11/DataPC_ACU-DLC_Saint-Denis.forge",
+            1238,
+            "00000012f8374555",
+        ),
+        (
+            "dlc_11/DataPC_ACU-DLC_Saint-Denis.forge",
+            1232,
+            "00000013786fcca2",
+        ),
         ("DataPC_ACU_Prologue.forge", 2463, "0000001347aeb35f"),
         ("DataPC_ACU_RebirthRitual.forge", 501, "0000001095d6a63f"),
         ("DataPC_ACU_LGS_BelleEpoque.forge", 348, "000000104339fe67"),
@@ -249,6 +257,34 @@ fn installed_world_ambiance_sets_decode() -> Result<()> {
             w.layered_sky.1
         );
         assert!(w.hdr.ev100().is_some(), "{fid}");
+    }
+    Ok(())
+}
+
+/// The eye-adaptation inputs of every Paris set (QuickEyeAdaptation field names).
+#[test]
+#[ignore = "requires ACU_GAME_DIR; Paris WorldAmbiance resources"]
+fn installed_paris_auto_exposure_fields() -> Result<()> {
+    let dir = game_dir()?;
+    for (entry, fid) in [
+        (22301, "00000007f5f1bb7b"),
+        (22302, "00000007f5f1bb9d"),
+        (22303, "00000007f5f1bbbf"),
+        (22304, "00000007f5f1bbe1"),
+    ] {
+        let w = ambiance::decode(&payload(&dir.join("DataPC_ACU_Paris.forge"), entry, fid)?)?;
+        let a = w.hdr.auto_exposure();
+        println!(
+            "{fid} enabled={} ev=[{}, {}] down={} up={} lut_blend={} adj={:?}",
+            a.enabled,
+            a.min_ev,
+            a.max_ev,
+            a.downward_time,
+            a.upward_time,
+            w.hdr.value148[0],
+            a.ev_adjustments
+        );
+        assert_eq!(a.ev_adjustments.len(), 32);
     }
     Ok(())
 }

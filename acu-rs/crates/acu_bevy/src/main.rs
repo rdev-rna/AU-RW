@@ -17,6 +17,7 @@ mod character_material;
 mod cloth;
 mod controls;
 mod gi_volume;
+mod hbao;
 mod io;
 mod lighting;
 mod load;
@@ -149,6 +150,7 @@ fn main() {
     app.add_plugins(plugins)
         .add_plugins(MaterialPlugin::<arena::ArenaMaterial>::default())
         .add_plugins(MaterialPlugin::<character_material::CharacterMaterial>::default())
+        .add_plugins(hbao::AcuHbaoPlugin)
         .insert_resource(Time::<Fixed>::from_hz(60.0))
         .init_resource::<controls::Controller>()
         .add_systems(PreUpdate, controls::sample.after(bevy::input::InputSystems))
@@ -650,6 +652,15 @@ fn setup_world(
     ));
     if let Some(exposure) = exposure {
         camera.insert(exposure);
+    }
+    // AO needs Bevy's SSAO texture (depth + normal prepass, no MSAA); ACU-RE-0105. MSAA is off
+    // in every AO mode (AA is outside the max-settings port), so `--ao off` is a clean control.
+    camera.insert(Msaa::Off);
+    if options.ao != hbao::AoMode::Off {
+        camera.insert(bevy::pbr::ScreenSpaceAmbientOcclusion::default());
+        if options.ao == hbao::AoMode::Hbao {
+            camera.insert(hbao::AcuHbao(acu_assets::hbao::HbaoParams::ACU_MAX));
+        }
     }
     if let Some(mut capture) = capture {
         let (width, height) = options.size;

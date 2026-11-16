@@ -15,6 +15,7 @@ pub mod forge;
 pub mod frame;
 pub mod gi;
 pub mod gicp;
+pub mod hbao;
 pub mod material;
 pub mod mesh;
 pub mod package;

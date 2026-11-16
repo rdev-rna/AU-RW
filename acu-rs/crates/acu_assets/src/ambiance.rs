@@ -71,29 +71,40 @@ pub struct Ssao {
     pub ssbc_tail: [f32; 4],
 }
 
+/// `HDRLightingSettings`. The `+N` labels are offsets in the runtime object. They agree field for
+/// field with the runtime layout in QuickEyeAdaptation-ACUnity (NameTaken3125, commit `1b7d56a7`,
+/// `HDRLightingSettings.h`): Aperture `0x78`, ShutterSpeed `0x7C`, ISO `0x80`, MinEV `0x84`,
+/// MaxEV `0x88`, VignetteStrength `0x8C`, FilmGrainStrength `0x90`, FilmLUTBlend `0x94`,
+/// Downward / UpwardAdaptationTime `0x98` / `0x9C`, EVAdjustments\[32\] `0xA0`, AutoExposure /
+/// Vignette / FilmGrain bools `0x120..0x122`. Those names come from that lead, not from symbols
+/// here; the accessors below use them.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct HdrLighting {
     pub enabled: u8,
+    /// `+288`: `AutoExposure` (lead name).
     pub byte288: u8,
-    /// `+120`, `+124` (hashes `21E0F3A4`, `D8B393E6`): INFERRED aperture f-stop and
-    /// reciprocal shutter time (5.6 and 250 in every Paris preset).
+    /// `+120`, `+124` (hashes `21E0F3A4`, `D8B393E6`): aperture f-stop and shutter speed (lead
+    /// names Aperture / ShutterSpeed; 5.6 and 250 in every Paris preset, read as 1/250 s).
     pub aperture: f32,
     pub shutter_reciprocal: f32,
     /// `+128`, reflected name `ISO`.
     pub iso: f32,
-    /// `+132` (hash `6D207AC7`): varies by time of day (Noon 3.0, Night -4.8); meaning unknown.
+    /// `+132` (hash `6D207AC7`): `MinEV` (lead name; Noon 3.0, Night -4.8).
     pub value132: f32,
-    /// `+136` (hash `B03F8DEA`): 18.0 in Noon (INFERRED: middle grey percent).
+    /// `+136` (hash `B03F8DEA`): `MaxEV` (lead name; 18.0 in Noon).
     pub value136: f32,
+    /// `+289` / `+290`: `Vignette` / `FilmGrain` (lead names).
     pub byte289: u8,
+    /// `+140` / `+144`: `VignetteStrength` / `FilmGrainStrength` (lead names).
     pub value140: f32,
     pub byte290: u8,
     pub value144: f32,
     pub value16: u32,
     pub selectors: [[u32; 3]; 2],
     pub selector_refs: [[(u8, String); 2]; 2],
+    /// `+148..+156`: `FilmLUTBlend`, `DownwardAdaptationTime`, `UpwardAdaptationTime` (lead names).
     pub value148: [f32; 3],
-    /// `+160`: 32 f32, unknown role (a per-bin curve in Noon).
+    /// `+160`: 32 f32, `EVAdjustments` (lead name; a per-bin curve).
     pub curve160: Vec<f32>,
 }
 
@@ -257,6 +268,30 @@ impl HdrLighting {
             (self.aperture * self.aperture * self.shutter_reciprocal * 100.0 / self.iso).log2()
         })
     }
+
+    /// Eye-adaptation inputs under the QuickEyeAdaptation field names (see the struct note). How
+    /// the engine meters and applies them is not decoded yet.
+    pub fn auto_exposure(&self) -> AutoExposure<'_> {
+        AutoExposure {
+            enabled: self.byte288 != 0,
+            min_ev: self.value132,
+            max_ev: self.value136,
+            downward_time: self.value148[1],
+            upward_time: self.value148[2],
+            ev_adjustments: &self.curve160,
+        }
+    }
+}
+
+/// [`HdrLighting::auto_exposure`].
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct AutoExposure<'a> {
+    pub enabled: bool,
+    pub min_ev: f32,
+    pub max_ev: f32,
+    pub downward_time: f32,
+    pub upward_time: f32,
+    pub ev_adjustments: &'a [f32],
 }
 
 #[cfg(test)]

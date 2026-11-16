@@ -90,6 +90,8 @@ pub struct Options {
     /// Drive cloth-simulated pieces with the ported solver (ACU-RE-0081);
     /// `--no-cloth` leaves them on their mesh skin.
     pub cloth: bool,
+    /// Ambient occlusion (`--ao`): ACU's HBAO+ at max settings by default (ACU-RE-0105).
+    pub ao: crate::hbao::AoMode,
 }
 
 fn parse_piece(
@@ -148,6 +150,7 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
     let mut texture_archives: Vec<String> = Vec::new();
     let mut no_textures = false;
     let mut cloth = true;
+    let mut ao = crate::hbao::AoMode::Hbao;
     let mut color_set: Option<usize> = Some(1);
     let mut lighting = crate::lighting::DEFAULT.to_string();
     let mut static_scene = false;
@@ -199,6 +202,11 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
             }
             "--no-textures" => no_textures = true,
             "--no-cloth" => cloth = false,
+            "--ao" => {
+                let value = args.next().ok_or("--ao needs a value")?;
+                ao = crate::hbao::AoMode::parse(&value)
+                    .ok_or_else(|| format!("--ao {value:?}: expected hbao, bevy or off"))?;
+            }
             "--color-set" => {
                 let value = args.next().ok_or("--color-set needs a value")?;
                 color_set = if value == "none" {
@@ -381,6 +389,7 @@ pub fn parse(args: impl Iterator<Item = String>) -> Result<Options, String> {
         no_textures,
         report,
         cloth,
+        ao,
     })
 }
 
@@ -410,6 +419,8 @@ OPTIONS:
     --no-textures      Render the grey fallback without touching materials
     --no-cloth         Skin cloth pieces (the Tailored flap) instead of
                        simulating them with the ported solver
+    --ao hbao|bevy|off Ambient occlusion: ACU's HBAO+ at max settings (default; ACU-RE-0105),
+                       Bevy's GTAO, or none
     --color-set N|none Colour-set row for colour-masked cloth (default 1, the
                        default assassin blue; none = raw diffuse)
     --lighting NAME    paris-day (default), paris-sunset|night|dawn, versailles-day|sunset|night|dawn,
