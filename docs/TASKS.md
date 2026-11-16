@@ -7,10 +7,10 @@ order:
 1. The half-stick stop (`WalkSlow_Stop_LP/LC`): find which path hands state 3723 a sync source
    whose events hold `0x00400026` (candidates in ACU-RE-0074, Unknowns), and why the full-walk
    stop still does not pick by phase.
-2. Sprint speed: with the native blend matched (slope 2.77°), Rust is still about 7 % faster
-   (6.05 against 5.66 m/s; ACU-RE-0074 obs. 9). Capture the native per-frame root delta
-   (`root_delta_capture.py`) during a sprint and compare it with Rust's root motion for the
-   same blend.
+2. Sprint speed: the native root delta equals body motion (no crowd effect). Rust's flat
+   sprint blend is about 6 % faster than native (6.37 against 5.97 m/s; ACU-RE-0074 obs. 10).
+   Compare per-clip root speeds: Rust's decoded root track against native windows where one
+   clip dominates.
 3. State 8947 (`IdleHigh_tr_IdleLow` after a sprint stop) is shaped like an overlay layer
    machine. Find what activates it (no parsed layering state or transition references it).
 4. Damp law for rates other than 5 (k = 4.12 x rate is a CHOICE).

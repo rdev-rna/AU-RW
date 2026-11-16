@@ -123,8 +123,20 @@ Tests: `forced_start_holds_a_self_sustaining_state` and `reset_does_not_depend_o
    - Rust still moves at 6.05 m/s against native 5.66 m/s, about 7 % faster.
    - Native body velocity is the per-frame root delta (ACU-RE-0057). So either native root
      motion for this blend is shorter, or crowd contact slows the body.
-   - Next: a `root_delta_capture.py` run to compare the native per-frame root delta with
-     Rust's.
+   - Root-delta capture `loco-root-delta-sprint-1` (2026-11-16): a data watch on the motion
+     object's root delta (`M+0x90`) ran at 59 traps/s, one per frame. It ran with the playing
+     leaves and live state.
+     - Native root-delta speed equals the body speed (5.92 against 5.95 m/s, 9.90–10.43 s), so
+       crowd contact did not slow the body.
+     - Per gait cycle, a blend like Rust's slope-2.77 case gives native 5.92–6.11 m/s (Rust
+       6.05): about 2 %.
+     - A flat blend (sprint 0.79 / run 0.16, no slope clips, 12.00–12.53 s) gives native
+       5.97 m/s; Rust gives 6.37 at sprint 0.79 / run 0.21. That is about 6 %, and agrees with
+       the earlier clean native 5.96.
+     - So the gap is in the root motion the blend produces on flat ground. Rust also loses 5 %
+       when the uphill clips come in (6.37 → 6.05); native barely changes (5.97 → 5.92).
+     - Next: compare per-clip root speeds, Rust's decoded root track against native windows
+       where one clip dominates.
 4. **After a sprint stop.**
    - Native plays `IdleHigh_tr_IdleLow_footl/footr` (1.09–1.1 s) in 3 of 3 runs; Rust goes
      straight to `IdleLow_Footr`.

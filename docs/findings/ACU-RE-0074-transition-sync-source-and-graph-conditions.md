@@ -133,6 +133,25 @@ State: **partially established**.
    - Half-stick stops in this capture: `WalkSlow_Stop_LP` twice. Two other half-stick walks
      ended at a ledge.
 
+10. **Native root delta during a sprint (`loco-root-delta-sprint-1`).**
+    - Capture:
+      - 2026-11-16, PID 130436, same launch path and pin;
+      - `root_delta_capture.py --free-run --stick 0 32000 --walk 5`, slot 3 data watch on
+        `M+0x90` (ACU-RE-0057), 59 traps/s, 678 deltas;
+      - `live_state.py` at 60 Hz alongside;
+      - closed with `--close` (2.9 s); saves put back.
+    - Sprint from 9.69 s until a wall brace at 11.0 s, then again from 11.9 s.
+    - Per-cycle (0.53 s) windows:
+
+      | Window (s) | Root (m/s) | Body (m/s) | Blend |
+      | --- | --- | --- | --- |
+      | 9.90–10.43 | 5.92 | 5.95 | sprint 0.67, run 0.21, uphill sprint 0.08, uphill run 0.03 |
+      | 10.00–10.53 | 5.93 | 5.72 | similar |
+      | 12.00–12.53 | 5.97 | 6.43 | sprint 0.79, run 0.16; body from 2 live samples |
+
+    - The root delta tracks the body wherever live samples are dense (ACU-RE-0057). Crowd
+      contact did not slow the body.
+
 ## Inferences
 
 - With no source at transition entry, every SelectBestMatchingTags in a newly entered state
@@ -156,9 +175,13 @@ State: **partially established**.
       `0x140116AC0`, `0x14011C0D0`).
   - If such a source exists, the full-walk stop must still not pick by phase, and its events
     must lack the 4 % `WalkSlow` leaf. Neither is explained.
-- Sprint speed: with the blend matched, Rust is still about 7 % faster (6.05 against 5.66
-  m/s). Either native root motion for the blend is shorter, or crowd contact slows the body.
-  Not checked: the native per-frame root delta (`root_delta_capture.py`).
+- Sprint speed:
+  - The native root delta equals body motion, so the gap is in root motion.
+  - Flat blend: native 5.97 m/s against Rust 6.37 (about 6 %).
+  - Uphill-mixed blend: native 5.92 against Rust 6.05.
+  - Rust's speed drops more with the uphill clips than native's does.
+  - Candidates: per-clip root speed (track or bone choice) or how root deltas are blended.
+  - Not checked: per-clip comparison.
 - Who activates state 8947 (game code request, or a layering link the parser misses).
 - What sets `*(source+20)`.
 - Context pass mode 2 (`+92`).
