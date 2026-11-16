@@ -418,6 +418,40 @@ and the corpus. No live run yet.
   - whether `sub_141A8C0E0` is the only owner (other states may call `0x140134880` from elsewhere; the Versailles
     traces lack the stack depth to say).
 
+## Live wall eject attempts (runs `eject-wall-1`, `eject-wall-2`, 2026-11-16)
+
+- **Wall search.** A wall search over decoded Paris collision found the wall
+  (`local/parkour/tall-walls-paris-start-strict.json`). It is flush from 0.3 m to 15 m (ray hits 1.35–1.42 m, |nz|
+  < 0.1), with flat, clear ground in front, 1.4 m from start (595.69, −48.88, 1.02). Its outward normal faces the
+  start camera yaw (0).
+  - `eject-wall-1` used a looser search (0.3 m spread). That spot had a 1 m block and a 13 m rope lift
+    (`xx_Parkour_Lift_13M_Ft_A_*`), and no attempt reached the wall.
+- **Per attempt:** teleport; RT+A forward 2.5 s; RT 0.8 s; the eject input 1.2 s; 3 s idle. Each attempt ran with the
+  `parkour_commit` probe and live-state at 60 Hz. God mode and invisibility were on; the game was closed with
+  `--close` and the saves put back.
+- **Back + RT + A while climbing** (`0_back_RT_A`):
+  - Arno climbed to hands at z 3.27 (about 2.25 m up):
+    `PreWallEntry45_tr_ClimbPass` → `WallEntryFwd_tr_Climb_Up200cm` → `Climb_Start_Lt135Deg100cm_Fast`.
+  - On the eject input he played `xx_Climbing_ClimbExit180Lt_tr_Ground_Dn600cm`, a 180° turn and jump to the ground
+    behind, landing at z 1.02 (`LandingFwd_LandMid`).
+  - Probe: 6 pick-and-commit calls.
+    - 5 returned to **`0x141A4CC3A`**, a second owner (the climb state, next to the climb tester-set builder
+      `0x141A4E310`); 1 returned to `0x141A8C2D9`.
+    - Candidate types gathered: 53 ×16, 65 ×5, 68 ×5 and **69 ×3**. Type 69 is the back eject that
+      `Off The Wall`'s generator builds.
+    - The a4 vector was (0, 1) on the ground and (0.966, 0.259) on the wall, which looks like a direction.
+- **Right + RT + A** made Arno climb round an outside corner (`Climb_CornerOutEntry` / `CornerOutExit`), not an
+  eject.
+- **The other three attempts never reached the wall.** After the first eject the camera stayed turned, so "forward"
+  ran elsewhere.
+- **Inference:**
+  - A low back eject with ground behind is a targeted eject: type 69 with a ground landing point, played as a
+    `ClimbExit180_tr_Ground` clip.
+  - The free (void) eject needs Arno high enough that no ground target qualifies. The ground-target clips go down to
+    `Dn10M`.
+- **Next live step:** climb 8–12 m before the eject input, and reset the camera yaw before each attempt. Then compare
+  the type 69 candidates (present or absent) with the clip played.
+
 ## Implementation implications and finding-linked constants
 
 - Candidate fields: `+0x10` source, `+0x30` target, `+0x40` outward horizontal normal, `+0x50` /
