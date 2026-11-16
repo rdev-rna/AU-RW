@@ -1,0 +1,30 @@
+{
+  "description": "Wall-eject window (ACU-RE-0055, flat-wall side exit). ACU.exe 748abdc6...7e40, base 0x140000000; guards from the mapped image (motion-link-20261020). sub_141A0D730(S, id, value) sets per-window byte flags on the parkour state S (id 4 -> S+529, id 6 -> S+542 the wall-eject window, id 39 -> S+540 ...). sub_141A1B940 (jump gate) calls the wall-eject evaluator sub_141A8CAA0 while S+542 is set, else per-wall-run-type handlers (types 51-56) while S+529 is set. sub_14157D310 sets S+541 = a2 and S+542 = 1. Registers only: window_set edx = id, r8b = value; jump_gate r9d = a4, [rsp+0x28] = a5.",
+  "rotation_seconds": 600,
+  "probes": [
+    {
+      "label": "window_set",
+      "rva": "1a0d730",
+      "expected_hex": "8d42fc83f8240f87900000004c8d1dbd",
+      "category": "parkour"
+    },
+    {
+      "label": "jump_gate_entry",
+      "rva": "1a1b940",
+      "expected_hex": "48896c2410488974241848897c242041",
+      "category": "parkour"
+    },
+    {
+      "label": "wall_eject_eval_entry",
+      "rva": "1a8caa0",
+      "expected_hex": "488bc448895808488970104889781855",
+      "category": "parkour"
+    },
+    {
+      "label": "force_eject_window",
+      "rva": "157d310",
+      "expected_hex": "88911d020000c6811e02000001c3cccc",
+      "category": "parkour"
+    }
+  ]
+}

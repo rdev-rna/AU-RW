@@ -484,8 +484,8 @@ sticking to it. Played by the user on keyboard and mouse; the driver only built 
   2. Space released at the wall-run fail; W swapped for A, the direction of the beam; Shift kept down.
   3. Space pressed again 0.13–0.17 s later, and held for about 0.1–0.15 s.
 - **Observed: the commit.** About 0.15 s after the second Space press, one pick-and-commit call
-  (`0x140134880`) returned to **`0x141A8CE6D`**. That is a third call site in the list owner `sub_141A8C0E0`, besides
-  the ground site `0x141A8C2D9`.
+  (`0x140134880`) returned to **`0x141A8CE6D`**. That address is inside the wall-eject evaluator `sub_141A8CAA0` (see
+  "The wall-eject window" below), not in the ground owner `sub_141A8C0E0` (which ends at `0x141A8C394`).
   - The gathered list held **2 candidates, both type 39**.
   - a4 was (−0.21, −0.98), (−0.22, −0.97) and (−0.26, −0.96): the direction from Arno to the beam.
 - **Observed: control without a target.** At 122.57 s the same input was given with D (no target that side). Arno
@@ -535,6 +535,49 @@ sticking to it. Played by the user on keyboard and mouse; the driver only built 
   - Clips: `ClimbPassExitRight_Fd300cm-Level`, `Fd400cm-Up100cm` or `Fd600cm-Level`, then a leap to the beam
     (`Leaping_Fd350cm-Dn200cm/Dn400cm`) or a vault off it.
   - No D (no-target) control this run.
+
+### The wall-eject window (static, and run `side-eject-6/hands-on-4`)
+
+- **Static (corpus and mapped image):**
+  - **Jump gate.** `sub_141A1B940` reads byte flags on the parkour state `S = *(*(a1+40)+8)`.
+    - If `S+542` is set, it calls the wall-eject evaluator `sub_141A8CAA0(a1, stick, mag, a4, a5)`.
+    - Otherwise, if `S+529` is set, it switches on the current action type (`sub_1401D2530(S+496)`). Types 51/56
+      and 52 go to `sub_141A9DB20`, 53/55 to `sub_141A9B2E0`, and 54 to `sub_141A9E710`.
+    - `a4` is replaced by `S+612` (unless that is 7) under a timer test on `S+624..648`.
+  - **Window flags.** `sub_141A0D730(S, id, value)` maps window ids to bytes on `S`: 4 → +529, **6 → +542**,
+    9 → +530, 10 → +531, 11 → +532, 14..18 → +533..+537, 34 → +543, 38 → +538, 39 → +540, 40 → +541.
+    `sub_14157D310(S, v)` sets `S+541 = v` and `S+542 = 1`.
+  - **Evaluator `sub_141A8CAA0`.** It works only when `a5 != 0` and `a4 ∈ {0, 4}`.
+    - It normalises the horizontal part of the stick against the facing taken from `S+496`.
+    - If the stick has magnitude and its dot with that facing is within ±0.707 (more than 45° off forward), the
+      direction becomes a pure side vector (±, perpendicular to the facing). It then runs tester set `a1[58]`.
+      Otherwise it runs set `a1[59]` with the default direction.
+    - Both go through `sub_140185630`, then the pick-and-commit `sub_140185990(a1[60], …)`.
+    - The commit returns at `0x141A8CE6D`. If the current action type is 17, 44, 47 or 50 (mask
+      `0x4009000020000`), it then calls `sub_141A9B970`.
+  - **Scan.** The generator's target list is filled by the tester's fancy slot `0x1A` (`vtbl+0x350`), which is
+    `0x14012D680` for Climb Facade, Facade and Off The Wall alike. It runs one physics query (`sub_140C112B0`) per
+    query volume in the tester's list at `+176` (count at `+186`, five vec4 each), around the player entity
+    (`+280`). Who fills `+176` is not established.
+  - **Base tester defaults** (`0x140184330`): +0xBC 0.2, +0xC0 **12.0**, +0xC4 1.5, +0xC8 3.25, +0xCC 0.0873
+    (5°), +0xD0 0.25, +0xD4 0.17, +0xD8 0.25, +0xDC 0.75, +0xE0 −1.309 (−75°), +0xE4 2.880 (165°), +0x100 0.1,
+    +0x104 0.05, +0x108 0.001, +0x10C 0.05. The generator passes +0x104 and +0x108 to the candidate helper. The
+    meaning of the others is not established; 12.0 is a reach candidate.
+- **Live (probe `tools/native_probe/wall_eject_window.profile.json`, 11 user wall runs):**
+  - **Window 6 opens only on wall runs that will fail.** It opens at `PreWallEntryFront` / `PreWallEntry45`, before
+    `WallEntry_Fail` starts, and closes 0.3–0.85 s later. The evaluator runs every frame while it is open, with
+    `a5 = 1`.
+  - **On the two runs that became a climb** (`WallEntryFwd30Deg_tr_Climb_*`, 88.0 s and 96.5 s), window 6 never
+    opened and the evaluator never ran. An eject cannot interrupt a wall run into a grab.
+  - **`a4` is a jump phase.** It is 1 at the window open, then 2, back to 1 on the Space press, and 0 about 0.1 s
+    later. The evaluator acts at 0, so the eject fires on the jump press.
+  - **Results by press time** (Space after `PreWallEntry`):
+    - 0.15–0.34 s with the side key: the side exit, three times;
+    - 0.36–0.50 s: the back eject `WallEjectRt180_tr_Ground` (twice, with A and with D) or nothing (twice).
+
+    The geometry at a late press is not checked: Arno may have risen past where the beam qualifies.
+  - Other window ids seen: 0, 1, 4 (most active), 9, 10, 14, 15, 39, 77 opening; 11, 12, 16–18, 29, 32, 34, 37,
+    38, 40, 44–46, 59, 60, 78–91 only cleared.
 - **Implication for a free eject.** Inject a synthetic target into the type-39 generator when its scanned list is
   empty. The target is AC1-style: 7–8 m along the stick direction, 3 m down (AC1-Movement-Rewritten). Doing that in
   the facade generator gives the native side exit clip, not the back eject.
