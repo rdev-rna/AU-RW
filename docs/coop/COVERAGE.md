@@ -20,6 +20,60 @@ only exception is the base class `NetObjectRemoteFunctionCallDiffBase`.
 Grouping by name prefix is a lead, not proof of behaviour. A system counts as covered only when a finding shows its
 behaviour.
 
+## Definition of done
+
+The goal is robust, portable, feature-complete shared-world co-op. Nothing is skipped: every item is explained,
+then classified. ACU co-op is reverse-engineered completely when all five criteria hold.
+
+- **A. Every item explained.** Each of the 965 messages, 118 states and 33 object types has:
+  - its fields;
+  - its handler;
+  - a behaviour finding;
+  - a verdict: **port**, **engine-local**, **diagnostic** or **ACU-only**.
+
+  The verdict records what the item *is*, not permission to skip it. A diagnostic or ACU-only item still needs its
+  finding.
+- **B. Every gap closed.** Every gap in "Cross-cutting mechanisms" and every easy-to-miss checklist item is closed
+  by a finding, even when the answer is "local by design".
+- **C. Live evidence.** Every system with a port item has a passing two-game testbed scenario with a saved trace.
+- **D. Reproduction.**
+  - `coop/core` replays the saved traces and makes the same decisions as ACU.
+  - Then shadow mode: hook ACU and compare the library's decisions with the game's, live.
+- **E. Closed adapter.** The game-adapter interface (every call the library makes into a game) is closed, and
+  each call has an ACU reference meaning backed by a finding.
+
+**Checker.** `tools/coop_coverage_check.py` enforces these criteria. It reads:
+- the `local/coop/*.json` outputs: the item universe, payload fields, handlers and memento codecs;
+- the verdict file `docs/coop/verdicts.json`: verdicts, behaviour findings, traces, the cross-cutting and checklist
+  items, and the adapter calls;
+- `docs/findings/`: every finding ID it is given must exist there.
+
+It fails while any item is unknown, lacks a finding, or (if port) lacks a live trace. Refresh the block below
+each stride:
+
+```text
+python tools/coop_coverage_check.py --update-ledger docs/coop/COVERAGE.md --no-fail
+```
+
+<!-- coverage-check:begin -->
+
+| Criterion | Status |
+|---|---|
+| A. Items done (fields, handler, behaviour finding, verdict; port items traced) | 0.1% of 1116 |
+| A. messages (965) | fields 964, handler 965, behaviour 13, verdict 24, done 1 |
+| A. states (118) | fields 117, handler 117, behaviour 0, verdict 0, done 0 |
+| A. objects (33) | fields 0, handler 0, behaviour 0, verdict 0, done 0 |
+| A. Verdicts given | port 12, engine-local 2, diagnostic 10, acu-only 0 |
+| B. Cross-cutting gaps closed | 6 of 24 (25.0%) |
+| B. Easy-to-miss checklist closed | 0 of 16 (0.0%) |
+| C. Port systems with a live trace | 0 of 3 (0.0%): behaviour, combat, health |
+| D. Trace replay in coop/core / shadow mode | 0.0% / 0.0% |
+| E. Adapter calls with an ACU reference | 6 of 11 (54.5%); interface open |
+
+Complete: no. Errors: 0.
+
+<!-- coverage-check:end -->
+
 ## Coverage by system
 
 Columns:
@@ -99,10 +153,111 @@ on the sent landing point.
   weapons with state. They are the closest ACU model for a cannon or a ship's swivel gun.
 - **Black Flag.** `AC4BFMP.exe`, Black Flag's own multiplayer, runs on a different stack, HackNet
   (`MasterStation`, `ChangeMasterStation`, `CREATE_DUPLICA`; ACU-RE-0074). It has the same master/duplica idea as
-  ACU, in AC4's own engine build, so it is the closest reference for the AC4 port. It has no ships. Ship sync
-  (sails, cannons, boarding, crew) has no reference in either stack. It has to be designed from the ACU model plus
-  AC4's own naval code.
+  ACU, in AC4's own engine build, so it is the closest reference for the AC4 port. It has no ships.
+- **AC4 ships are already decoded in AC4Coop.** Its `docs/STATUS.md` lists a live "ship mirror": a
+  duplicated local ship carries the peer's hull HP and transform. ACU supplies the **sync model** for ships, not
+  the ship mechanics. The mapping is in "Portability" below.
 - **Syndicate** has no multiplayer stack (not surveyed yet). Its carriages and trains would be designed the same way.
+
+## Portability: the game adapter and per-title mapping
+
+The library knows nothing about the game. Each title implements a small adapter, and the library calls only that
+adapter. The calls, each with its ACU reference meaning, are tracked under `adapter` in `docs/coop/verdicts.json`
+(criterion E):
+
+| Adapter call | ACU reference meaning | Finding |
+|---|---|---|
+| Spawn a proxy | The proxy receiver creates or updates a remote player proxy | 0077 |
+| Remove a proxy | Open | — |
+| Apply a pose | Position and heading replication onto the replica | 0076 |
+| Apply an animation | Open | — |
+| Apply an intention | Intention receive, then the AI-state listener offer | 0080, 0101 |
+| Deliver damage | Damage request to the victim's owner, then `RFCSetMasterLife` | 0092 |
+| Fight input | Per-member, per-frame input into the lockstep step | 0102 |
+| Mission events | Open | — |
+| Awareness events | Open | — |
+| Ownership distance | Planar distance against R per entity (release R − 40, claim R − 45) | 0097 |
+| Save hooks | Open | — |
+
+**Per-title mapping.** Each title keeps a table from its own systems to ACU patterns. For AC4:
+
+| AC4 system | ACU pattern |
+|---|---|
+| Ship | Owned vehicle (the carriage pattern: vehicle and driver replicate as one owned entity) |
+| Cannons and swivel guns | Mounted weapons (the Rift turrets) |
+| Crew | Migrating NPCs (ownership hysteresis and hand-over, 0092, 0097) |
+| Boarding | Fight-director hand-over |
+| Naval combat | Fight director plus attacker locks |
+
+## Robustness requirements for `coop/core`
+
+These are the "modern improvements" over ACU. Each one is a library requirement with tests, not an RE item:
+- **Versioned wire format.** Capability negotiation on join.
+- **Bounded decode.** Length and offset checks, no unbounded allocation, and a fuzz target for every codec.
+- **Clear authority.**
+  - One owner per object.
+  - An explicit hand-over handshake (ACU's request / give / fail, ACU-RE-0100) with latch timeouts.
+- **No silent drops.** Every dropped or refused message is reported. ACU drops a message when the receiving AI
+  state refuses it (ACU-RE-0101).
+- **Desync recovery.**
+  - Checksums per system, then a resync from the owner.
+  - ACU's fight CRC is debug-only and its mismatch path is empty (ACU-RE-0102).
+- **Session resilience.**
+  - Reconnect and rejoin without restarting the mission.
+  - Host migration that keeps mission progress.
+- **Deterministic tests.**
+  - Seeded RNG, fixed ticks and recorded-trace replay.
+  - Unresolved float determinism is recorded, not assumed away.
+- **Backend boundary kept.** Record the Ubisoft backend, never decode it.
+
+## Priority from here (steer of 2026-11-16)
+
+Shared-world sync comes first, because it is the hard part. Systems follow. Every item listed is tracked in
+`docs/coop/verdicts.json`.
+
+1. **Cross-cutting:**
+   - ownership: the per-class radius table, what state moves on hand-over, and Storm's acceptance of it;
+   - interest management;
+   - join in progress: fight JIP, the Domino snapshot, full-state memento sends;
+   - leave, rejoin and disconnect mid-mission;
+   - the consumer of the host-migration queue;
+   - time, timestamps and lag compensation;
+   - bandwidth: rates per system and dirty frequencies;
+   - desync detection outside fights.
+2. **Awareness and stealth:** why guards don't perceive player 2 (AC4 P6).
+3. **Combat:** who owns the fight director and how it migrates; attacker locks and tokens; fight JIP; kick
+   unresponsive.
+4. **Missions:** start, end, fail, checkpoint, restart, objective progress, and who owns the logic.
+5. **Health:** KO, revive, death, respawn.
+6. **Then:** interactions, mission targets, player data, crowd events, Rift / mounted weapons, carriages.
+7. **NPC AI-state names:** a live run logging state `+36` and each event's outcome.
+
+**Easy-to-miss checklist.** Each item gets a finding, even if the answer is "local by design":
+- saves and progression;
+- loot and economy split;
+- notoriety;
+- pause and menus;
+- cutscenes and synced scenes;
+- fast travel and loading;
+- time of day and weather;
+- RNG seeds;
+- physics objects, ragdolls and destruction;
+- partner HUD, map markers, pings and emotes;
+- audio cues;
+- difficulty scaling with two players;
+- achievements;
+- a version or mod handshake on join;
+- what ACU deliberately does not replicate (crowds, etc.), and why.
+
+**Batched live checks:**
+- the LoadBalance sender;
+- the R values;
+- ZenHealth +1;
+- the AIComponent registry;
+- migration modes on leave;
+- AI-state names;
+- the fight clock unit;
+- decoded fight inputs.
 
 ## Work plan
 
