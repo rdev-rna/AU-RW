@@ -748,8 +748,24 @@ at the last collision exit).
   reset as the reposition event is an implementation choice.
 - `cloth_gate` and `cloth_collide_gate` take each step's damping from the captured body, like
   the targets (`--static-damping` in the collide gate keeps the settings value).
-- Unknown: who sets flags +572/+573/+574. The live trigger followed a frame hitch near the end
-  of the left curve.
+- What arms it (static: byte-write scan of `.text` for +0x23c/+0x23d/+0x23e; corpus
+  `141D764A0.c`, `141D950C0.c`, `141D976E0.c`). The event readings are inferences:
+  - `0x141d764a0` (instance swap): +573 when state is inherited, else +572.
+  - `0x141d976e0` (reset with its third argument): +572 after copying the saved arrays back.
+  - `0x141d950c0` (runs every frame for each cloth component): +574 and +572 when the entity's
+    flags +696/+697 (entity = `*(*(*(a1+24)+16)+16)`) are set. It also repositions every cloth.
+  - `0x141d8b9a0` clears the flags (+572/+573/+574 = 0, at `0x141d8bc6e`/`bca1`/`bfc5`).
+- Which one fired (observed live, PID 122856, 2026-11-16; `tools/native_tap/cloth_boost_probe.py`,
+  execution hooks with the body chain a0+8 → +152 → +160; dumps `boost-probe-122856-*.bin`).
+  Three passes of the turning scenario:
+  - Pass A: setter instructions only; no boost on the flap that pass.
+  - Pass B: a boost at 3.92 s. For the flap, `0x141d764a0` and `0x141d976e0` were never
+    called, while `0x141d950c0` ran every frame (648 calls).
+  - Pass C: the entity's flag bytes read `01 00` (+696 = 1) on exactly one frame (4.733 s),
+    and the flap's damping read 0.48333 at the next poll (4.744 s), then decayed.
+
+  So the boost the captures show is the entity's one-frame +696 flag. Each time it came at the
+  turn-to-stop transition at the end of the left curve. Who sets entity +696 is unknown.
 
 
 ## Unknowns
@@ -758,8 +774,9 @@ at the last collision exit).
   and which of fields 24/33/36 is friction (all 0.2 in the flap's settings).
 - Where S+60 scales the tether lengths; which external fields carry the blend, drag and
   swept-collision enables (S+6, S+64, S+192).
-- What sets the component's reposition flags (+572/+573/+574) that arm the damping boost;
-  the viewer arms it on its own reset (implementation choice).
+- Who sets the entity flag +696 (one frame, at the turn-to-stop transition) that arms the
+  damping boost through `0x141d950c0`. The viewer arms the boost on its own reset
+  (implementation choice).
 - The discrete sphere and box kernels (`0x1423d66d0`, `0x1423d5630`); the flap has none.
 - The four unnamed leg bone hashes.
 - Whether the per-step error budget meets visual parity (no side-by-side frame comparison).

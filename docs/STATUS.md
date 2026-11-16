@@ -61,7 +61,9 @@ Tailored flap's motion comes from the `Cloth` soft-body resource, not from bones
     base over 30 frames. Live writer found by a write watch (`0x1423b1f10` copies it per frame).
   - Ported in `acu_sim`; the gates take each step's damping from the capture.
   - All 76 kernel-capture steps now agree within 0.025 mm mean, 0.17 mm max.
-  - Open: what raises the reposition flags.
+  - Trigger (live, PID 122856): the entity's one-frame flag +696, read by `0x141d950c0`
+    every frame. It fired at the turn-to-stop transition in each boosted pass. Open: who sets
+    +696.
 
 Lighting (2026-11-15, [ACU-RE-0073](findings/ACU-RE-0073-baked-gi-and-world-ambiance.md)): the
 arena now uses the native `WorldAmbiance` settings. All 15 sets in the install are ported:
