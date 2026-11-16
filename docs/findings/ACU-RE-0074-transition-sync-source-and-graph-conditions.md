@@ -152,6 +152,29 @@ State: **partially established**.
     - The root delta tracks the body wherever live samples are dense (ACU-RE-0057). Crowd
       contact did not slow the body.
 
+11. **Blend root-motion model and the sprint gap.**
+    - Tracks: `acu-root-tracks DataPC.forge 928` for the 20 clips in `loco-root-delta-sprint-1`
+      (output `root-tracks-all.json`, local).
+    - `tools/root_delta_blend_compare.py` predicts each native delta from the native leaf states
+      before and after the update.
+    - 54 multi-leaf frames:
+
+      | Model | native / predicted (median) | Median error |
+      | --- | --- | --- |
+      | Weight-normalised blend | 0.9995 | 0.02 mm |
+      | Unnormalised blend | 1.0044 | 0.33 mm |
+      | Heaviest leaf only | 1.0073 (p10 0.909, p90 1.237) | 3.10 mm |
+
+    - Root speeds at 1× (root-track end-to-end / duration):
+      - `Sprint_3-Loop_V02` 7.069 m/s (1.4 s);
+      - `Run_3-Loop` 4.558 (2.0 s);
+      - `SlopeSprint_3-Loop_Up30Deg` 4.139;
+      - `Run_SlopeUp30Deg` 3.644;
+      - `SlopeSprint_3-Loop_Dn30Deg` 6.279.
+    - Rust flat sprint (`ACU_LEAF_TRACE`, 3–5 s): sprint weight 0.77, mean rate 0.919.
+    - Native `loco-sprint-open-1` window: sprint 0.695, rate 0.884. Its linear merge of cycle
+      lengths gives 0.527 s against a measured 0.528 s.
+
 ## Inferences
 
 - With no source at transition entry, every SelectBestMatchingTags in a newly entered state
@@ -176,12 +199,10 @@ State: **partially established**.
   - If such a source exists, the full-walk stop must still not pick by phase, and its events
     must lack the 4 % `WalkSlow` leaf. Neither is explained.
 - Sprint speed:
-  - The native root delta equals body motion, so the gap is in root motion.
-  - Flat blend: native 5.97 m/s against Rust 6.37 (about 6 %).
-  - Uphill-mixed blend: native 5.92 against Rust 6.05.
-  - Rust's speed drops more with the uphill clips than native's does.
-  - Candidates: per-clip root speed (track or bone choice) or how root deltas are blended.
-  - Not checked: per-clip comparison.
+  - Explained by the extra leaves in every native window (obs. 11). Native root motion is the
+    weight-normalised blend Rust uses.
+  - Not checked: a native sprint on flat, open ground (no slope or wall leaves) to confirm the
+    predicted 6.3–6.4 m/s directly.
 - Who activates state 8947 (game code request, or a layering link the parser misses).
 - What sets `*(source+20)`.
 - Context pass mode 2 (`+92`).

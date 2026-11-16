@@ -135,8 +135,20 @@ Tests: `forced_start_holds_a_self_sustaining_state` and `reset_does_not_depend_o
        the earlier clean native 5.96.
      - So the gap is in the root motion the blend produces on flat ground. Rust also loses 5 %
        when the uphill clips come in (6.37 → 6.05); native barely changes (5.97 → 5.92).
-     - Next: compare per-clip root speeds, Rust's decoded root track against native windows
-       where one clip dominates.
+   - **Explained (ACU-RE-0074 obs. 11).**
+     - Per frame, the native root delta equals the weight-normalised blend of the leaves'
+       decoded root-track deltas: 54 multi-leaf frames, median error 0.02 mm, ratio 0.9995
+       (`tools/root_delta_blend_compare.py`). That is Rust's model.
+     - Per-clip root speed at 1×: `Sprint_3-Loop_V02` 7.07 m/s, `Run_3-Loop` 4.56, uphill sprint
+       4.14, uphill run 3.64.
+     - Every native sprint window had slope, wall-anticipate or avoid leaves taking 0.25–0.30
+       of the weight. Their 0.667 s cycles lengthen the shared sync cycle:
+       0.695 · 0.467 + 0.304 · 0.667 ≈ 0.527 s, against a measured 0.528 s. That slows the
+       sprint clip to 0.884×.
+     - On flat open ground Rust gives the sprint 0.79 at 0.919×, and the verified model then
+       gives Rust's 6.3–6.4 m/s.
+     - So the gap comes from the terrain in the captures, not from Rust. No native sample on
+       flat, open ground exists to confirm the flat value directly.
 4. **After a sprint stop.**
    - Native plays `IdleHigh_tr_IdleLow_footl/footr` (1.09–1.1 s) in 3 of 3 runs; Rust goes
      straight to `IdleLow_Footr`.

@@ -1248,8 +1248,9 @@ mod tests {
             first_sprint.is_some_and(|t| (0.9..=1.9).contains(&t)),
             format!("time to sprint {first_sprint:?} s (native 1.00-1.82)"),
         );
-        // ACU-RE-0074: graph 3381, blend weights and sync rates match native; the native
-        // sprints ran near walls and on uneven ground, so this gap is not shown to be a defect.
+        // ACU-RE-0074 obs. 11: native root motion is the same weight-normalised blend, and every
+        // native window had slope / wall leaves lengthening the sync cycle; this band comes from
+        // those windows, so the difference is explained, not a Rust defect.
         // Native Sprint_3-Loop_V02: 5.96 m/s over a clear 1.59 s segment (loco-stops-2, 60 Hz);
         // 5.26 (loco-turn-delta-2) and 5.79-5.95 m/s (loco-params-1, blended) elsewhere.
         let v = speed(&s, 4.0, 5.0);
