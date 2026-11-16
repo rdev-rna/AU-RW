@@ -281,6 +281,9 @@ def main():
                          "the printed `save_pin.py release <run dir>`")
     ap.add_argument("--focus-dll", type=Path, default=focus.OUT / "acu_focus.dll",
                     help="focus shim build to inject (default: the current acu_focus.dll)")
+    ap.add_argument("--extra-dll", type=Path, action="append", default=[],
+                    help="also inject this DLL right after the shim, before the menus (repeatable; "
+                         "e.g. local/native-probe/acu_shader_probe.dll)")
     a = ap.parse_args()
     if a.save_pin and a.attach:
         ap.error("--save-pin needs a launch (no --attach)")
@@ -343,6 +346,12 @@ def main():
                                     "--dll", str(focus.OUT / "acu_probe.dll")], capture_output=True, text=True)
             if '"injected":true' not in probe.stdout:
                 raise RuntimeError(f"probe injection failed: {probe.stdout}{probe.stderr}")
+        for extra in a.extra_dll:
+            injected = subprocess.run([str(focus.OUT / "acu_probe_launcher.exe"), "--attach", str(pid),
+                                       "--dll", str(extra.resolve())], capture_output=True, text=True)
+            if '"injected":true' not in injected.stdout:
+                raise RuntimeError(f"{extra} injection failed: {injected.stdout}{injected.stderr}")
+            run.stage("extra_dll", dll=str(extra), sha256=hashlib.sha256(extra.read_bytes()).hexdigest())
         rect = W.RECT()
         user.GetClientRect(hwnd, C.byref(rect))  # 1280x720 when the capture preset took effect
         run.stage("attach", pid=pid, exe_sha256=digest, shim=shim["state"], fps_cap=shim["frame"]["fps_cap"],
