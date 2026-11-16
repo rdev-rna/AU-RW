@@ -228,6 +228,9 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         cl.state.target = s.target.clone();
         cl.normals = s.normals.clone();
         cl.drag.0 = s.wind.extend(0.0);
+        // Damping S+44 (body +176) is a per-frame input: the component's reposition boost
+        // (`0x141d8b9a0`) rewrites it; zero in these captures outside a boost.
+        cl.integration.damping = f32_at(&s.body, 176);
         if let Some(i) = args.iter().position(|a| a == "--stiffness") {
             // Diagnostic: per-set stiffness from body +152/+156/+160 (`live`) or a list.
             let v: Vec<f32> = if args[i + 1] == "live" {
@@ -502,6 +505,9 @@ fn free_run(
         }
         cl.state.target = s.target.clone();
         cl.drag.0 = s.wind.extend(0.0);
+        // Damping S+44 (body +176) is a per-frame input: the component's reposition boost
+        // (`0x141d8b9a0`) rewrites it; zero in these captures outside a boost.
+        cl.integration.damping = f32_at(&s.body, 176);
         if !no_collision {
             cl.shapes = s.shapes.clone();
             cl.collision = params.clone();

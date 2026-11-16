@@ -685,9 +685,9 @@ collision object, `0x4344680`). It snapshots positions, previous and records at 
   **0.0 mm error on all 123,728 free-particle collisions (bit-exact)**.
 - The op-by-op pipeline from each step entry agrees at each collision exit within 0.017–0.03 mm
   mean (0.05–0.17 mm max) in 72 of the 76 steps.
-- 4 steps (t ≈ 4.3–4.7 s, end of the left curve) differ by 3.7–8.5 mm mean from the first
-  call on. The cloth is falling 9–16 mm per step there, and the game's first-call input sits
-  about 17 mm above Verlet. So integration, not collision, is off in these steps (open).
+- 4 steps (t ≈ 4.3–4.7 s, end of the left curve) differed by 3.7–8.5 mm mean from the first
+  call on. They ran with a transient damping boost (section "Damping boost after a
+  reposition"); with each step's captured damping they agree like the rest.
 
 **Results with the discrete path** (`cloth_gate`, same captures as above):
 
@@ -705,6 +705,52 @@ Viewer (`acu_bevy --scenario idle|walk|run --ticks 160`, report `"path": "discre
 run, the flap drapes over the raised knee instead of sliding around it. No visual comparison
 with the game's frames has been made.
 
+### Damping boost after a reposition (observed live and static 2026-11-16, ported)
+
+**The four outlier steps of the kernel capture** (above) were not an integrator difference.
+The body's damping S+44 (body +176) is rewritten every frame, and those steps ran with
+damping 0.48 → 0.38 instead of the settings' 0. In `collide-turn-11008-…`:
+- body +176 is 0 in every step except 256–285;
+- it reads 0.48333 at step 256 (just after a 45 ms frame hitch at step 255), 0.46667 at 257,
+  then 0.48333 again at 258 and 259;
+- after that it falls by exactly 1/60 per frame to 0.05 at step 285 and 0 after.
+
+It is 0 in all three earlier captures (960 steps). With each step's captured damping, the four
+outliers drop from 3.7–8.5 mm to 0.007–0.025 mm mean (all 76 steps: 0.025 mm mean, 0.17 mm max
+at the last collision exit).
+
+**Writer (observed).**
+- Live, PID 7648: a `WWATCH` on the flap's body +176 (2 s, 120 writes) names `0x1423b1f7f` in
+  `0x1423b1f10`. It copies a source settings object into the S block every frame: S+44 ← src+136,
+  with stiffness, gravity and the rest. The source is a per-thread scratch at
+  `0x407fac0 + n·0x100000`, and the copy returns into `0x1423aa6d0`.
+- A watch on the scratch pages crashed that game; nothing else was affected.
+- `0x1423aa6d0` has four direct callers (scan of `call rel32` in `.text`): `0x141d81905`,
+  `0x141d81d88`, `0x141d8bbaa` and `0x141d93ec8`.
+
+**Rule (static, `0x141d8b9a0`, the cloth component's per-frame update; corpus
+`ACU - Decompiled/141D8B9A0.c`).**
+- It fills the scratch from the current settings (`0x1423aa5a0`).
+- When any of the component flags +572/+573/+574 is set:
+  - counter +428 = 30, start +432 = 0.5;
+  - base +436 = the settings resource's damping (+0x1C);
+  - damping = 0.5;
+  - the same branch also repositions the cloth with a transform from +80 (`0x141d7a940` →
+    `0x1423aba70`).
+- While the counter runs: `damping += (start − base)·(−1/30)` (`0x3d088889`), counter −1; at 0,
+  damping = base.
+- Then `0x1423aa6d0` writes it into the body. This reproduces the live values exactly,
+  including the trigger frame's 0.48333.
+
+**Port.**
+- `acu_sim::cloth::{DampingBoost, Cloth::trigger_damping_boost, Cloth::tick_damping_boost}`.
+- The viewer ticks the boost before each step and triggers it on its own reset. Treating that
+  reset as the reposition event is an implementation choice.
+- `cloth_gate` and `cloth_collide_gate` take each step's damping from the captured body, like
+  the targets (`--static-damping` in the collide gate keeps the settings value).
+- Unknown: who sets flags +572/+573/+574. The live trigger followed a frame hitch near the end
+  of the left curve.
+
 
 ## Unknowns
 
@@ -712,9 +758,8 @@ with the game's frames has been made.
   and which of fields 24/33/36 is friction (all 0.2 in the flap's settings).
 - Where S+60 scales the tether lengths; which external fields carry the blend, drag and
   swept-collision enables (S+6, S+64, S+192).
-- Four steps of the live kernel capture where the falling cloth integrates about 17 mm off
-  Verlet (section "The discrete collision path"): likely vertical character motion, which the
-  flat captures never exercise.
+- What sets the component's reposition flags (+572/+573/+574) that arm the damping boost;
+  the viewer arms it on its own reset (implementation choice).
 - The discrete sphere and box kernels (`0x1423d66d0`, `0x1423d5630`); the flap has none.
 - The four unnamed leg bone hashes.
 - Whether the per-step error budget meets visual parity (no side-by-side frame comparison).

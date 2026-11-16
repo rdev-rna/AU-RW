@@ -56,7 +56,12 @@ Tailored flap's motion comes from the `Cloth` soft-body resource, not from bones
   - Replay: one step is within 0.026 mm (mean) and 0.21 mm (worst particle).
   - Free-run: 450 steps drift 0.03–0.14 mm (mean).
   - The reversed normal at the fold is gone.
-  - Open: 4 of 76 live steps with falling cloth integrate about 17 mm off Verlet.
+- Damping boost (2026-11-16): the 4 off steps ran with a transient damping boost.
+  - The cloth component `0x141d8b9a0` sets damping to 0.5 on a reposition and decays it to the
+    base over 30 frames. Live writer found by a write watch (`0x1423b1f10` copies it per frame).
+  - Ported in `acu_sim`; the gates take each step's damping from the capture.
+  - All 76 kernel-capture steps now agree within 0.025 mm mean, 0.17 mm max.
+  - Open: what raises the reposition flags.
 
 Lighting (2026-11-15, [ACU-RE-0073](findings/ACU-RE-0073-baked-gi-and-world-ambiance.md)): the
 arena now uses the native `WorldAmbiance` settings. All 15 sets in the install are ported:

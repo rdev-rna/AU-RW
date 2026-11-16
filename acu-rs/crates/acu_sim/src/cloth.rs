@@ -362,6 +362,52 @@ pub struct Cloth {
     /// Opcodes the native gate `0x14240bf70` turns off for this body (settings block bytes);
     /// the interpreter skips them. Repeat markers (10, 11) are never gated.
     pub disabled_ops: Vec<u32>,
+    /// The component's transient damping after a reposition (`0x141d8b9a0`).
+    pub damping_boost: DampingBoost,
+}
+
+/// Transient damping boost of the cloth component's per-frame update `0x141d8b9a0`
+/// (ACU-RE-0081, observed live and static). When the component's reposition flags
+/// (+572/+573/+574) are set, damping jumps to 0.5 (+432) with a 30-frame counter (+428), and
+/// the settings' base damping is kept (+436). Every frame while the counter runs, damping
+/// moves by `(base − 0.5)/30` from its current value; it equals `base` when the counter
+/// reaches 0. The result is written into the body (S+44, body +176) before the step.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct DampingBoost {
+    pub frames_left: u32,
+    pub start: f32,
+    pub base: f32,
+}
+
+impl DampingBoost {
+    /// Native start value (+432 = 0x3f000000) and frame count (+428 = 30).
+    pub const START: f32 = 0.5;
+    pub const FRAMES: u32 = 30;
+}
+
+impl Cloth {
+    /// Reposition event (component flags +572/+573/+574): arm the boost with the settings'
+    /// base damping and set damping to the start value.
+    pub fn trigger_damping_boost(&mut self, base: f32) {
+        self.damping_boost = DampingBoost {
+            frames_left: DampingBoost::FRAMES,
+            start: DampingBoost::START,
+            base,
+        };
+        self.integration.damping = DampingBoost::START;
+    }
+
+    /// The per-frame part of `0x141d8b9a0`, before the frame's step: count down and move the
+    /// damping toward the base (`d + (start − base)·−1/30`, `0x3d088889`).
+    pub fn tick_damping_boost(&mut self) {
+        let b = &mut self.damping_boost;
+        if b.frames_left == 0 {
+            return;
+        }
+        b.frames_left -= 1;
+        let d = self.integration.damping + (b.start - b.base) * -f32::from_bits(0x3d08_8889);
+        self.integration.damping = if b.frames_left == 0 { b.base } else { d };
+    }
 }
 
 impl Default for Integration {
@@ -915,6 +961,29 @@ mod tests {
         assert_eq!(s.pos[0], Vec4::new(-1.0, 0.0, 0.0, 0.0));
         assert_eq!(s.pos[1], Vec4::new(0.0, 1.0, 0.0, -1.0));
         assert_eq!(s.prev[1], s.pos[1]);
+    }
+
+    #[test]
+    fn damping_boost_ramps_like_the_live_body() {
+        // Live body +176 (PID 11008, collide-turn capture): 0.48333 on the trigger frame, then
+        // -1/60 per frame, back to the base (0) after 30 frames.
+        let mut c = Cloth::default();
+        c.trigger_damping_boost(0.0);
+        c.tick_damping_boost();
+        assert!((c.integration.damping - 0.483_333).abs() < 1e-5);
+        for _ in 0..13 {
+            c.tick_damping_boost();
+        }
+        assert!((c.integration.damping - 0.266_667).abs() < 1e-5);
+        for _ in 0..15 {
+            c.tick_damping_boost();
+        }
+        assert!((c.integration.damping - 0.016_667).abs() < 1e-5);
+        c.tick_damping_boost();
+        assert_eq!(c.integration.damping, 0.0);
+        assert_eq!(c.damping_boost.frames_left, 0);
+        c.tick_damping_boost();
+        assert_eq!(c.integration.damping, 0.0);
     }
 
     #[test]

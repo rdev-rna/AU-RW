@@ -11,6 +11,9 @@
 //! - **pipeline**: our step replayed op by op from the captured step entry; our positions at
 //!   each collision entry and exit against the game's (isolates the ops before it).
 //!
+//! Per-step damping (body +176) comes from the capture; `--static-damping` keeps the
+//! settings value instead.
+//!
 //! A group counts only when the first call's previous equals the step entry's positions
 //! (integrate's write), which rejects calls attributed to the wrong step.
 //!
@@ -195,6 +198,12 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         );
         cl.shapes = step_shapes;
         cl.collision = Some(params.clone());
+        // Damping S+44 (body +176) is rewritten by the game per step (a decaying boost, see
+        // ACU-RE-0081); the captured value is this step's input, like the targets.
+        let body = snap(se, 1)?;
+        if !args.iter().any(|a| a == "--static-damping") {
+            cl.integration.damping = f32::from_le_bytes(body[176..180].try_into().unwrap());
+        }
         let mut k = 0usize;
         let debug = args
             .iter()

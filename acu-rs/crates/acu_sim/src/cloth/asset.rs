@@ -91,6 +91,7 @@ pub fn solver(blob: &Blob, external: Option<&SoftBodySettings>) -> Result<Cloth,
         collision: None,
         skipped_collision: 0,
         disabled_ops: Vec::new(),
+        damping_boost: Default::default(),
     };
     // The interpreter's per-op gate (`0x14240bf70`) over the settings block bytes.
     let g = blob.op_gate().map_err(err)?;

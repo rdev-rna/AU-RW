@@ -58,6 +58,8 @@ pub struct ClothDriver {
     colliders: Vec<Collider>,
     /// Last tick's collider frames: the records' previous frame (both collision paths).
     previous_shapes: Option<Vec<collision::Frame>>,
+    /// The settings' damping, the base the reposition boost decays to (`0x141d8b9a0`).
+    base_damping: f32,
     pub steps: u64,
 }
 
@@ -183,6 +185,7 @@ fn build(
         return Err(format!("cloth bone binds differ from the mesh by {bind_error}").into());
     }
     let v3 = |a: &[[f32; 3]]| a.iter().map(|p| Vec3::from_array(*p)).collect::<Vec<_>>();
+    let solver_damping = solver.integration.damping;
     let mut driver = ClothDriver {
         skin: 0,
         handles: Vec::new(),
@@ -219,6 +222,7 @@ fn build(
         translation: None,
         colliders: Vec::new(),
         previous_shapes: None,
+        base_damping: solver_damping,
         steps: 0,
     };
     // Opcode 7 with rigid colliders (S+7): the LiteRagdoll capsules. The path (S+192)
@@ -381,6 +385,9 @@ impl ClothDriver {
                     s.pos[i] = tg.truncate().extend(w);
                     s.prev[i] = s.pos[i];
                 }
+                // The reposition also arms the damping boost (`0x141d8b9a0`); treating the
+                // viewer's reset as that event is an implementation choice.
+                self.solver.trigger_damping_boost(self.base_damping);
             }
             Some(old) => {
                 let rows = [Vec4::X, Vec4::Y, Vec4::Z];
@@ -427,6 +434,7 @@ impl ClothDriver {
         let s = &mut self.solver.state;
         self.translation = Some(t);
         s.target = targets;
+        self.solver.tick_damping_boost();
         self.solver.step(dt, &target_normals);
         self.steps += 1;
     }
