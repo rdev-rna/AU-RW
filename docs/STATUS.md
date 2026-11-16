@@ -35,7 +35,11 @@ Tailored flap's motion comes from the `Cloth` soft-body resource, not from bones
   - the game runs the full repeat count (4) and one dt = 1/30 step per frame;
   - the colliders' previous frame is last step's, carried by the character's motion (the
     viewer's rule).
-  The viewer still uses the blob's settings; see the ACU-RE-0081 unknowns.
+- The external settings are now decoded (2026-11-16): `acu_assets::cloth::soft_body_settings`
+  reads `ClothSettings_Standard_Avatars` (141 bytes, the 45 reflected fields of
+  `SoftBodySettings`). Six fields match the live body exactly. The viewer and the replay build
+  the solver from it. The viewer also steps with the observed dt = 1/30 per 60 Hz tick. The
+  replay result is unchanged (0.69 / 0.81 mm), and fresh idle/walk/run captures look right.
 
 Lighting (2026-11-15, [ACU-RE-0073](findings/ACU-RE-0073-baked-gi-and-world-ambiance.md)): the
 arena now uses the native Paris `WorldAmbiance` settings. Default `--lighting paris-noon`;

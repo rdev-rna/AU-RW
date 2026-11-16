@@ -12,8 +12,9 @@ State: **partially established.**
   render-vertex mapping, and swept collision against the flap's leg capsules. The viewer drives
   the Tailored flap with them (sections "Viewer" and "Collision").
 - Compared live (2026-11-16, section "Live comparison"): with the live body's settings, one
-  replayed step lands within 0.7–0.8 mm (mean) of the game's. The live settings come from outside
-  the blob, and the viewer does not use them yet.
+  replayed step lands within 0.7–0.8 mm (mean) of the game's. The live settings come from the
+  external `SoftBodySettings` resource, now decoded and used by the viewer (section "External
+  `SoftBodySettings`").
 
 ## Provenance
 
@@ -486,17 +487,66 @@ Findings from the replay:
   their decoded tether length (183,150 samples), never more. Scaling the tether lengths by S+60
   removes most of the error; where the native code applies it is not located.
 - **Substep (observed):** one step per rendered frame with dt = 1/30 at a 60 fps cap. The
-  viewer's dt (1/60) is a choice, not this rule.
+  viewer now uses this dt (section "External `SoftBodySettings`").
 - The op-by-op trace (`--trace K`) shows the remaining gap still shrinking at the last repeat:
   the game converges slightly faster per step. The cause (another live override, or a kernel
   difference) is open.
 - Particle normals mostly agree (mean 0.011), but a few are reversed (max distance 2.0). The
   cause is open.
 
+### External `SoftBodySettings` (decoded 2026-11-16)
+
+The LOD0 settings pointer names `ClothSettings_Standard_Avatars` `00000016c61d53a1`
+(type `f7a7e4df`, asset-index label confidence `unknown`). The flap's entry 5882 carries it as
+resource 1. All 629 indexed copies are byte-identical (141 bytes, SHA-256
+`13efc992ab82da050e34ec64fc87f6a306f543347c77fb98f5bd8aedb9b42764`). All 109 variants of the type
+(108 names) are 141 bytes.
+
+**Layout (observed, with one inference).** Root byte 1, file id, type, then the 45 fields of the
+reflected class `SoftBodySettings` (`local/tailored/softbody-reflection.json`, descriptor
+`0x144e8cf90`, 144-byte runtime object), with sizes from their type codes:
+- `0a` float (4 bytes), `00` and `03` byte, `07` int32, `0c` vec3 (12 bytes); `c0` is 1 byte
+  (inference);
+- order: fields 3 and 4, then the three `c0` fields 0–2, then fields 5–44. Fields 5–44 align
+  exactly when walked back from the end. The position of fields 0–2 is an inference: they hold
+  0, 0, 1 in every variant;
+- check: on all 79 settings resources in BelleEpoque_assets, every bool is 0 or 1, every float
+  is finite, and gravity is (0, 0, −20) or (0, 0, −9.8).
+
+**Field meanings (each matched to the live body, PID 131236).** Names are CRC-32 hashes; only
+`Damping` is named by reflection.
+
+| Field | Hash | Flap value | Live body | Evidence |
+|---|---|---|---|---|
+| 39 (vec3) | `e08712ff` | (0, 0, −20) | gravity S+32 (+164) | unique match |
+| 37 | `8bb303f6` `Damping` | 0 | S+44 (+176) | name |
+| 34 | `cf5065b0` | 0.05 | thickness S+48 (+180) | unique match |
+| 20 | `ee6c1935` | 1.1 | S+60 (+192) | unique match; bool 19 before it mirrors blob bytes 34/35 |
+| 24 | `1664baeb` | 0.2 | friction S+196 (+328) | inference: fields 33 and 36 also hold 0.2; 23/24 mirror blob bytes 43/44 |
+| 40, 41 | `d2bb63f9`, `6a9969e1` | 30, 15 | drag (+252, +256) | unique match |
+| 16 | `d47dfb66` | 1.5 | body +160 | unique match; role unknown |
+| 31 (u8) | `00d15395` | 128 | priority S+195 | same value as the blob |
+
+The replay confirms the decode: the decoded gravity, damping, thickness, S+60, friction and
+drag equal the captured body's exactly, and the replay with decoded settings reproduces the
+live-body result (idle 0.69 mm, moving 0.81 mm mean).
+
+**Port.**
+- `acu_assets::cloth::soft_body_settings` decodes the resource (fixed length, root, id and type
+  checks, bools 0/1, finite floats).
+- `acu_sim::cloth::asset::{solver, collision_params}` take it as `external`. It overrides gravity
+  (used as is, not halved), damping, drag, collision thickness and friction, and scales tether
+  lengths by S+60 (inference).
+- The viewer loads it from the cloth's package by the LOD's pointer, and reports it under
+  `settings`.
+- The viewer steps with dt = 1/30 once per 60 Hz tick (observed live). Fresh captures
+  (`local/cloth/`, ignored): `idle-settings-160.png`, `walk-settings-160.png`,
+  `run-settings-160.png`. The coat hangs at idle and trails the legs in the run.
+
 ## Unknowns
 
-- `ClothSettings_Standard_Avatars` (`00000016c61d53a1`): its layout, and which fields override
-  the blob (gravity, thickness, S+60, friction, drag observed live).
+- `SoftBodySettings`: the meaning of the 37 fields not matched live, the order of fields 0–2,
+  and which of fields 24/33/36 is friction (all 0.2 in the flap's settings).
 - Where S+60 scales the tether lengths; the remaining 0.7 mm per-step gap; the reversed normals.
 - The four unnamed leg bone hashes.
 - Why the engine steps with dt = 1/30 every frame at 60 fps (engine `0x141d96fb0`, mode c+92,

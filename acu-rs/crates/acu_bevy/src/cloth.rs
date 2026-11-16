@@ -127,7 +127,21 @@ pub fn load(piece: &LoadedPiece, skin: &Skin, skin_index: usize) -> Result<Optio
                 )),
                 None => None,
             };
-            let mut driver = build(piece, skin, &parsed.lod0_blob, &lod, ragdoll)?;
+            // MotionClothLOD.Settings: the external SoftBodySettings, in the same package.
+            let external = match &parsed.lod0_settings {
+                cloth::Pointer::Id { file_id, .. } => package
+                    .resources
+                    .iter()
+                    .find(|q| &q.file_id == file_id && q.type_id == "f7a7e4df")
+                    .map(|q| {
+                        let bytes = &package.bytes[q.payload.clone()];
+                        cloth::soft_body_settings(bytes, &q.file_id)
+                            .map(|s| (q.name.clone(), sha256(bytes), s))
+                    })
+                    .transpose()?,
+                cloth::Pointer::Null => None,
+            };
+            let mut driver = build(piece, skin, &parsed.lod0_blob, &lod, ragdoll, external)?;
             driver.skin = skin_index;
             driver.report["resource"] = json!({"name":name,"file_id":id_text,
                 "archive":archive.display().to_string(),"entry":entry,
@@ -144,10 +158,12 @@ fn build(
     blob: &cloth::Blob,
     lod: &cloth::LodMesh,
     ragdoll: Option<(String, String, Vec<cloth::LiteRagdollShape>)>,
+    external: Option<(String, String, cloth::SoftBodySettings)>,
 ) -> Result<ClothDriver> {
     let n = blob.particle_count()?;
     let settings = blob.settings()?;
-    let solver = sim::asset::solver(blob)?;
+    let ext = external.as_ref().map(|e| &e.2);
+    let solver = sim::asset::solver(blob, ext)?;
     if lod.mappings.len() != piece.vertices.len() {
         return Err("cloth: render vertex count differs from the mesh".into());
     }
@@ -231,7 +247,7 @@ fn build(
                     height: sh.height,
                 });
             }
-            driver.solver.collision = sim::asset::collision_params(blob)?;
+            driver.solver.collision = sim::asset::collision_params(blob, ext)?;
             // Bind-pose check: capsule centres/axes in mesh space and how many
             // rest particles start inside each (expected few: none pinned).
             let bind_pose: Vec<serde_json::Value> = driver
@@ -310,12 +326,20 @@ fn build(
         "finding":"ACU-RE-0081",
         "particles":n,"render_vertices":x.len(),"bones":lod.bones.len(),
         "schedule":driver.solver.schedule,
-        "gravity":settings.gravity,"max_speed":settings.max_speed,"drag":[settings.drag.a,settings.drag.b],
+        "gravity":driver.solver.integration.gravity.truncate().to_array(),
+        "max_speed":driver.solver.integration.max_speed,
+        "drag":[driver.solver.drag.1,driver.solver.drag.2],
+        "settings":match &external {
+            Some((name, sha, s)) => json!({"source":"external","name":name,"file_id":s.file_id,
+                "payload_sha256":sha,"tether_scale":s.tether_scale(),"thickness":s.thickness(),
+                "friction":s.friction()}),
+            None => json!({"source":"blob (no external SoftBodySettings found)"}),
+        },
         "authored_wind":{"enabled":settings.drag.wind_enabled,"vector":settings.drag.wind},
         "max_bone_bind_error":bind_error,"max_rest_mapping_error_m":rest_error,
         "rest_normal_min_dot_mesh":normal_dot,
         "tangent_sign_agreement":[agree, x.len()],"tangent_sign_flipped":driver.flip_sign,
-        "choices":"one solver step per 60 Hz tick; full repeat count; no ambient wind; scale 1; collider previous frame = last tick's pose",
+        "choices":"one dt=1/30 solver step per 60 Hz tick (observed live at a 60 fps cap); full repeat count (observed); no ambient wind; scale 1; collider previous frame = last tick's pose (observed)",
         "collision":collision_report,
         "not_ported":"mesh (type 4) and cloth (type 5) colliders; the native particle BVH"});
     Ok(driver)

@@ -1,15 +1,18 @@
 //! Per-step cloth replay against the game, ACU-RE-0081.
 //!
-//!     cloth_gate <capture.bin> [--repeat N] [--resource-settings] [--resource-collision] [--no-collision]
+//!     cloth_gate <capture.bin> [--blob-settings | --live-body] [--repeat N] [--no-collision]
+//!                [--skip OPS] [--trace K] [--tether-check]
 //!
 //! Needs ACU_GAME_DIR (the flap's `Cloth` resource: BelleEpoque_assets entry 5882). Each
 //! captured step's inputs (positions, previous, normals, targets, target normals, dt, wind,
 //! shape records) are loaded into the solver built from the resource, stepped once, and the
 //! result compared with the game's exit snapshot. Prints one JSON report.
 //!
-//! Collision thickness and friction come from the captured body (+180, +328) unless
-//! `--resource-collision`; `--repeat N` replaces the repeat-block count (op 10), which the
-//! native LOD rule (`0x14240c090`) may reduce.
+//! Settings: by default the external `SoftBodySettings` the LOD names (decoded, resource 1 of
+//! the entry), as the viewer uses them; `--blob-settings` uses only the blob's record;
+//! `--live-body` copies the captured body's settings block instead. The report compares the
+//! decoded values with the live body's. `--repeat N` replaces the repeat-block count (op 10),
+//! which the native LOD rule (`0x14240c090`) may reduce.
 use acu_assets::{Limits, cloth, forge::Forge, package};
 use acu_sim::cloth as sim;
 use acu_tap_bridge::cloth::{Step, decode_step};
@@ -48,16 +51,16 @@ fn dist(a: Vec4, b: Vec4) -> f32 {
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let args: Vec<String> = std::env::args().collect();
     if args.len() < 2 {
-        return Err("usage: cloth_gate capture.bin [--repeat N] [--resource-settings] [--resource-collision] [--no-collision]".into());
+        return Err("usage: cloth_gate capture.bin [--blob-settings | --live-body] [--repeat N] [--no-collision] [--skip OPS] [--trace K] [--tether-check]".into());
     }
     let repeat = args
         .iter()
         .position(|a| a == "--repeat")
         .map(|i| args[i + 1].parse::<u32>())
         .transpose()?;
-    let resource_collision = args.iter().any(|a| a == "--resource-collision");
     let no_collision = args.iter().any(|a| a == "--no-collision");
-    let resource_settings = args.iter().any(|a| a == "--resource-settings");
+    let blob_settings = args.iter().any(|a| a == "--blob-settings");
+    let live_body = args.iter().any(|a| a == "--live-body");
     let trace = args
         .iter()
         .position(|a| a == "--trace")
@@ -80,8 +83,16 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let blob = &c.lod0_blob;
     let n = blob.particle_count()?;
     let settings = blob.settings()?;
-    let mut base = sim::asset::solver(blob)?;
-    let resource_params = sim::asset::collision_params(blob)?;
+    let sr = p
+        .resources
+        .iter()
+        .find(|q| q.type_id == "f7a7e4df")
+        .ok_or("no SoftBodySettings in the entry")?;
+    let decoded = cloth::soft_body_settings(&p.bytes[sr.payload.clone()], &sr.file_id)?;
+    // `--live-body` starts from the blob and copies the body per step (no double scaling).
+    let ext = (!blob_settings && !live_body).then_some(&decoded);
+    let mut base = sim::asset::solver(blob, ext)?;
+    let resource_params = sim::asset::collision_params(blob, ext)?;
     if let Some(i) = args.iter().position(|a| a == "--skip") {
         // Diagnostic: drop these opcodes from the program (not a native mode).
         let skip: Vec<u32> = args[i + 1]
@@ -151,6 +162,15 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         "max_speed_184": f32_at(b0, 184), "s56_188": f32_at(b0, 188), "s60_192": f32_at(b0, 192),
         "friction_328": f32_at(b0, 328), "drag_252_256": [f32_at(b0, 252), f32_at(b0, 256)], "b126": b0[126], "b127": b0[127], "b143": b0[143],
     });
+    let eq = |a: bool| json!(a);
+    let body_vs_decoded = json!({
+        "gravity": eq([f32_at(b0, 164), f32_at(b0, 168), f32_at(b0, 172)] == decoded.gravity()),
+        "damping": eq(f32_at(b0, 176) == decoded.damping()),
+        "thickness": eq(f32_at(b0, 180) == decoded.thickness()),
+        "tether_scale": eq(f32_at(b0, 192) == decoded.tether_scale()),
+        "friction": eq(f32_at(b0, 328) == decoded.friction()),
+        "drag": eq((f32_at(b0, 252), f32_at(b0, 256)) == decoded.drag()),
+    });
     let resource = json!({
         "gravity": settings.gravity, "damping": settings.damping, "thickness": settings.thickness,
         "max_speed": settings.max_speed, "blend": settings.blend, "s60": settings.s60,
@@ -175,7 +195,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         cl.state.target = s.target.clone();
         cl.normals = s.normals.clone();
         cl.drag.0 = s.wind.extend(0.0);
-        if !resource_settings {
+        if live_body {
             // Live settings block S = body+132 (gravity S+32, damping S+44, max speed S+52,
             // blend S+56) and the drag constants the kernel 0x1423d72b0 reads (+252, +256).
             let b = &s.body;
@@ -192,7 +212,7 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         if !no_collision {
             cl.shapes = s.shapes.clone();
             cl.collision = resource_params.clone().map(|mut p| {
-                if !resource_collision {
+                if live_body {
                     p.thickness = f32_at(&s.body, 180);
                     p.friction = f32_at(&s.body, 328);
                 }
@@ -236,8 +256,9 @@ fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             "dt": dts.iter().map(|b| f32::from_bits(*b)).collect::<Vec<_>>(),
             "shapes": steps[0].shapes.len(),
             "schedule": base.schedule,
-            "settings": if resource_settings { "resource" } else { "live body" },
-            "collision": if no_collision { "off" } else if resource_collision { "resource" } else { "live body" },
+            "settings": if live_body { "live body" } else if blob_settings { "blob" } else { "external SoftBodySettings" },
+            "live_body_equals_decoded": body_vs_decoded,
+            "collision": if no_collision { "off" } else { "on" },
             "live_body": live, "resource_settings": resource,
             "error_m": {"free": free.json(), "pinned": pinned.json(), "prev": prev_e.json(),
                         "normals": norm_e.json()},

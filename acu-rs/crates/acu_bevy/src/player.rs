@@ -112,8 +112,9 @@ fn spawn_player(block: Option<&ArenaBlock>) -> Player {
 
 /// Replay ticks kept for the capture-mode cloth warm-up (4 s at 60 Hz).
 const CLOTH_HISTORY: usize = 240;
-/// Fixed tick length the cloth steps with (`Time::<Fixed>::from_hz(60.0)`).
-const CLOTH_DT: f32 = 1.0 / 60.0;
+/// Cloth step dt, once per 60 Hz fixed tick. Observed live (ACU-RE-0081, 2026-11-16): the
+/// game steps every cloth body once per rendered frame with dt = 1/30 at a 60 fps cap.
+const CLOTH_DT: f32 = 1.0 / 30.0;
 
 #[derive(Resource)]
 pub struct State {

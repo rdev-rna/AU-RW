@@ -1006,6 +1006,179 @@ impl<'a> Cursor<'a> {
     }
 }
 
+/// `SoftBodySettings` resource type (reflection class `f7a7e4df`, 144-byte runtime object).
+pub const TYPE_SOFT_BODY_SETTINGS: u32 = 0xf7a7_e4df;
+/// Fixed serialized size of a `SoftBodySettings` payload (all 109 installed variants).
+pub const SOFT_BODY_SETTINGS_LEN: usize = 141;
+
+/// One serialized `SoftBodySettings` field (reflection type codes `0a` float, `00`/`03`/`c0`
+/// byte, `07` int32, `0c` vec3).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum SettingValue {
+    F32(f32),
+    U8(u8),
+    I32(i32),
+    Vec3([f32; 3]),
+}
+
+/// Reflection field order (`SoftBodySettings`, ACU-RE-0081) with each field's type code.
+/// Only `8bb303f6` has a name (`Damping`); the rest are CRC-32 name hashes.
+const SOFT_BODY_SETTINGS_FIELDS: [(u32, u8); 45] = [
+    (0x8241_9bf7, 0xc0),
+    (0x9098_bae0, 0xc0),
+    (0x275b_8856, 0xc0),
+    (0x531c_fd0e, 0x0a),
+    (0xd6f6_d11a, 0x03),
+    (0x50c1_fc95, 0x07),
+    (0xfac3_f701, 0x0a),
+    (0x7ada_8f5d, 0x0a),
+    (0xffa9_64ad, 0x0a),
+    (0x536b_b0ea, 0x0a),
+    (0x8807_8322, 0x0a),
+    (0x447b_4a4a, 0x0a),
+    (0xe34f_ca33, 0x0a),
+    (0x495e_ea23, 0x0a),
+    (0x9892_2727, 0x0a),
+    (0x3fa6_a75e, 0x0a),
+    (0xd47d_fb66, 0x0a),
+    (0x4ae3_78a9, 0x0a),
+    (0xedd7_f8d0, 0x0a),
+    (0x0649_2b52, 0x00),
+    (0xee6c_1935, 0x0a),
+    (0x95cc_3788, 0x00),
+    (0x8347_736e, 0x0a),
+    (0x7dd9_c586, 0x00),
+    (0x1664_baeb, 0x0a),
+    (0x8ca9_117e, 0x00),
+    (0x4465_9285, 0x00),
+    (0x87b0_8a1b, 0x00),
+    (0x1902_337e, 0x00),
+    (0x0e02_89e3, 0x00),
+    (0xa276_7efb, 0x00),
+    (0x00d1_5395, 0x03),
+    (0x37e5_8757, 0x00),
+    (0xeb7a_7a5d, 0x0a),
+    (0xcf50_65b0, 0x0a),
+    (0xb1b4_8708, 0x00),
+    (0x90f1_fc99, 0x0a),
+    (0x8bb3_03f6, 0x0a),
+    (0xbb87_efe7, 0x03),
+    (0xe087_12ff, 0x0c),
+    (0xd2bb_63f9, 0x0a),
+    (0x6a99_69e1, 0x0a),
+    (0xfd87_0e7b, 0x00),
+    (0x5421_c3b0, 0x00),
+    (0xeb29_cec2, 0x00),
+];
+
+/// Serialized field order: fields 3 and 4, then the three `c0` fields 0–2, then 5–44. The
+/// position of fields 0–2 is an inference (they hold 0, 0, 1 in every installed variant).
+const SOFT_BODY_SETTINGS_ORDER: [usize; 45] = {
+    let mut o = [0usize; 45];
+    o[0] = 3;
+    o[1] = 4;
+    o[2] = 0;
+    o[3] = 1;
+    o[4] = 2;
+    let mut i = 5;
+    while i < 45 {
+        o[i] = i;
+        i += 1;
+    }
+    o
+};
+
+/// The external `SoftBodySettings` a `Cloth` LOD names (`ClothSettings_Standard_Avatars` for the
+/// flap). Fields are kept by reflection index; the named accessors are the fields whose live
+/// body value was matched (ACU-RE-0081, live comparison 2026-11-16).
+#[derive(Clone, Debug, PartialEq)]
+pub struct SoftBodySettings {
+    pub file_id: String,
+    /// Reflection order (index = field number above).
+    pub fields: Vec<(u32, SettingValue)>,
+}
+
+impl SoftBodySettings {
+    fn f(&self, i: usize) -> f32 {
+        match self.fields[i].1 {
+            SettingValue::F32(v) => v,
+            _ => f32::NAN,
+        }
+    }
+    /// Field 39 (`e08712ff`, vec3): live body S+32 (+164), used as is (no halving).
+    pub fn gravity(&self) -> [f32; 3] {
+        match self.fields[39].1 {
+            SettingValue::Vec3(v) => v,
+            _ => [f32::NAN; 3],
+        }
+    }
+    /// Field 37 (`Damping`): live body S+44 (+176).
+    pub fn damping(&self) -> f32 {
+        self.f(37)
+    }
+    /// Field 34 (`cf5065b0`): collision thickness, live body S+48 (+180).
+    pub fn thickness(&self) -> f32 {
+        self.f(34)
+    }
+    /// Field 20 (`ee6c1935`): live body S+60 (+192); the tether stretch scale (inference).
+    pub fn tether_scale(&self) -> f32 {
+        self.f(20)
+    }
+    /// Field 24 (`1664baeb`): collision friction, live body S+196 (+328). Inference: fields 33
+    /// and 36 hold the same 0.2 in the flap's settings; 24 is chosen because its bool-then-float
+    /// pair (fields 23/24) mirrors the blob record's swept/friction bytes 43/44.
+    pub fn friction(&self) -> f32 {
+        self.f(24)
+    }
+    /// Fields 40 and 41: the drag constants the kernel `0x1423d72b0` reads (body +252, +256).
+    pub fn drag(&self) -> (f32, f32) {
+        (self.f(40), self.f(41))
+    }
+}
+
+/// Decode a `SoftBodySettings` payload: root byte 1, file id, type, then the 45 fields.
+pub fn soft_body_settings(payload: &[u8], expected_id: &str) -> Result<SoftBodySettings> {
+    if payload.len() != SOFT_BODY_SETTINGS_LEN {
+        return invalid(format!(
+            "soft body settings: {} bytes, expected {SOFT_BODY_SETTINGS_LEN}",
+            payload.len()
+        ));
+    }
+    let mut c = Cursor { b: payload, at: 0 };
+    if c.u8()? != 1 {
+        return invalid("soft body settings: unexpected root tag");
+    }
+    let file_id = c.id()?;
+    if file_id != expected_id || c.u32()? != TYPE_SOFT_BODY_SETTINGS {
+        return invalid("soft body settings: unexpected id or type");
+    }
+    let mut fields = vec![(0u32, SettingValue::U8(0)); 45];
+    for &i in &SOFT_BODY_SETTINGS_ORDER {
+        let (hash, code) = SOFT_BODY_SETTINGS_FIELDS[i];
+        let v = match code {
+            0x0a => SettingValue::F32(c.f32()?),
+            0x07 => SettingValue::I32(c.u32()? as i32),
+            0x0c => SettingValue::Vec3([c.f32()?, c.f32()?, c.f32()?]),
+            0x00 => {
+                let b = c.u8()?;
+                if b > 1 {
+                    return invalid(format!("soft body settings: bool field {i} is {b}"));
+                }
+                SettingValue::U8(b)
+            }
+            _ => SettingValue::U8(c.u8()?),
+        };
+        if let SettingValue::F32(x) = v
+            && !x.is_finite()
+        {
+            return invalid(format!("soft body settings: field {i} is not finite"));
+        }
+        fields[i] = (hash, v);
+    }
+    debug_assert_eq!(c.at, SOFT_BODY_SETTINGS_LEN);
+    Ok(SoftBodySettings { file_id, fields })
+}
+
 fn u32_at(b: &[u8], at: usize) -> Result<u32> {
     let s = b.get(at..at + 4).ok_or("cloth: u32 read past end")?;
     Ok(u32::from_le_bytes([s[0], s[1], s[2], s[3]]))
@@ -1085,5 +1258,44 @@ mod tests {
         assert!(blob(&b).unwrap().particles().is_err());
         let b = wrap(&[rec(0x0201, b"x")]);
         assert!(blob(&b).unwrap().settings_name().is_err());
+    }
+
+    /// A synthetic settings payload in serialized order (fields 3, 4, 0-2, 5-44).
+    fn settings_payload() -> Vec<u8> {
+        let mut v = vec![1u8];
+        v.extend(0x0000_0016_c61d_53a1u64.to_le_bytes());
+        v.extend(TYPE_SOFT_BODY_SETTINGS.to_le_bytes());
+        for &i in &SOFT_BODY_SETTINGS_ORDER {
+            match SOFT_BODY_SETTINGS_FIELDS[i].1 {
+                0x0a => v.extend((i as f32).to_le_bytes()),
+                0x07 => v.extend((-1i32).to_le_bytes()),
+                0x0c => [0.0f32, 0.0, -20.0]
+                    .iter()
+                    .for_each(|x| v.extend(x.to_le_bytes())),
+                0x00 => v.push(1),
+                _ => v.push(i as u8),
+            }
+        }
+        v
+    }
+
+    #[test]
+    fn soft_body_settings_fields_land_by_reflection_index() {
+        let p = settings_payload();
+        assert_eq!(p.len(), SOFT_BODY_SETTINGS_LEN);
+        let s = soft_body_settings(&p, "00000016c61d53a1").unwrap();
+        assert_eq!(s.gravity(), [0.0, 0.0, -20.0]);
+        assert_eq!(
+            (s.damping(), s.thickness(), s.tether_scale()),
+            (37.0, 34.0, 20.0)
+        );
+        assert_eq!((s.friction(), s.drag()), (24.0, (40.0, 41.0)));
+        assert_eq!(s.fields[2], (0x275b_8856, SettingValue::U8(2)));
+        assert_eq!(s.fields[5].1, SettingValue::I32(-1));
+        assert!(soft_body_settings(&p, "00000016c61d53a2").is_err());
+        assert!(soft_body_settings(&p[..140], "00000016c61d53a1").is_err());
+        let mut bad = p.clone();
+        bad[77] = 2; // field 19, a bool, in serialized position 77
+        assert!(soft_body_settings(&bad, "00000016c61d53a1").is_err());
     }
 }

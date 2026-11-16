@@ -136,6 +136,29 @@ fn installed_tailored_flap_cloth_decodes() -> Result<()> {
     let t4 = shapes[4].local[3];
     assert!((t4[0] - 0.000_117).abs() < 1e-5 && (t4[2] + 0.002_837).abs() < 1e-5);
     assert!((t4[3] - 1.0).abs() < 1e-6);
+    // The external settings the LOD names: resource 1 of the same entry. Values equal the
+    // live body's (ACU-RE-0081, live comparison 2026-11-16).
+    let sr = &p.resources[1];
+    assert_eq!(
+        (sr.name.as_str(), sr.type_id.as_str(), sr.file_id.as_str()),
+        (
+            "ClothSettings_Standard_Avatars",
+            "f7a7e4df",
+            "00000016c61d53a1"
+        )
+    );
+    let sp = &p.bytes[sr.payload.clone()];
+    assert_eq!(
+        sha256(sp),
+        "13efc992ab82da050e34ec64fc87f6a306f543347c77fb98f5bd8aedb9b42764"
+    );
+    let s = cloth::soft_body_settings(sp, &sr.file_id)?;
+    assert_eq!(s.gravity(), [0.0, 0.0, -20.0]);
+    assert_eq!(
+        (s.damping(), s.thickness(), s.tether_scale()),
+        (0.0, 0.05, 1.1)
+    );
+    assert_eq!((s.friction(), s.drag()), (0.2, (30.0, 15.0)));
     assert_eq!(
         b.schedule()?,
         [
