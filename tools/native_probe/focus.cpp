@@ -290,7 +290,7 @@ static int runMoveEntity(uintptr_t entity, const float* matrix, uint32_t* except
     }
 }
 
-// mode 10 (clone a world entity, ACU-RE-0103): EntityBuilder's instantiation 0x141CD0470 copies its
+// mode 10 (clone a world entity, ACU-RE-0103; frame fix after obs. 15): EntityBuilder's instantiation 0x141CD0470 copies its
 // Template entity with the object clone, vtbl+24 (Entity::vf3 0x141CC65D0: allocates and inits a new
 // Entity, then 0x1426ECC50 clones every component through its own vtbl+24), then sets flags +136
 // |= 0x800014, calls 0x141CE94F0(clone, 0) and sets +212 bit 0x40000 (clears 0x80000; the other
@@ -300,7 +300,7 @@ static int runMoveEntity(uintptr_t entity, const float* matrix, uint32_t* except
 // matrix, human bit 0 = skip the builder flags. Returns the clone in t->entity.
 // status: 1 cloned, -1 source not an entity of the current World, -2 the player, -7 clone null or
 // not an entity (same vtable as the source), -3 exception.
-constexpr uintptr_t kEntityFlagsInitRva = 0x1CE94F0;
+constexpr uintptr_t kEntityFlagsInitRva = 0x1CE94F0, kOpenMemoryFrameRva = 0x26E6F20, kCloseMemoryFrameRva = 0x26EEC40;
 // Fault diagnostics for mode 10: the filter runs on the faulting stack before unwinding, so it can
 // record the faulting address, the accessed address (access violations) and the in-image return
 // addresses above it. Values are RVAs when inside ACU.exe, else absolute.
@@ -328,8 +328,16 @@ static int runCloneEntity(uintptr_t source, const float* matrix, uint64_t option
         if (!world || !readable(source + kEntityWorld, 8) || *(uintptr_t*)(source + kEntityWorld) != world ||
             !readable(source, 8) || !readable(world + 0xD8, 8)) return -1;
         if (*(uintptr_t*)(world + 0xD8) == source) return -2;
-        uintptr_t vtable = *(uintptr_t*)source;
-        uintptr_t clone = (*(uintptr_t(__fastcall**)(uintptr_t, uintptr_t, uint32_t))(vtable + 24))(source, 0, 0);
+        uintptr_t vtable = *(uintptr_t*)source, clone = 0;
+        // The clone allocates through the thread's engine memory context (TLS +104), whose frame
+        // index (+2880) is -1 until a frame is opened: 0x1426E6F20(1, 0) opens one and 0x1426EEC40
+        // closes it, the pair BreakableCompoundComponent's 0x140DB4490 wraps its clones in.
+        ((uint32_t(__fastcall*)(char, char))(imageLow + kOpenMemoryFrameRva))(1, 0);
+        __try {
+            clone = (*(uintptr_t(__fastcall**)(uintptr_t, uintptr_t, uint32_t))(vtable + 24))(source, 0, 0);
+        } __finally {
+            ((uint64_t(__fastcall*)(uint64_t, uint64_t, uint64_t, uint64_t))(imageLow + kCloseMemoryFrameRva))(0, 0, 0, 0);
+        }
         if (!clone || !readable(clone, 0x170) || *(uintptr_t*)clone != vtable) return -7;
         if (!(options & 1)) {
             *(uint64_t*)(clone + 136) |= 0x800014ull;

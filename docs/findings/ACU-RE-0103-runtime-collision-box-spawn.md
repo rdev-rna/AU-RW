@@ -11,7 +11,9 @@ State: **observed** for the spawn sequence, and live for collision with the play
   - none gives a vault, climb or ledge (obs. 9–11);
   - world props moved into the sky keep their parkour (obs. 12–13), but not their rendering
     (obs. 14);
-  - the entity clone faults on the window thread (obs. 15).
+  - the entity clone faults on the window thread without an engine memory frame (obs. 15);
+  - with the frame opened, as the game does, cloned crates and beams render and keep their
+    parkour (obs. 16).
 - **Not established:**
   - what the RigidBody motion field values mean;
   - the collision filter layer;
@@ -154,6 +156,30 @@ and fps cap 60, and were closed with `--close`. Props were picked by `world_enti
     `sub_1426F4A80` reads the thread's engine memory context: TLS slot + 104, frames of 360 B
     indexed by +2880, and a stack at +2896 with its count at +2906. The game stayed responsive
     after each fault.
+16. **Cloning with an engine memory frame (`clone-course-3`, PID 11660).**
+    - Cause of the fault. Disassembly of `0x1426F4AED` (mapped image, Capstone) is
+      `cmp byte ptr [rcx+0x150], 0`, with `rcx = ctx + 0x168 * [ctx+0xB40]`. The context
+      constructor `sub_1426E0560` sets that frame index (+2880) to −1 (line 26). On the window
+      thread no frame was open, so the address ran past the context.
+    - The engine's frame pair:
+      - `sub_1426E6F20(a1, a2)` increments +2880 and resets that frame (flags at +336 = a1, +337 =
+        a2);
+      - `sub_1426EEC40()` flushes (`sub_1426ED300`, `sub_1426ECF90`), resets the frame and
+        decrements +2880.
+      - `BreakableCompoundComponent::helper_140DB4490` wraps its runtime clones in
+        `sub_1426E6F20(1, 0)` / `(*obj + 24)(obj, 0, 0)` / `sub_1426EEC40()` (lines 456–461 and
+        579–581).
+    - Mode 10 now opens the frame with (1, 0) around `Entity::vf3`, closing it in `__finally`. The
+      shim's SHA-256 is `af54d7f0d9f4ce3bcb536bdd358ff76bd2833853acde574f11335c02215d5478`.
+    - Results:
+
+      | Clone of | Placed | Rendered (screenshot from 8 m) | Parkour on the copy |
+      | --- | --- | --- | --- |
+      | `GEN_ALL_CratesWine_01_002` | sky floor, 8 m along the camera heading | yes: the crate stack floats ahead of Arno | `Run_JumpOn100cm_tr_Sprint_WithHands` (z 61.65), `Leaping_Fd650cm-Dn200cm`, `LandingFwd_LandMid` |
+      | `GEN_ALL_Beam_2m_01_232` | 1.0 m above the floor | yes: the beam (and the crate copy, behind) | `Run_JumpOn100cm_tr_Sprint`, `StepLevel_300cm` (z 61.50), `SprintingStepDown`, `LeapLevel_tr_Sprint` |
+
+      Both used the builder flags (+136 |= 0x800014, `0x141CE94F0`, +212 bit 0x40000). The
+      originals stayed in place.
 
 ### Inferences
 
@@ -186,19 +212,19 @@ and fps cap 60, and were closed with `--close`. Props were picked by `world_enti
 - The world's static meshes are drawn from a render structure that a move does not update
   (obs. 14). A copy made by a real clone or a fresh instantiation would carry its own visual
   component; not verified.
-- The clone fault (obs. 15) is a thread-context problem, not a bad clone call. The shim runs on the
-  window-message thread, where the engine memory context is not set up for object construction.
-  Mode 8 never touches it, because it allocates from an explicit heap. The fix is to run the
-  clone inside a game update (a hook on a main-thread update routine) or to push a context frame
-  first. Neither was tried.
+- The clone fault (obs. 15) was a missing memory frame, not a bad clone call. Opening the frame,
+  as the game's own runtime clones do, makes cloning work from the window thread (obs. 16).
+- A clone is a complete instance: its own visual, collision and parkour, placed and activated
+  like a streamed object. Moving instead leaves the visual behind.
 - **For a custom parkour course mod:**
   - Floors, walls and blockers work today (spawned boxes). They stop Arno, he walks and sprints on
     them, and he braces against them.
-  - Top-surface parkour props (crates, beams) work at any position once moved.
+  - Parkour props can be copied anywhere, and they render and work there: `clone-entity` on any
+    nearby crate or beam (obs. 16).
   - Next steps:
-    - copying props instead of moving them (the clone fix above);
-    - making them render where they are placed;
-    - finding what makes a wall climbable.
+    - find what makes a wall climbable;
+    - clone props that are not loaded nearby (by file ID, through the loader);
+    - save and load a course layout.
 
 ### Unknowns
 
@@ -208,7 +234,10 @@ and fps cap 60, and were closed with `--close`. Props were picked by `world_enti
   removed and is expected to go when the World unloads; this was not checked.
 - Whether a runtime MeshShape, or a set GameplaySurfaceNavType bit, gives parkour candidates.
   The parkour selection trace (`parkour_selection.profile.json`) was not run on the boxes.
-- Cloning on a thread with a valid engine memory context, and whether the clone renders.
+- Whether a clone is cleaned up when its World unloads (one extra reference is taken), and how
+  many clones the engine tolerates.
+- Clones of entities with AI, physics props that move, or interactive components. Only static
+  props were cloned.
 - What makes a surface climbable (wall entry succeeds): the invisible parkour groups, a
   MeshShape, or a GameplaySurfaceNavType bit.
 - Whether the moved prop's collision also stays at its old place. Only the new place was tested.
