@@ -7,6 +7,14 @@ extern "C" __declspec(dllexport) __declspec(noinline) uint64_t ProbeFixtureTick(
     ProbeFixtureCounter += value;
     return ProbeFixtureCounter;
 }
+// CALLAT regression: called by the probe on the fixture's own thread; records the thread and arguments.
+extern "C" __declspec(dllexport) volatile uint64_t ProbeFixtureCallSum = 0;
+extern "C" __declspec(dllexport) volatile uint32_t ProbeFixtureCallThread = 0;
+extern "C" __declspec(dllexport) __declspec(noinline) uint64_t ProbeFixtureAdd(uint64_t a, uint64_t b, uint64_t c, uint64_t d) {
+    ProbeFixtureCallThread = GetCurrentThreadId();
+    ProbeFixtureCallSum += a + 2 * b + 3 * c + 4 * d;
+    return a + 2 * b + 3 * c + 4 * d;
+}
 // Synthetic pointer array for the GATHER regression: data pointer at +0, u16 count at +10,
 // elements of 32 bytes whose bytes are 0x10*(index+1)+offset. No relation to ACU layouts.
 struct FixtureArray { uint8_t** data; uint16_t pad; uint16_t count; };

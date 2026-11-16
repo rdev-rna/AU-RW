@@ -83,6 +83,10 @@ and the forward GI evaluation, and part of WorldAmbiance (HDR camera, SSAO, shad
 native exposure, shadows and Paris GI around Arno.
 Character materials: [ACU-RE-0084](findings/ACU-RE-0084-character-template-gbuffer.md) locates the
 outfit templates' DXBC (cloth, skin, hair) and the deferred G-buffer contract; RT order open.
+Several games at once: [ACU-RE-0086](findings/ACU-RE-0086-multi-instance-direct-launch.md). ACU.exe
+started directly runs, with the loader installed on 2026-11-15. A second game exits while one holds
+the named semaphore `scimitar_semaphore`. Closing that handle lets `capture_run --direct` and
+`multi_launch.py` run two games in the world side by side. The game code for the check is not located.
 
 Use `docs/templates/FINDING.md`; store durable findings under `docs/findings/`.
 Link bulky raw evidence in ignored `outputs/` with identity and reproduction steps.

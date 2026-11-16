@@ -21,6 +21,12 @@ struct Hook { uintptr_t address=0; std::string label; uint64_t hits=0; unsigned 
 constexpr unsigned kGatherMax=16, kGatherBytes=0x300;
 static Hook hooks[4];
 static volatile LONG dataOwned[4]{};
+// One-shot CALLAT: at the next hit of the execute hook in callSlot (optionally only for a given return address),
+// the trapping thread is sent to callThunk, which calls callTarget(rcx,rdx,r8,r9) on that thread and then
+// restores the saved trap context (RtlRestoreContext), so the hooked function runs on unchanged.
+// State: 0 idle, 1 armed, 2 running, 3 done.
+alignas(16) static CONTEXT callSaved;static volatile LONG callState=0;static unsigned callSlot=0;static uint64_t callTarget=0,callArgs[4]{},callReturnFilter=0;static volatile uint64_t callResult=0;static volatile DWORD callTid=0;static volatile uint64_t callSite=0;
+__declspec(noinline) static void callThunk(){typedef uint64_t(__fastcall*Fn)(uint64_t,uint64_t,uint64_t,uint64_t);callResult=((Fn)callTarget)(callArgs[0],callArgs[1],callArgs[2],callArgs[3]);InterlockedExchange(&callState,3);RtlRestoreContext(&callSaved,nullptr);}
 // DR7 bits for a data-write watch in slot i: R/W=01 (write), LEN 00/01/11/10 for 1/2/4/8 bytes.
 static uint64_t dataBits(const Hook& h,unsigned i){if(!h.dataLen)return 0;uint64_t len=h.dataLen==1?0:h.dataLen==2?1:h.dataLen==8?2:3;return (1ull<<(16+4*i))|(len<<(18+4*i));}
 static uintptr_t ownedSites[4][1024];static volatile LONG ownedCounts[4]{};
@@ -67,6 +73,8 @@ static LONG CALLBACK handler(EXCEPTION_POINTERS* x){
     n=0;ReadProcessMemory(proc,(void*)e.gPtr[i],e.gBuf[i],h.gBytes,&n);e.gGot[i]=(DWORD)n;}}}
  nextEvent=(nextEvent+1)%256;if(eventCount<256)eventCount++;else InterlockedIncrement(&drops);}
  if(redirect)x->ContextRecord->Rcx=h.redirectTo;
+ if(!data&&callState==1&&callSlot==slot&&(!callReturnFilter||callReturn==callReturnFilter)){CONTEXT* c=x->ContextRecord;callSaved=*c;callSaved.ContextFlags=CONTEXT_FULL;callTid=GetCurrentThreadId();callSite=c->Rip;
+  uint64_t sp=((c->Rsp-0x1000)&~0xFull)-8;*(uint64_t*)sp=0;c->Rsp=sp;c->Rip=(DWORD64)&callThunk;InterlockedExchange(&callState,2);}
  InterlockedExchange(&gate,0);return EXCEPTION_CONTINUE_EXECUTION;
 }
 static void lock(){while(InterlockedCompareExchange(&gate,1,0))Sleep(0);}static void unlock(){InterlockedExchange(&gate,0);}
@@ -116,6 +124,16 @@ static std::string dispatch(const std::string& line){
   if(!in||slot>=4||reg>=16||deref>1||dataOff>4096||countOff>4096||!maxElems||maxElems>kGatherMax||!elemBytes||elemBytes>kGatherBytes)return fail("GATHER slot reg_index signed_disp deref(0|1) data_offset count_offset max_elements(1..16) element_bytes(1..768)");
   lock();if(!hooks[slot].address){unlock();return fail("GATHER requires an active hook in that slot");}Hook& h=hooks[slot];h.gather=true;h.gReg=reg;h.gDisp=disp;h.gDeref=deref!=0;h.gDataOff=dataOff;h.gCountOff=countOff;h.gMax=maxElems;h.gBytes=elemBytes;unlock();
   out<<"{\"ok\":true,\"slot\":"<<slot<<"}";}
+ else if(cmd=="CALLAT"){unsigned slot;std::string t,a[4],rf;in>>slot>>t>>a[0]>>a[1]>>a[2]>>a[3];uint64_t target,v[4],filter=0;
+  if(!in||slot>=4||!number(t,target)||!number(a[0],v[0])||!number(a[1],v[1])||!number(a[2],v[2])||!number(a[3],v[3]))return fail("CALLAT slot hex-target hex-rcx hex-rdx hex-r8 hex-r9 [hex-return-address]");
+  if(in>>rf&&!number(rf,filter))return fail("invalid return-address filter");
+  MEMORY_BASIC_INFORMATION m{};if(!VirtualQuery((void*)target,&m,sizeof m)||m.State!=MEM_COMMIT||!(m.Protect&(PAGE_EXECUTE|PAGE_EXECUTE_READ|PAGE_EXECUTE_READWRITE|PAGE_EXECUTE_WRITECOPY)))return fail("call target is not executable");
+  lock();if(!hooks[slot].address||hooks[slot].dataLen){unlock();return fail("CALLAT requires an active execute hook in that slot");}
+  if(callState==1||callState==2){unlock();return fail("a call is already armed or running");}
+  callSlot=slot;callTarget=target;for(int i=0;i<4;i++)callArgs[i]=v[i];callReturnFilter=filter;callResult=0;callTid=0;callSite=0;InterlockedExchange(&callState,1);unlock();
+  out<<"{\"ok\":true,\"slot\":"<<slot<<",\"target\":\""<<hx(target)<<"\"}";}
+ else if(cmd=="CALLSTATUS"){out<<"{\"ok\":true,\"state\":"<<callState<<",\"result\":\""<<hx(callResult)<<"\",\"tid\":"<<callTid<<",\"site\":\""<<hx(callSite)<<"\"}";}
+ else if(cmd=="CALLCANCEL"){LONG was=InterlockedCompareExchange(&callState,0,1);out<<"{\"ok\":true,\"cancelled\":"<<(was==1?"true":"false")<<",\"state\":"<<callState<<"}";}
  else if(cmd=="UNREDIRECT"){unsigned slot;in>>slot;if(!in||slot>=4)return fail("invalid slot");lock();hooks[slot].redirectRcx=false;hooks[slot].redirectFrom=hooks[slot].redirectTo=0;hooks[slot].redirectReturn=0;unlock();out<<"{\"ok\":true}";}
  else if(cmd=="UNHOOK"){unsigned slot;in>>slot;if(!in||slot>=4)return fail("invalid slot");lock();hooks[slot].address=0;++revision;unlock();updateThreads();out<<"{\"ok\":true}";}
  else if(cmd=="EVENTS"){unsigned n=64;in>>n;n=std::min(n,256u);std::vector<Event> copy;lock();unsigned take=std::min(n,eventCount);for(unsigned k=eventCount-take;k<eventCount;k++)copy.push_back(events[(nextEvent+256-eventCount+k)%256]);eventCount=0;unlock();out<<"{\"ok\":true,\"events\":[";bool first=true;for(const auto& e:copy){if(!first)out<<',';first=false;out<<"{\"sequence\":"<<e.sequence<<",\"qpc\":"<<e.ticks<<",\"tid\":"<<e.tid<<",\"slot\":"<<e.slot<<",\"label\":"<<quote(e.label)<<",\"category\":"<<quote(e.category)<<",\"revision\":"<<e.revision<<",\"rcx_after\":\""<<hx(e.rcxAfter)<<"\",\"rcx_redirected\":"<<(e.rcxRedirected?"true":"false")<<",\"return_address\":\""<<hx(e.returnAddress)<<"\",\"probe_address\":\""<<hx(e.address)<<"\",\"rip\":\""<<hx(e.context.Rip)<<"\",\"registers\":[";for(unsigned i=0;i<16;i++){if(i)out<<',';out<<'"'<<hx(regValue(e.context,i))<<'"';}out<<"],\"xmm0_5_hex\":\""<<hexbytes((const BYTE*)&e.context.Xmm0,6*16)<<"\",\"stack_hex\":\""<<hexbytes((const BYTE*)e.stack,e.stackBytes)<<"\",\"snapshot_address\":\""<<hx(e.sampleAddress)<<"\",\"snapshot_hex\":\""<<hexbytes(e.sample,e.sampleBytes)<<"\"";

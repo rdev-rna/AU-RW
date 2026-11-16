@@ -173,6 +173,17 @@ groups of up to4 probes, emit group metadata/time/status and bounded JSONL,
 and remove active probes on exit. Categories are organizational metadata,
 not implemented semantic decoders. Rotated groups observe different time
 windows: whole-profile breadth does not mean whole-engine simultaneous coverage.
+`CALLAT slot target rcx rdx r8 r9 [return_address]` (all hex, absolute addresses) calls one native
+function once, on the game's own thread. At the next hit of the execute hook in `slot` (only when the
+hooked call's return address equals `return_address`, if given), the trapping thread is sent to a
+thunk. The thunk calls `target(rcx, rdx, r8, r9)` 4 KiB below the trapped stack, then restores the
+saved trap context with `RtlRestoreContext`, so the hooked function then runs unchanged. `CALLSTATUS`
+reports `state` (0 idle, 1 armed, 2 running, 3 done), `result` (RAX), `tid` and `site`; `CALLCANCEL`
+disarms a call that has not fired yet. Only one call can be pending, and data watches cannot carry one.
+This runs game code with chosen arguments: use it only for a call whose arguments have been read from
+the live process and whose effect is understood, and unhook the slot afterwards.
+The fixture regression covers a correct result, the thread, exactly-once and a non-matching filter.
+
 An optional `redirect` object can set `slot`, `from_index`, `to_index`,
 `return_module` and hex `return_rva`; the exact conditional RCX redirect is
 applied before the session emits `armed`. It requires a redirect-capable probe
@@ -215,10 +226,57 @@ What `capture_run.py` does so that sessions do not grab each other's game:
   unless that window belongs to an ACU.exe (another session's game); then none (0).
 - `--attach <pid>` is unchanged; pass your own game's PID.
 
-**Untested:** no second instance has been launched with this code yet. Whether Ubisoft Connect
-starts a second ACU for `uplay://launch/720/0` while one runs (or only focuses the running one or
-shows a dialog) is unverified, and so is whether two games can share the save folder and
-launcher session. The first session to try it should record the result here.
+**Ubisoft Connect starts only one game** (tested 2026-11-15): with one ACU running,
+`uplay://launch/720/0` started no second one within 120 s. Use `--direct` for more than one game.
+
+#### Direct launch (`--direct`) and `multi_launch.py`
+
+```powershell
+python tools/native_probe/multi_launch.py 2                         # two games, title screen
+python tools/native_probe/multi_launch.py 2 --until world --save-pin capture-start-1
+python tools/native_probe/capture_run.py local/native-probe/runs/<name> --direct --until world
+python tools/native_probe/instance_guard.py list                    # PIDs still holding the guard
+```
+
+- `--direct` starts `ACU.exe` itself from the game folder (`ACU_GAME_DIR` or
+  `local/project.json`). It does not go through `uplay://`. The spawned PID is the game. This works
+  with the `uplay_r1_loader64.dll` installed on 2026-11-15 (not Ubisoft's, see ACU-RE-0085); it
+  has not been tried with the signed loader.
+- Loaders: `python tools/loader_swap.py use custom` before running several games, and
+  `use original` for single-game runs (Ubisoft-signed loader, stock state). Swaps are renames between
+  `uplay_r1_loader64.dll`, `.dll.bak` (original) and `.dll.custom` (custom), checked by SHA-256 and
+  refused while any ACU.exe runs. `.3dm` is a spare copy of the original and is never touched. The log is
+  `local/game-backups/loader-swap/log.jsonl`. `--direct` and `multi_launch.py` refuse unless the custom
+  loader is active. `status` shows which loader is in use.
+- ACU's single-instance check: a second `ACU.exe` exits with code 0 before opening a window while a
+  running game holds the named semaphore `scimitar_semaphore` (count 1 of 1, held by nobody).
+  Inside the launch lock, once the new game's window is up, `capture_run` closes that game's own
+  handle (`instance_guard.release`, `DuplicateHandle` with `DUPLICATE_CLOSE_SOURCE`). This is
+  recorded as the `guard` stage. The next launch then starts. The uplay path does the same for its
+  game.
+- A game that still holds the guard (launched some other way) blocks `--direct`. `capture_run`
+  then stops and names the PID; it never closes another session's handle. If that game is yours,
+  run `instance_guard.py release <pid>`.
+- `multi_launch.py N` (1..4) runs N `capture_run.py --direct --until title|world` runs, staggered
+  by 2 s; the launch lock serialises them. Each run gets its own shim, probe and save-pin lease
+  holder. Output: `local/native-probe/runs/multi-<stamp>-<i>/` plus a `multi-<stamp>.json`
+  summary with the close and `save_pin.py release` commands for each game.
+- `--until title` stops after attaching (shim and probe in, game at the title screen).
+- Load. `multi_launch.py` keeps a second game light by default:
+  - **`--fps-caps 60,30`:** the first game (the one you watch) runs at 60, every further game at 30.
+    From 15 to 30 fps ACU's physics takes one 1/30 s step per frame (ACU-RE-0051), so 30 is the
+    lowest cap that keeps the physics stepping the same way.
+  - **`--cpu-split auto`:** every further game gets 2 logical processors from the top at below-normal
+    priority; the first keeps the rest at normal (6 threads: 0-3 / 4-5).
+  - Use `none` to turn the split off, or give one core list per game, e.g. `0-7/8-11`.
+  - `capture_run.py --cpu-cores 4,5 --priority below_normal` sets the same for one run. A `--direct`
+    game starts suspended, gets its cores and priority, and is then resumed, so the engine sizes its
+    workers to its own cores. If either cannot be set, the never-run process is terminated.
+  - `python tools/native_probe/game_load.py --seconds 30` measures every running game: CPU share,
+    working set, shim fps and core mask.
+- Evidence and limits: [ACU-RE-0086](../../docs/findings/ACU-RE-0086-multi-instance-direct-launch.md).
+  The game code that creates and checks the semaphore is not located. The game keeps the closed
+  handle value. Closing it has caused no visible fault so far.
 
 Saves (`--save-pin`): all instances share the one `savegames/<user>/720` folder, so a pin cannot
 be swapped per game. Runs share a lease instead, `local/game-backups/save-pins/_lease.json`
