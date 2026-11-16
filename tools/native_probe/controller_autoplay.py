@@ -51,6 +51,11 @@ class XInputState(C.Structure):
     _fields_ = [("packet_number", C.c_uint32), ("gamepad", XInputGamepad)]
 
 
+# Seconds to wait for the native probe session to arm before input starts. Four hooks with a
+# gather armed after 67 s once (run eject-probe-1); input never starts before arming, and the
+# session's own duration is extended by the same amount so the moves are still recorded.
+ARM_TIMEOUT_S = 120
+
 def read_xinput_state(user_index):
     xinput = C.WinDLL("xinput1_4.dll")
     get_state = xinput.XInputGetState
@@ -560,20 +565,20 @@ def main():
                     session_process = subprocess.Popen(
                         [sys.executable, str(Path(__file__).resolve().with_name("client.py")),
                          str(args.pid), "session", str(args.probe_profile.resolve()), str(trace_path),
-                         "--seconds", str(duration/1000+15), "--max-bytes", str(256*1024**2),
+                         "--seconds", str(duration/1000+15+ARM_TIMEOUT_S), "--max-bytes", str(256*1024**2),
                          "--stop-file", str(stop_file)],
                         stdout=native_log, stderr=subprocess.STDOUT)
                 # Do not begin input until the session has installed its first
                 # probe group. Process creation alone is not a readiness signal:
                 # module hashing and HOOK setup can take several seconds.
-                startup_deadline = time.monotonic() + 30
+                startup_deadline = time.monotonic() + ARM_TIMEOUT_S
                 armed = False
                 while not trace_path.exists() and time.monotonic() < startup_deadline:
                     if session_process.poll() is not None:
                         raise RuntimeError("native probe session exited before creating its trace; inspect native-session.stdout.txt")
                     time.sleep(.05)
                 if not trace_path.exists():
-                    raise RuntimeError("native probe session did not create its trace within 30 seconds")
+                    raise RuntimeError(f"native probe session did not create its trace within {ARM_TIMEOUT_S} seconds")
                 with trace_path.open("r", encoding="utf-8") as trace:
                     while time.monotonic() < startup_deadline:
                         line = trace.readline()
@@ -590,7 +595,7 @@ def main():
                         else:
                             time.sleep(.05)
                 if not armed:
-                    raise RuntimeError("native probe session did not arm within 30 seconds; inspect native-session.jsonl and native-session.stdout.txt")
+                    raise RuntimeError(f"native probe session did not arm within {ARM_TIMEOUT_S} seconds; inspect native-session.jsonl and native-session.stdout.txt")
             log_path = run_steps(pad, profile, args.pid, output, args.snapshot,
                                  args.max_bytes, set(args.checkpoint),
                                  args.screenshot_start, set(args.screenshot_step), args.background)

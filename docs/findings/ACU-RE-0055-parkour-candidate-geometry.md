@@ -385,6 +385,39 @@ and the corpus. No live run yet.
   - what types 36 and 50 are (no oracle rows);
   - whether `+2416` rejects a target in the air.
 
+## Live probe of the list owner (run `eject-probe-2`, 2026-11-16)
+
+- **Setup:**
+  - Profile `tools/native_probe/parkour_commit.profile.json`:
+    - `0x140134880` entry (a4 snapshot + candidate gather);
+    - selection exit;
+    - fancy slot 1 `0x1401B1770`;
+    - slot 0x47 `0x14019F920`.
+  - Moves: `tools/native_probe/eject_moves.json`.
+  - Pinned Paris save, fps cap 60, closed with the capture_run close path, saves put back.
+  - The first try (`eject-probe-1`) recorded nothing. The session armed after 67 s and
+    `controller_autoplay.py` waited only 30 s; the wait is now `ARM_TIMEOUT_S` = 120 s, and the session lasts longer
+    by the same amount.
+- **Results:**
+  - 42 decisions, 13 chosen, 214 clip starts, probe drops 0.
+  - **Every `0x140134880` call returned to `0x141A8C2D9`**, inside `sub_141A8C0E0` (corpus `141A8C0E0.c`).
+  - On each call that function:
+    - allocates a 352-byte tester and constructs it with `0x140159C00` (C++ vtable `0x142E84A70`, stored next to the
+      "Wall Run" names);
+    - runs `sub_140185630`, then `sub_140185990` when the first succeeds;
+    - destroys the tester.
+  - It returns early when the distance `sub_1428F7EA0(a1, a2)` lies within `[+7256, +7260]` of an owner object and
+    `sub_141AAA9F0` agrees.
+  - Fancy slot 1 (`0x1401B1770`) and slot 0x47 (`0x14019F920`) were **not** hit again (as in the Paris run
+    `parkour-generator-1`). So in Paris free running, candidates are not written by these two.
+- **No eject was exercised.** The wall ahead of the Paris start is short. Each 6 s climb ended in
+  `xx_Climbing_Climb_tr_MantleLeapFeet` onto the roof, so the eject inputs were given on the roof, not on a wall.
+  An eject test needs a tall wall: teleport there, or spawn a climbable façade (ACU-RE-0103).
+- **Not established:**
+  - which tester class `0x140159C00` builds (its fancy table is set in `sub_14018E830`);
+  - whether `sub_141A8C0E0` is the only owner (other states may call `0x140134880` from elsewhere; the Versailles
+    traces lack the stack depth to say).
+
 ## Implementation implications and finding-linked constants
 
 - Candidate fields: `+0x10` source, `+0x30` target, `+0x40` outward horizontal normal, `+0x50` /
