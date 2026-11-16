@@ -588,6 +588,52 @@ sticking to it. Played by the user on keyboard and mouse; the driver only built 
   - why only the back face worked. From the front face the beam was about 1.5 m nearer the run line, and earlier
     attempts grabbed it straight from the wall run.
 
+## Free-eject attempts and per-state jump handlers (runs `free-eject-1..3`, 2026-11-16)
+
+Binary: ACU.exe SHA-256 `748abdc6456397fe7d8080f975f2a5ed3123bce548e7bf1c68b23f47e8b27e40`, base `0x140000000`.
+Static reads: the corpus and a capstone disassembly of the mapped image
+`Unity/local/native-probe/bone-trace-20261019/main-image.normalized.exe` (RVA = file offset there; guard
+bytes matched the live process). Profiles: `tools/native_probe/climb_eject.profile.json`,
+`tools/native_probe/climb_candidates.profile.json`. Runs: `local/native-probe/runs/free-eject-3/{hands-on,climb,climb2,climb3,climb4}`.
+
+Observations:
+
+- **Code patches are not usable.** A 5-byte jmp written over the jump gate `0x141A1B940` (atomic 8-byte store)
+  terminated the process within seconds in runs `free-eject-1` and `free-eject-2`, also in pass-through mode.
+  No VEH-visible exception and no dump. Consistent with the packed image's anti-tamper (ACU-RE-0031); not
+  otherwise identified.
+- **Player parkour state S** (the object `sub_141A0D730` writes window bytes into): the player entity's
+  component with vtable `0x142F11F90`, then `S = *(*(comp + 0x238) + 8)` (`teleport.parkour_state`). The most
+  frequent setter caller is an NPC, so filter by this S.
+- **Data-write free eject (shim mode 12).** Setting `S+542` (window 6) on a jump press makes the jump gate run its
+  wall-eject evaluator `sub_141A8CAA0` on failing wall runs. On the bare flat wall it commits the native back eject
+  `WallEjectRt180` because there is no side target.
+- **One jump delegate per movement state.** `0x1419FAEFE` calls each `{fn, ctx}` entry of a 16-byte delegate list;
+  run `climb3` (every 4th call) saw exactly one entry at a time:
+
+  | fn | state seen (clips) |
+  | --- | --- |
+  | `0x1419FE3C0` | standing |
+  | `0x141A0A640` | running |
+  | `0x141A1B940` | wall run, from `PreWallEntry*` through the first ~0.3 s of `WallEntryFwd*_tr_Climb` |
+  | `0x1419FE370` | hanging (`Climbing_*`) |
+  | `0x141A1A740` | airborne (ejects, falls) |
+  | `0x141A24960` | landing |
+
+  `sub_1419FE370` calls `sub_141A4D720` -> climb evaluator `sub_141A4BFD0` when `*(*(a1+40))+529` is set or
+  `a4 == 5`.
+- **Hang jumps (run `climb3`).** While hanging on the beam the climb evaluator ran every frame jump was held. Its
+  sets ran (`[rbp+0xE0]` = 1) for every stick direction, but with A, D or W the pick-commit `0x141A4CC35` returned 0 and
+  the game played `Climbing_Climb_LeapFail_Lt/Rt/Up`. Commits (al = 1) came only with a neutral stick at
+  phase 3/4 or the S stick, and played `ClimbExit180Lt_tr_Ground_Dn600cm`. The three permission predicates read at
+  entry (`sub_140B9D2F0`, `sub_140B9DE70`, `sub_1401724E0` on the top of the list at `qword_1451B3C58+1256`) were at
+  their defaults (allowed).
+- Run `climb4` (candidate types) recorded no candidate hits and is unusable.
+
+Inference: native ejects in the hang and on the wall need a candidate target; window writes cannot create one. A
+free eject in any direction with no target is not reachable by data writes found so far. Work moved to the Rust
+traversal port (implementation choice, 2026-11-16).
+
 ## Implementation implications and finding-linked constants
 
 - Candidate fields: `+0x10` source, `+0x30` target, `+0x40` outward horizontal normal, `+0x50` /

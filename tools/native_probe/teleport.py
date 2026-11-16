@@ -60,6 +60,7 @@ MAGIC = 0x54554341  # "ACUT"
 HUMAN_OFFSET, HUMAN_VTABLE = 0xC58, 0x142FB2010  # in the AtomAnimComponent; ACU-RE-0046
 BEHAVIOUR_VTABLE, INVISIBLE_BYTE = 0x142F08230, 208  # debug "Invisible :" flag (ACU-RE-0046)
 MODE_INVISIBLE, MODE_GOD, MODE_SPAWN_BOX, MODE_MOVE_ENTITY, MODE_CLONE_ENTITY, MODE_SPAWN_ID = 1, 2, 8, 9, 10, 11
+MODE_FREE_EJECT = 12
 FALL_M = 1.5  # metres below the target after settling = fell through unstreamed ground
 STATUS = {1: "done", -1: "not the Human (vtable check)", -2: "not an entity", -3: "exception",
           -4: "unknown mode", -5: "world travel in progress (shim t8+)",
@@ -174,6 +175,42 @@ def set_flag(pid: int, mode: int, on: bool) -> dict:
     finally:
         shared.close()
         mem.close()
+
+
+PARKOUR_COMPONENT_VTABLE = 0x142F11F90  # player entity component holding the parkour context at +0x238
+
+
+def parkour_state(pid: int) -> int:
+    """The player's parkour state S (ACU-RE-0055): S = *(*(comp + 0x238) + 8) for the player entity component whose
+    vtable is 0x142F11F90 (the jump gate reads the same context: S = *(*(a1+40)+8)). Found live 2026-11-16: S
+    0x13D813A70 opened window 6 at every one of the player's failing wall runs. 0 if not found."""
+    mem = live_state.Memory(pid)
+    try:
+        entity, _ = ready(mem)
+        array = mem.u64(entity + live_state.ENTITY_COMPONENTS)
+        count = struct.unpack("<H", mem.read(entity + live_state.ENTITY_COMPONENTS + 10, 2))[0]
+        for i in range(min(count, 128)):
+            comp = mem.u64(array + 8 * i)
+            if comp and mem.u64(comp) == PARKOUR_COMPONENT_VTABLE:
+                ctx = mem.u64(comp + 0x238)
+                return mem.u64(ctx + 8) if ctx else 0
+        return 0
+    finally:
+        mem.close()
+
+
+def set_free_eject(pid: int, value: int, state: int = 0, arm_ms: int = 0, gate: list[int] | None = None) -> dict:
+    """Shim mode 12 (ACU-RE-0055), data writes only: while on, a jump press (Space) with A, D or S held arms for
+    arm_ms (default 250); while armed and a wall-run byte is set (gate: S offsets, default 533/534/531 =
+    windows 14/15/10), the wall-eject window 6 (S+542) is opened so the game's own jump gate runs its
+    wall-eject evaluator. state = S (see parkour_state); value 0 = off; arm_ms/gate 0/None keep the shim's."""
+    shared = Shared(pid)
+    try:
+        g = (list(gate or []) + [0, 0, 0, 0])[:4]
+        r = shared.call(0, state, [float(value), float(arm_ms)] + [float(x) for x in g] + [0.0] * 10, mode=MODE_FREE_EJECT)
+        return {"mode": "free_eject", "requested": value, "state": f"0x{state:X}", **r}
+    finally:
+        shared.close()
 
 
 def safety_on(pid: int) -> dict:

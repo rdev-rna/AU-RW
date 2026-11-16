@@ -1,0 +1,10 @@
+{
+  "description": "Climb-hang candidate types (ACU-RE-0055, free eject). ACU.exe 748abdc6...7e40, base 0x140000000; guards from the mapped image (bone-trace-20261019 main-image.normalized.exe). Live run free-eject-3/climb3: the climb delegate sub_1419FE370 calls sub_141A4D720 -> climb evaluator sub_141A4BFD0 every frame jump is held; with a side/up stick its sets run but the pick-commit (0x141A4CC35) returns 0 and the game plays Climb_LeapFail_*; only a back stick or a neutral release commits ClimbExit180Lt. This profile names the candidate types tried: candidate_entry = sub_1401D1CF0 (ecx = action type, return_address = the tester call site), candidate_ret = its only ret (0x1401D1E4B, al = built), bracketed by climb_jump_entry and climb_commit_ret (al).",
+  "rotation_seconds": 600,
+  "probes": [
+    {"label": "candidate_entry", "rva": "1d1cf0", "expected_hex": "48896c24104889742418574154415541", "category": "parkour"},
+    {"label": "candidate_ret", "rva": "1d1e4b", "expected_hex": "c3cccccccc4c8bdc49895b0849896b10", "category": "parkour"},
+    {"label": "climb_jump_entry", "rva": "1a4d720", "expected_hex": "48895c240848896c2410488974241857", "category": "parkour"},
+    {"label": "climb_commit_ret", "rva": "1a4cc3a", "expected_hex": "84c00f84fa010000498b47286641c787", "category": "parkour"}
+  ]
+}

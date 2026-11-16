@@ -1,0 +1,37 @@
+{
+  "description": "Climb (grab / hang) jump handler (ACU-RE-0055, free eject). ACU.exe 748abdc6...7e40, base 0x140000000; guards from the mapped image (bone-trace-20261019 main-image.normalized.exe). sub_141A4D720(a1, stick, mag xmm2, a4 r9d, a5 [rsp+0x28]) is the climb state's jump handler (same signature as the wall-run jump gate sub_141A1B940) and calls the climb evaluator sub_141A4BFD0, which runs tester sets a1+0x208, +0x210, +0x1D8, +0x1E0/+0x1E8, +0x1F0, +0x1F8 then picks/commits from a1+0x218. climb_sets_gate (0x141A4C5C8): edi = phase a4 after replacement, r12b = a5, bl; snapshot rsp+0x70 = [0x70] predicate flag (0x1000), [0x71] type-81 committed, [0x72] predicate flag (+52 bit 2). climb_sets_done (0x141A4CBDC, after the +0x218 reset): snapshot rbp+0xE0, byte 0 = any set ran, byte 8 = predicate flag (bit 0x100). climb_commit_ret (0x141A4CC3A): al = pick-commit result. jump_dispatch (0x1419FAEFE, call qword [rax] inside the jump-handler delegate loop; 16-byte entries {fn, ctx}, loop count u16 [rsp+0x3a]): snapshot rax+0 16 bytes = the handler and its context (every 4th call: per-frame volume filled a 16 MB trace in ~4 min), so every registered jump handler shows up in any state (hang, beam, wall run).",
+  "rotation_seconds": 600,
+  "probes": [
+    {
+      "label": "jump_dispatch",
+      "rva": "19faefe",
+      "expected_hex": "ff100fb744243affc383c7103bd872d2",
+      "category": "parkour",
+      "register_index": 4,
+      "offset": 0,
+      "bytes": 16,
+      "every": 4
+    },
+    {
+      "label": "climb_jump_entry",
+      "rva": "1a4d720",
+      "expected_hex": "48895c240848896c2410488974241857",
+      "category": "parkour"
+    },
+    {
+      "label": "climb_sets_done",
+      "rva": "1a4cbdc",
+      "expected_hex": "80bde0000000000f8453020000498b4f",
+      "category": "parkour",
+      "register_index": 8,
+      "offset": 224,
+      "bytes": 16
+    },
+    {
+      "label": "climb_commit_ret",
+      "rva": "1a4cc3a",
+      "expected_hex": "84c00f84fa010000498b47286641c787",
+      "category": "parkour"
+    }
+  ]
+}

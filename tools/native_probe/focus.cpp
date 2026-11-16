@@ -502,6 +502,8 @@ static int worldGuard() {
     }
 }
 
+static int runFreeEject(int value, uintptr_t state, const float* m, float* readback);
+
 static void serviceTeleport() {
     volatile TeleportShared* t = teleport;
     if (!t || t->magic != kTeleportMagic || t->request == t->done) return;
@@ -580,6 +582,7 @@ static void serviceTeleport() {
                : t->mode == 5 ? runStartWorld((uintptr_t)t->entity, &exception)
                : t->mode == 9 ? runMoveEntity((uintptr_t)t->entity, matrix, &exception)
                : t->mode <= 2 ? runFlag(t->mode, (uintptr_t)t->human, (uintptr_t)t->entity, matrix[0] > 0.5f, &readback, &exception)
+               : t->mode == 12 ? runFreeEject((int)(matrix[0] + 0.5f), (uintptr_t)t->entity, matrix, &readback)
                : -4;
     t->matrix[1] = readback;
     t->exception = exception;
@@ -815,6 +818,84 @@ static BYTE* patchExport(const char* module, const char* name, void* replacement
     return p.active ? trampoline : nullptr;
 }
 
+// Free eject (mode 12, ACU-RE-0055 "The wall-eject window"). Data writes only: an inline jmp into ACU.exe
+// code terminated the game within seconds (runs free-eject-1/2), so nothing here touches game code.
+// The jump gate sub_141A1B940 calls the wall-eject evaluator sub_141A8CAA0 while window 6 (S+542) is open;
+// the game opens it only on wall runs that will fail. S is the parkour state (the gate's *(*(a1+40)+8),
+// the window setter sub_141A0D730's rcx). With the flag on, a thread polls every ~1 ms: a fresh jump press
+// (Space) with a direction key held (A, D or S; keyboard/mouse prototype) while the game is focused arms
+// for armMs (default 250); while armed, one of the "wall run" bytes is set (default S+533 window 14,
+// S+534 window 15, S+531 window 10: open during the run up of both failing and grab wall runs, run
+// free-eject-3) and windows 6 and 39 (S+540) are closed, it sets S+542 = 1, and clears it again when the
+// arm ends if it is still the value it wrote. matrix[1] = armMs, matrix[2..5] = byte offsets (0 = unused).
+// S is checked against the vtable it had when given (stale after travel/death).
+static volatile LONG freeEjectOn = 0, freeEjectArms = 0, freeEjectOpens = 0, freeEjectFaults = 0, freeEjectArmMs = 250;
+static volatile LONG freeEjectGate[4] = {533, 534, 531, 0};
+static volatile uintptr_t freeEjectState = 0, freeEjectVtable = 0;
+static HANDLE freeEjectThreadHandle = nullptr;
+static volatile LONG freeEjectStop = 0;
+
+static DWORD WINAPI freeEjectThread(void*) {
+    timeBeginPeriod(1);
+    bool prevSpace = false, forced = false;
+    ULONGLONG armUntil = 0;
+    while (!freeEjectStop) {
+        Sleep(1);
+        uintptr_t st = freeEjectState;
+        if (!freeEjectOn || !st) { forced = false; continue; }
+        ULONGLONG now = GetTickCount64();
+        bool space = (GetAsyncKeyState(VK_SPACE) & 0x8000) != 0;
+        bool dir = (GetAsyncKeyState('A') & 0x8000) || (GetAsyncKeyState('D') & 0x8000) || (GetAsyncKeyState('S') & 0x8000);
+        __try {
+            if (*(uintptr_t*)st != freeEjectVtable) { freeEjectState = 0; continue; }
+            volatile uint8_t* w = (volatile uint8_t*)st;
+            if (space && !prevSpace && dir && reallyFocused()) {
+                armUntil = now + (ULONGLONG)freeEjectArmMs;
+                InterlockedIncrement(&freeEjectArms);
+            }
+            bool running = false;
+            for (int i = 0; i < 4; i++)
+                if (freeEjectGate[i] > 0 && freeEjectGate[i] < 1024 && w[freeEjectGate[i]]) running = true;
+            if (now < armUntil) {
+                if (running && !w[540] && !w[542]) {
+                    w[542] = 1;
+                    if (!forced) InterlockedIncrement(&freeEjectOpens);
+                    forced = true;
+                }
+            } else if (forced) {
+                if (w[542] == 1) w[542] = 0;
+                forced = false;
+            }
+        } __except (EXCEPTION_EXECUTE_HANDLER) {
+            InterlockedIncrement(&freeEjectFaults);
+            freeEjectState = 0;
+        }
+        prevSpace = space;
+    }
+    timeEndPeriod(1);
+    return 0;
+}
+
+// status: 1 applied, -1 S not readable / no vtable inside ACU.exe, -2 thread not started.
+static int runFreeEject(int value, uintptr_t state, const float* m, float* readback) {
+    if (m[1] >= 1.0f && m[1] <= 5000.0f) freeEjectArmMs = (LONG)m[1];
+    if (m[2] >= 1.0f) for (int i = 0; i < 4; i++) freeEjectGate[i] = (LONG)m[2 + i];
+    if (value) {
+        if (!readable(state, 544)) return -1;
+        uintptr_t vt = *(uintptr_t*)state;
+        if (vt < imageLow || vt >= imageHigh) return -1;
+        freeEjectVtable = vt;
+        freeEjectState = state;
+        if (!freeEjectThreadHandle) {
+            freeEjectThreadHandle = CreateThread(nullptr, 0, freeEjectThread, nullptr, 0, nullptr);
+            if (!freeEjectThreadHandle) return -2;
+        }
+    }
+    InterlockedExchange(&freeEjectOn, value ? 1 : 0);
+    *readback = (float)freeEjectOn;
+    return 1;
+}
+
 // Resolve the real foreground query: user32's export is `jmp qword [rip+rel]` to win32u.
 static void resolveRealForeground() {
     HMODULE user = GetModuleHandleA("user32.dll");
@@ -1003,6 +1084,11 @@ static void writeStatus(const char* state, const char* error) {
     s += buf;
     sprintf_s(buf, ",\"teleport\":{\"mapped\":%s,\"serviced\":%ld}", teleport ? "true" : "false", teleports);
     s += buf;
+    sprintf_s(buf, ",\"free_eject\":{\"on\":%s,\"state\":\"%llx\",\"arms\":%ld,\"opens\":%ld,\"faults\":%ld,\"arm_ms\":%ld,"
+              "\"gate\":[%ld,%ld,%ld,%ld]}",
+              freeEjectOn ? "true" : "false", (unsigned long long)freeEjectState, freeEjectArms, freeEjectOpens, freeEjectFaults,
+              freeEjectArmMs, freeEjectGate[0], freeEjectGate[1], freeEjectGate[2], freeEjectGate[3]);
+    s += buf;
     sprintf_s(buf, ",\"keys\":{\"mapped\":%s,\"states\":%ld,\"events\":%ld,\"devices\":%d}", keyboard ? "true" : "false",
               keyInjectedStates, keyInjectedEvents,
               (keyboardDevices[0] != nullptr) + (keyboardDevices[1] != nullptr) + (keyboardDevices[2] != nullptr) +
@@ -1124,6 +1210,13 @@ static DWORD WINAPI worker(void*) {
         SetWindowLongPtrW(gameWindow, GWLP_WNDPROC, (LONG_PTR)originalProc);
     for (int i = 0; i < patchCount; i++)
         if (patches[i].active) patches[i].active = !writeCode(patches[i].target, patches[i].saved, sizeof patches[i].saved);
+    if (freeEjectThreadHandle) {  // free eject: stop the poller; it only ever wrote S+542
+        InterlockedExchange(&freeEjectOn, 0);
+        InterlockedExchange(&freeEjectStop, 1);
+        WaitForSingleObject(freeEjectThreadHandle, 1000);
+        CloseHandle(freeEjectThreadHandle);
+        freeEjectThreadHandle = nullptr;
+    }
     for (int i = 0; i < vtableCount; i++) {
         VtablePatch& v = vtables[i];
         DWORD old;
